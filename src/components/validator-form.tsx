@@ -1,8 +1,11 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
+import { Link } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/lib/auth";
-
-const WEBHOOK_URL = "https://umsbpo.app.n8n.cloud/webhook/ums-closer-form";
+import { draftDateWarning, fieldWarning } from "@/lib/form-warnings";
+import { calcAge, formatExpDate, formatSSN, zodiacSign } from "@/lib/form-fields";
+import { roleHome, useAuth } from "@/lib/auth";
+import { useCarriers } from "@/lib/carriers";
+import { BrandLogo } from "./brand-logo";
 
 type FieldType = "text" | "number" | "date" | "radio" | "textarea";
 
@@ -14,115 +17,159 @@ type Field = {
   span?: string;
 };
 
-const SECTIONS: { title: string; fields: Field[] }[] = [
+type Section = { title: string; fields: Field[] };
+
+/**
+ * The validator's intake form — one form for every carrier.
+ *
+ * It used to be four, one per carrier, each with its own field list. They
+ * overlapped almost entirely, drifted apart field by field, and a new carrier
+ * could not be worked at all until someone shipped a fifth layout. The carrier
+ * is now an ordinary field on one shared form: adding a carrier in Settings is
+ * all it takes for a validator to write for them.
+ *
+ * Every label below is the jsonb payload key AND the Google Sheet column
+ * header, matched by literal string, so each one is spelled here and nowhere
+ * else. They deliberately keep the wording the old forms used — "Residential
+ * Address", "Customer Zip Code", "Exp Date" — so the existing Sheet columns
+ * keep filling and the shared warning rules, which are keyed by these exact
+ * labels, keep firing.
+ *
+ * Both payment methods are collected together and both are required. That is
+ * intentional: these carriers take a bank draft AND card details on the same
+ * application, so there is no payment-type choice to make and no conditional
+ * half of the panel.
+ */
+const SECTIONS: Section[] = [
   {
     title: "Customer",
     fields: [
-      { label: "Closer ID", type: "text", required: true },
       { label: "Full Name", type: "text", required: true },
-      { label: "Customer Phone", type: "number" },
-      { label: "Customer D.O.B", type: "date", required: true },
-      { label: "Customer Age", type: "number" },
-      { label: "Address", type: "textarea", required: true, span: "sm:col-span-2" },
-      { label: "City", type: "text", required: true },
-      { label: "State", type: "text" },
-      { label: "Customer Zip Code", type: "number", required: true },
-      { label: "Born in which State?", type: "text", required: true },
+      { label: "Phone Number", type: "number", required: true },
+      { label: "Date of Birth", type: "date", required: true },
+      { label: "Age", type: "number" },
+      { label: "Gender", type: "radio", required: true, options: ["Male", "Female"] },
+      {
+        label: "Smoker or Non Smoker",
+        type: "radio",
+        required: true,
+        options: ["Smoker", "Non Smoker"],
+      },
+      { label: "Height", type: "text" },
+      { label: "Weight", type: "text" },
+      { label: "Residential Address", type: "textarea", required: true, span: "sm:col-span-2" },
+      { label: "Birth State", type: "text" },
+      { label: "Email Address", type: "text" },
+      { label: "SSN Number", type: "text", required: true },
+      { label: "Driving License or State ID", type: "text" },
+      { label: "Doc Name", type: "text" },
+      { label: "Doc Phone", type: "number" },
+      { label: "Doc Address", type: "textarea", span: "sm:col-span-2" },
+      { label: "Beneficiary Name", type: "text", required: true },
+      { label: "Beneficiary Relationship", type: "text", required: true },
+      // { label: "State", type: "text", required: true },
+      // { label: "Customer Zip Code", type: "number", required: true },
     ],
   },
   {
+    // The policy itself first, then the two parties named on it — the doctor
+    // and the beneficiary. Neither is long enough to be worth a panel of its
+    // own, and both belong to the policy rather than to the customer's details.
     title: "Policy",
     fields: [
-      { label: "Insurance Carrier", type: "text" },
-      { label: "Coverage Amount", type: "number" },
-      { label: "Ins. Premium", type: "text" },
-      {
-        label: "Ins. Plan Type",
-        type: "radio",
-        options: ["Level", "Graded / Mod", "G.I"],
-        // span: "sm:col-span-2",
-      },
-      {
-        label: "Tobacco Usage",
-        type: "radio",
-        required: true,
-        options: ["YES", "NO", "Willing to Quit"],
-        span: "sm:col-span-2",
-      },
-      {
-        label: "Doctor / Physician - Name(s) + Info",
-        type: "textarea",
-        span: "sm:col-span-2",
-      },
-      {
-        label: "Beneificiary Name(s) + Info",
-        type: "textarea",
-        required: true,
-        span: "sm:col-span-2",
-      },
+      { label: "Plan Type", type: "radio", span: "sm:col-span-2" , options: ["Level", "Graded","MOD", "G.I"] },
+      { label: "Coverage Amount", type: "number", required: true },
+      { label: "Premium", type: "text", required: true },
+      { label: "Agent Name", type: "text", required: true },
+      { label: "Policy Number", type: "text", required: true },
+      { label: "Draft Date", type: "date", required: true },
+      { label: "Future Draft Date", type: "date", required: true },
+     
     ],
   },
   {
     title: "Banking",
     fields: [
-      { label: "S.S.N", type: "number", required: true },
-      { label: "Draft Date", type: "date", required: true },
-      { label: "Bank Name", type: "text", required: true },
-      { label: "Routing Number", type: "number", required: true },
-      { label: "Account Number", type: "text", required: true , span: "sm:col-span-2"},
-      {
-        label: "Account Type",
-        type: "radio",
-        required: true,
-        options: ["Checking", "Saving"],
-        span: "sm:col-span-2"
-      },
-      { label: "Note & Comment", type: "textarea", span: "sm:col-span-2" },
+      { label: "Bank Name", type: "text"  },
+      { label: "Bank Type", type: "radio" , options: ["Checking", "Saving"] },
+      { label: "Account Title", type: "text" },
+      { label: "Routing Number", type: "number" },
+      { label: "Account Number", type: "text" },
+      { label: "Card Number", type: "number" },
+      { label: "Exp Date", type: "text" },
+      { label: "CVC", type: "number" },
     ],
   },
 ];
 
-const ALL_FIELDS = SECTIONS.flatMap((s) => s.fields);
+/**
+ * The carrier's payload key. The Apps Script routes a submission to its Google
+ * Sheet tab off this exact key, so it is spelled once and never paraphrased.
+ */
+const AGENCY = "Agency";
+
+const DOB = "Date of Birth";
+const AGE = "Age";
+const SSN = "SSN Number";
+const EXPIRY = "Exp Date";
+const DRAFT_DATES = ["Draft Date", "Future Draft Date"];
+
+const ALL_FIELDS = SECTIONS.flatMap((section) => section.fields);
 
 function emptyForm(): Record<string, string> {
-  return Object.fromEntries(ALL_FIELDS.map((f) => [f.label, ""]));
+  return Object.fromEntries(ALL_FIELDS.map((field) => [field.label, ""]));
 }
 
-export function CloserForm() {
-  const { signOut } = useAuth();
+export function ValidatorForm() {
+  const { profile, signOut } = useAuth();
+  // The one source of carrier names, active only and in the admin's order.
+  const carriers = useCarriers(true);
+  const [agency, setAgency] = useState("");
   const [values, setValues] = useState<Record<string, string>>(emptyForm);
   const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [message, setMessage] = useState("");
 
+  // Age is derived from the date of birth but stays an ordinary field, so a
+  // validator can correct it when the customer disputes the arithmetic.
   const set = (label: string, value: string) =>
     setValues((prev) => {
-      if (label === "S.S.N") return { ...prev, [label]: formatSSN(value) };
-      if (label === "Customer D.O.B") {
+      if (label === SSN) return { ...prev, [label]: formatSSN(value) };
+      if (label === EXPIRY) return { ...prev, [label]: formatExpDate(value) };
+      if (label === DOB) {
         const age = calcAge(value);
-        return {
-          ...prev,
-          [label]: value,
-          "Customer Age": age === null ? "" : String(age),
-        };
+        return { ...prev, [label]: value, [AGE]: age === null ? "" : String(age) };
       }
       return { ...prev, [label]: value };
     });
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    // Chip groups are buttons, so the browser never validates them for us.
+    if (!agency) {
+      setStatus("error");
+      setMessage("Choose the carrier you are writing for.");
+      return;
+    }
+    const missing = ALL_FIELDS.find((field) => field.required && !values[field.label]?.trim());
+    if (missing) {
+      setStatus("error");
+      setMessage(`${missing.label} is required.`);
+      return;
+    }
+
     setStatus("sending");
     setMessage("");
     try {
-      const response = await fetch(WEBHOOK_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(values),
-      });
-      if (!response.ok) throw new Error(`Request failed (${response.status})`);
-      const { error } = await supabase.rpc("submit_form", { p_payload: values });
+      // Agency first so it leads the payload; the rest keep form order, which
+      // is the order the Sheet columns are in.
+      const payload = { [AGENCY]: agency, ...values };
+      const { error } = await supabase.rpc("submit_form", { p_payload: payload });
       if (error) throw new Error(error.message);
       setStatus("sent");
-      setMessage("Submission saved to the sheet.");
+      setMessage("Submission saved.");
+      // The carrier is kept: a validator writing a run of applications for one
+      // carrier should not have to re-pick it every time.
       setValues(emptyForm());
       window.setTimeout(() => setStatus("idle"), 4000);
     } catch (error) {
@@ -130,7 +177,6 @@ export function CloserForm() {
       setMessage(error instanceof Error ? error.message : "Could not submit.");
     }
   }
-
 
   return (
     <main className="min-h-screen bg-background text-foreground lg:h-screen lg:overflow-hidden">
@@ -140,12 +186,10 @@ export function CloserForm() {
       >
         <header className="flex flex-wrap items-end justify-between gap-3 border-b border-border pb-3">
           <div>
-            <p className="text-[0.65rem] font-semibold uppercase tracking-[0.35em] text-accent">
-              UMS BPO
-            </p>
-            <h1 className="font-display text-2xl font-semibold tracking-tight lg:text-3xl">
-              Closer&apos;s Form
-            </h1>
+            {/* <h1 className="font-display text-2xl font-semibold tracking-tight lg:text-3xl">
+              Validator&apos;s Form
+            </h1> */}
+            <BrandLogo className="h-10 w-auto max-w-none shrink-0" />
           </div>
           <div className="flex items-center gap-3">
             {message ? (
@@ -158,31 +202,62 @@ export function CloserForm() {
               >
                 {message}
               </span>
-            ) : (
-              <span className="text-xs text-muted-foreground">
-                All fields sync directly to Google Sheets
-              </span>
-            )}
+            ) : null}
             <button type="submit" className="btn-submit" disabled={status === "sending"}>
               {status === "sending" ? "Submitting…" : "Submit entry"}
             </button>
-            <button
-              type="button"
-              onClick={signOut}
-              className="chip"
-            >
+            {profile && profile.role !== "closer" ? (
+              <Link to={roleHome[profile.role]} className="chip inline-block">
+                Back to queue
+              </Link>
+            ) : null}
+            <button type="button" onClick={signOut} className="chip">
               Sign out
             </button>
           </div>
         </header>
 
-
-        <div className="grid flex-1 gap-3 lg:min-h-0 lg:grid-cols-12 lg:gap-4">
-          {SECTIONS.map((section, index) => (
-            <section
-              key={section.title}
-              className={`panel ${index === 1 ? "lg:col-span-5" : index === 0 ? "lg:col-span-4" : "lg:col-span-3"}`}
+        {/* A field like any other now, not a step that swaps the form. */}
+        <div className="flex flex-wrap items-center gap-2 border-b border-border pb-3">
+          <span className="field-label">
+            Carrier<span className="text-accent"> *</span>
+          </span>
+          {(carriers.data ?? []).map((carrier) => (
+            <button
+              key={carrier.id}
+              type="button"
+              /* The NAME, not the id: this string becomes the Sheet tab. */
+              onClick={() => setAgency(carrier.name)}
+              aria-pressed={agency === carrier.name}
+              className={agency === carrier.name ? "chip chip-active" : "chip"}
             >
+              {carrier.name}
+            </button>
+          ))}
+          {carriers.isError ? (
+            <span className="text-xs font-medium text-destructive">
+              {(carriers.error as Error).message}
+            </span>
+          ) : carriers.isLoading ? (
+            <span className="text-xs text-muted-foreground">Loading carriers…</span>
+          ) : (carriers.data ?? []).length === 0 ? (
+            <span className="text-xs text-muted-foreground">
+              No carriers set up — ask an admin to add them in Settings.
+            </span>
+          ) : null}
+        </div>
+
+        {/* Three columns on a wide screen, the same shape as the closer form.
+            `.panel` already scrolls itself with the scrollbar hidden, so a
+            column with more fields than fit — Customer, at fifteen — scrolls
+            inside its own card rather than growing the page and being clipped
+            by the one-screen main. `lg:min-h-0` is what lets a grid item
+            shrink below its content; without it the panel refuses to and the
+            overflow has nowhere to go. Below lg the columns stack and the page
+            scrolls normally. */}
+        <div className="grid flex-1 gap-3 lg:min-h-0 lg:grid-cols-12 lg:gap-4">
+          {SECTIONS.map((section) => (
+            <section key={section.title} className="panel lg:col-span-4 lg:min-h-0">
               <h2 className="panel-title">{section.title}</h2>
               <div className="grid grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-2">
                 {section.fields.map((field) => (
@@ -190,6 +265,7 @@ export function CloserForm() {
                     key={field.label}
                     field={field}
                     value={values[field.label] ?? ""}
+                    values={values}
                     onChange={(v) => set(field.label, v)}
                   />
                 ))}
@@ -202,163 +278,37 @@ export function CloserForm() {
   );
 }
 
-const ZODIAC: { name: string; symbol: string; until: [number, number] }[] = [
-  { name: "Capricorn", symbol: "♑", until: [1, 19] },
-  { name: "Aquarius", symbol: "♒", until: [2, 18] },
-  { name: "Pisces", symbol: "♓", until: [3, 20] },
-  { name: "Aries", symbol: "♈", until: [4, 19] },
-  { name: "Taurus", symbol: "♉", until: [5, 20] },
-  { name: "Gemini", symbol: "♊", until: [6, 20] },
-  { name: "Cancer", symbol: "♋", until: [7, 22] },
-  { name: "Leo", symbol: "♌", until: [8, 22] },
-  { name: "Virgo", symbol: "♍", until: [9, 22] },
-  { name: "Libra", symbol: "♎", until: [10, 22] },
-  { name: "Scorpio", symbol: "♏", until: [11, 21] },
-  { name: "Sagittarius", symbol: "♐", until: [12, 21] },
-  { name: "Capricorn", symbol: "♑", until: [12, 31] },
-];
-
-function formatSSN(value: string) {
-  const d = value.replace(/\D/g, "").slice(0, 9);
-  if (d.length <= 3) return d;
-  if (d.length <= 5) return `${d.slice(0, 3)}-${d.slice(3)}`;
-  return `${d.slice(0, 3)}-${d.slice(3, 5)}-${d.slice(5)}`;
-}
-
-function calcAge(value: string) {
-  const d = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(d.getTime())) return null;
-  const now = new Date();
-  let age = now.getFullYear() - d.getFullYear();
-  const m = now.getMonth() - d.getMonth();
-  if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age -= 1;
-  return age >= 0 && age < 130 ? age : null;
-}
-
-function daysToBirthday(value: string) {
-  const d = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(d.getTime())) return null;
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  let next = new Date(today.getFullYear(), d.getMonth(), d.getDate());
-  if (next < today) next = new Date(today.getFullYear() + 1, d.getMonth(), d.getDate());
-  return Math.round((next.getTime() - today.getTime()) / 86400000);
-}
-
-function zodiacSign(value: string) {
-  const d = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(d.getTime())) return null;
-  const m = d.getMonth() + 1;
-  const day = d.getDate();
-  return (
-    ZODIAC.find(({ until }) => m < until[0] || (m === until[0] && day <= until[1])) ?? null
-  );
-}
-
-type ZipInfo = { place: string; state: string; temp: number; time: string };
-
-function useZipInfo(zip: string, enabled: boolean) {
-  const [info, setInfo] = useState<ZipInfo | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (!enabled || !/^\d{5}$/.test(zip)) {
-      setInfo(null);
-      return;
-    }
-    let cancelled = false;
-    setLoading(true);
-    (async () => {
-      try {
-        const geoRes = await fetch(`https://api.zippopotam.us/us/${zip}`);
-        if (!geoRes.ok) throw new Error("zip");
-        const geo = await geoRes.json();
-        const p = geo.places?.[0];
-        if (!p) throw new Error("place");
-        const lat = p.latitude;
-        const lon = p.longitude;
-        const wRes = await fetch(
-          `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m&timezone=auto`,
-        );
-        if (!wRes.ok) throw new Error("weather");
-        const w = await wRes.json();
-        const local = new Date(w.current.time);
-        const time = local.toLocaleTimeString("en-US", {
-          hour: "numeric",
-          minute: "2-digit",
-        });
-        if (!cancelled)
-          setInfo({
-            place: p["place name"],
-            state: p["state"],
-            temp: Math.round(w.current.temperature_2m),
-            time,
-          });
-      } catch {
-        if (!cancelled) setInfo(null);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [zip, enabled]);
-
-  return { info, loading };
-}
+const ISO_DATE_TYPES: ReadonlySet<FieldType> = new Set<FieldType>(["date"]);
 
 function FieldControl({
   field,
   value,
+  values,
   onChange,
 }: {
   field: Field;
   value: string;
+  /** The whole form — the zip/state cross-check needs a second field. */
+  values: Record<string, string>;
   onChange: (value: string) => void;
 }) {
   const id = field.label.replace(/[^a-zA-Z0-9]+/g, "-").toLowerCase();
-  const isZip = field.label === "Customer Zip Code";
-  const { info: zipInfo, loading: zipLoading } = useZipInfo(value, isZip);
 
-  type Hint = { tone: "info" | "warn" | "danger"; text: string };
-  const hints = (() => {
-    const out: Hint[] = [];
-    if (isZip) {
-      if (zipLoading) out.push({ tone: "info", text: "Looking up location…" });
-      else if (zipInfo)
-        out.push({
-          tone: "info",
-          text: `${zipInfo.temp}°C in ${zipInfo.place}, ${zipInfo.state} — ${zipInfo.time} local time`,
-        });
-      return out;
-    }
-    if (!value) return out;
+  // Checked on blur, not per keystroke: a half-typed routing number is not a
+  // mistake, and saying so while it is still being typed is pure noise.
+  const [touched, setTouched] = useState(false);
 
-    if (field.label === "Customer D.O.B") {
-      const sign = zodiacSign(value);
-      if (sign) out.push({ tone: "info", text: `${sign.symbol} ${sign.name}` });
-      const days = daysToBirthday(value);
-      if (days !== null && days <= 30) {
-        out.push({
-          tone: "warn",
-          text:
-            days === 0
-              ? "🎂 Birthday is today"
-              : days === 1
-                ? "🎂 Birthday tomorrow"
-                : `🎂 Birthday in ${days} days`,
-        });
-      }
-    }
-    if (field.label === "Draft Date") {
-      const d = new Date(`${value}T00:00:00`);
-      if (Number.isNaN(d.getTime())) return out;
-      if (d.getDay() === 6) out.push({ tone: "warn", text: "⚠ It's Saturday" });
-      if (d.getDay() === 0) out.push({ tone: "danger", text: "⛔ It's Sunday" });
-    }
-    return out;
-  })();
+  // Every check here is the shared one the closer form uses — ABA checksum,
+  // Luhn, SSN shape, zip against state — reached by this field's label.
+  const sign = field.label === DOB ? zodiacSign(value) : null;
+  const hints = [
+    // Rapport prompt only — the sign is never part of the payload.
+    ...(sign ? [{ tone: "ok" as const, text: `${sign.symbol} ${sign.name}` }] : []),
+    // The weekend note lands as soon as a date is picked rather than on blur,
+    // and applies to both draft dates.
+    ...(DRAFT_DATES.includes(field.label) ? [draftDateWarning(value)] : []),
+    touched ? fieldWarning(field.label, value, values) : null,
+  ].filter((hint) => hint !== null);
 
   return (
     <div className={`flex flex-col gap-1 ${field.span ?? ""}`}>
@@ -367,13 +317,13 @@ function FieldControl({
         {field.required ? <span className="text-accent"> *</span> : null}
       </label>
 
-
       {field.type === "textarea" ? (
         <textarea
           id={id}
           rows={2}
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          onBlur={() => setTouched(true)}
           className="field-input resize-none"
         />
       ) : field.type === "radio" ? (
@@ -393,12 +343,13 @@ function FieldControl({
       ) : (
         <input
           id={id}
-          type={field.type === "number" ? "text" : field.type}
+          type={ISO_DATE_TYPES.has(field.type) ? "date" : "text"}
           inputMode={field.type === "number" ? "numeric" : undefined}
-          required={field.required}
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          onBlur={() => setTouched(true)}
           className="field-input"
+          autoComplete="off"
         />
       )}
 
@@ -410,13 +361,12 @@ function FieldControl({
               ? "text-destructive"
               : hint.tone === "warn"
                 ? "text-primary"
-                : "text-accent"
+                : "text-muted-foreground"
           }`}
         >
           {hint.text}
         </span>
       ))}
     </div>
-
   );
 }

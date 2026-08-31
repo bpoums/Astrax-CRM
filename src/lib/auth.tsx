@@ -1,10 +1,16 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { redirect, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
+import type { Database } from "@/integrations/supabase/types";
 
-export type AppRole = "admin" | "closer" | "manager" | "validator";
+/**
+ * Read from the generated enum rather than restated, so adding a role in the
+ * database and running `npm run types` makes the compiler point at every map
+ * and guard that has not accounted for it yet.
+ */
+export type AppRole = Database["public"]["Enums"]["app_role"];
 
 export type Profile = {
   id: string;
@@ -32,7 +38,43 @@ export const roleHome: Record<AppRole, string> = {
   manager: "/manager",
   validator: "/validator",
   admin: "/admin",
+  data_uploader: "/upload",
+  // Both CX roles land on the same screen for now. When the CX manager gets
+  // their own view this is the one line that has to move.
+  cxm: "/cx",
+  cxa: "/cx",
+  closing_manager: "/closing",
 };
+
+export const ROLE_LABEL: Record<AppRole, string> = {
+  closer: "closer",
+  manager: "manager",
+  validator: "validator",
+  admin: "admin",
+  data_uploader: "data uploader",
+  cxm: "CX manager",
+  cxa: "CX agent",
+  closing_manager: "closing manager",
+};
+
+/**
+ * Route guard for `beforeLoad`. RLS is still what actually protects the data;
+ * this keeps a role out of a screen that would only ever show them an empty one
+ * — and it is what confines a data uploader to /upload.
+ */
+export async function requireRole(allowed: AppRole[]) {
+  const { data, error } = await supabase.auth.getUser();
+  if (error || !data.user) throw redirect({ to: "/login" });
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", data.user.id)
+    .maybeSingle();
+
+  const role = (profile?.role as AppRole | undefined) ?? "closer";
+  if (!allowed.includes(role)) throw redirect({ to: roleHome[role], replace: true });
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);

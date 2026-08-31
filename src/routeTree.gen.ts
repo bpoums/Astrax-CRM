@@ -12,8 +12,20 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as ResetPasswordRouteImport } from './routes/reset-password'
+import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
 import { Route as AuthenticatedCloserRouteImport } from './routes/_authenticated/closer'
+import { Route as AuthenticatedClosingRouteImport } from './routes/_authenticated/closing'
+import { Route as AuthenticatedCxRouteRouteImport } from './routes/_authenticated/cx/route'
+import { Route as AuthenticatedForwardedLeadsRouteImport } from './routes/_authenticated/forwarded-leads'
 import { Route as AuthenticatedManagerRouteImport } from './routes/_authenticated/manager'
+import { Route as AuthenticatedUploadRouteImport } from './routes/_authenticated/upload'
+import { Route as AuthenticatedValidatorRouteImport } from './routes/_authenticated/validator'
+import { Route as AuthenticatedValidatorFormRouteImport } from './routes/_authenticated/validator-form'
+import { Route as AuthenticatedCxIndexRouteImport } from './routes/_authenticated/cx/index'
+import { Route as AuthenticatedCxAnalyticsRouteImport } from './routes/_authenticated/cx/analytics'
+import { Route as AuthenticatedCxChargebackRouteImport } from './routes/_authenticated/cx/chargeback'
+import { Route as AuthenticatedCxTransferRouteImport } from './routes/_authenticated/cx/transfer'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -29,55 +41,198 @@ const LoginRoute = LoginRouteImport.update({
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ResetPasswordRoute = ResetPasswordRouteImport.update({
+  id: '/reset-password',
+  path: '/reset-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedCloserRoute = AuthenticatedCloserRouteImport.update({
   id: '/closer',
   path: '/closer',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedClosingRoute = AuthenticatedClosingRouteImport.update({
+  id: '/closing',
+  path: '/closing',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedCxRouteRoute = AuthenticatedCxRouteRouteImport.update({
+  id: '/cx',
+  path: '/cx',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedForwardedLeadsRoute =
+  AuthenticatedForwardedLeadsRouteImport.update({
+    id: '/forwarded-leads',
+    path: '/forwarded-leads',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedManagerRoute = AuthenticatedManagerRouteImport.update({
   id: '/manager',
   path: '/manager',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedUploadRoute = AuthenticatedUploadRouteImport.update({
+  id: '/upload',
+  path: '/upload',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedValidatorRoute = AuthenticatedValidatorRouteImport.update({
+  id: '/validator',
+  path: '/validator',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedValidatorFormRoute =
+  AuthenticatedValidatorFormRouteImport.update({
+    id: '/validator-form',
+    path: '/validator-form',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedCxIndexRoute = AuthenticatedCxIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AuthenticatedCxRouteRoute,
+} as any)
+const AuthenticatedCxAnalyticsRoute =
+  AuthenticatedCxAnalyticsRouteImport.update({
+    id: '/analytics',
+    path: '/analytics',
+    getParentRoute: () => AuthenticatedCxRouteRoute,
+  } as any)
+const AuthenticatedCxChargebackRoute =
+  AuthenticatedCxChargebackRouteImport.update({
+    id: '/chargeback',
+    path: '/chargeback',
+    getParentRoute: () => AuthenticatedCxRouteRoute,
+  } as any)
+const AuthenticatedCxTransferRoute = AuthenticatedCxTransferRouteImport.update({
+  id: '/transfer',
+  path: '/transfer',
+  getParentRoute: () => AuthenticatedCxRouteRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/reset-password': typeof ResetPasswordRoute
+  '/cx': typeof AuthenticatedCxRouteRouteWithChildren
+  '/admin': typeof AuthenticatedAdminRoute
   '/closer': typeof AuthenticatedCloserRoute
+  '/closing': typeof AuthenticatedClosingRoute
+  '/forwarded-leads': typeof AuthenticatedForwardedLeadsRoute
   '/manager': typeof AuthenticatedManagerRoute
+  '/upload': typeof AuthenticatedUploadRoute
+  '/validator': typeof AuthenticatedValidatorRoute
+  '/validator-form': typeof AuthenticatedValidatorFormRoute
+  '/cx/analytics': typeof AuthenticatedCxAnalyticsRoute
+  '/cx/chargeback': typeof AuthenticatedCxChargebackRoute
+  '/cx/transfer': typeof AuthenticatedCxTransferRoute
+  '/cx/': typeof AuthenticatedCxIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/reset-password': typeof ResetPasswordRoute
+  '/admin': typeof AuthenticatedAdminRoute
   '/closer': typeof AuthenticatedCloserRoute
+  '/closing': typeof AuthenticatedClosingRoute
+  '/forwarded-leads': typeof AuthenticatedForwardedLeadsRoute
   '/manager': typeof AuthenticatedManagerRoute
+  '/upload': typeof AuthenticatedUploadRoute
+  '/validator': typeof AuthenticatedValidatorRoute
+  '/validator-form': typeof AuthenticatedValidatorFormRoute
+  '/cx/analytics': typeof AuthenticatedCxAnalyticsRoute
+  '/cx/chargeback': typeof AuthenticatedCxChargebackRoute
+  '/cx/transfer': typeof AuthenticatedCxTransferRoute
+  '/cx': typeof AuthenticatedCxIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/login': typeof LoginRoute
+  '/reset-password': typeof ResetPasswordRoute
+  '/_authenticated/cx': typeof AuthenticatedCxRouteRouteWithChildren
+  '/_authenticated/admin': typeof AuthenticatedAdminRoute
   '/_authenticated/closer': typeof AuthenticatedCloserRoute
+  '/_authenticated/closing': typeof AuthenticatedClosingRoute
+  '/_authenticated/forwarded-leads': typeof AuthenticatedForwardedLeadsRoute
   '/_authenticated/manager': typeof AuthenticatedManagerRoute
+  '/_authenticated/upload': typeof AuthenticatedUploadRoute
+  '/_authenticated/validator': typeof AuthenticatedValidatorRoute
+  '/_authenticated/validator-form': typeof AuthenticatedValidatorFormRoute
+  '/_authenticated/cx/analytics': typeof AuthenticatedCxAnalyticsRoute
+  '/_authenticated/cx/chargeback': typeof AuthenticatedCxChargebackRoute
+  '/_authenticated/cx/transfer': typeof AuthenticatedCxTransferRoute
+  '/_authenticated/cx/': typeof AuthenticatedCxIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/login' | '/closer' | '/manager'
+  fullPaths:
+    | '/'
+    | '/login'
+    | '/reset-password'
+    | '/cx'
+    | '/admin'
+    | '/closer'
+    | '/closing'
+    | '/forwarded-leads'
+    | '/manager'
+    | '/upload'
+    | '/validator'
+    | '/validator-form'
+    | '/cx/analytics'
+    | '/cx/chargeback'
+    | '/cx/transfer'
+    | '/cx/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/login' | '/closer' | '/manager'
+  to:
+    | '/'
+    | '/login'
+    | '/reset-password'
+    | '/admin'
+    | '/closer'
+    | '/closing'
+    | '/forwarded-leads'
+    | '/manager'
+    | '/upload'
+    | '/validator'
+    | '/validator-form'
+    | '/cx/analytics'
+    | '/cx/chargeback'
+    | '/cx/transfer'
+    | '/cx'
   id:
     | '__root__'
     | '/'
     | '/_authenticated'
     | '/login'
+    | '/reset-password'
+    | '/_authenticated/cx'
+    | '/_authenticated/admin'
     | '/_authenticated/closer'
+    | '/_authenticated/closing'
+    | '/_authenticated/forwarded-leads'
     | '/_authenticated/manager'
+    | '/_authenticated/upload'
+    | '/_authenticated/validator'
+    | '/_authenticated/validator-form'
+    | '/_authenticated/cx/analytics'
+    | '/_authenticated/cx/chargeback'
+    | '/_authenticated/cx/transfer'
+    | '/_authenticated/cx/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   LoginRoute: typeof LoginRoute
+  ResetPasswordRoute: typeof ResetPasswordRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -103,11 +258,46 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/reset-password': {
+      id: '/reset-password'
+      path: '/reset-password'
+      fullPath: '/reset-password'
+      preLoaderRoute: typeof ResetPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated/admin': {
+      id: '/_authenticated/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AuthenticatedAdminRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/closer': {
       id: '/_authenticated/closer'
       path: '/closer'
       fullPath: '/closer'
       preLoaderRoute: typeof AuthenticatedCloserRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/closing': {
+      id: '/_authenticated/closing'
+      path: '/closing'
+      fullPath: '/closing'
+      preLoaderRoute: typeof AuthenticatedClosingRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/cx': {
+      id: '/_authenticated/cx'
+      path: '/cx'
+      fullPath: '/cx'
+      preLoaderRoute: typeof AuthenticatedCxRouteRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/forwarded-leads': {
+      id: '/_authenticated/forwarded-leads'
+      path: '/forwarded-leads'
+      fullPath: '/forwarded-leads'
+      preLoaderRoute: typeof AuthenticatedForwardedLeadsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/manager': {
@@ -117,17 +307,97 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedManagerRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/upload': {
+      id: '/_authenticated/upload'
+      path: '/upload'
+      fullPath: '/upload'
+      preLoaderRoute: typeof AuthenticatedUploadRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/validator': {
+      id: '/_authenticated/validator'
+      path: '/validator'
+      fullPath: '/validator'
+      preLoaderRoute: typeof AuthenticatedValidatorRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/validator-form': {
+      id: '/_authenticated/validator-form'
+      path: '/validator-form'
+      fullPath: '/validator-form'
+      preLoaderRoute: typeof AuthenticatedValidatorFormRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/cx/': {
+      id: '/_authenticated/cx/'
+      path: '/'
+      fullPath: '/cx/'
+      preLoaderRoute: typeof AuthenticatedCxIndexRouteImport
+      parentRoute: typeof AuthenticatedCxRouteRoute
+    }
+    '/_authenticated/cx/analytics': {
+      id: '/_authenticated/cx/analytics'
+      path: '/analytics'
+      fullPath: '/cx/analytics'
+      preLoaderRoute: typeof AuthenticatedCxAnalyticsRouteImport
+      parentRoute: typeof AuthenticatedCxRouteRoute
+    }
+    '/_authenticated/cx/chargeback': {
+      id: '/_authenticated/cx/chargeback'
+      path: '/chargeback'
+      fullPath: '/cx/chargeback'
+      preLoaderRoute: typeof AuthenticatedCxChargebackRouteImport
+      parentRoute: typeof AuthenticatedCxRouteRoute
+    }
+    '/_authenticated/cx/transfer': {
+      id: '/_authenticated/cx/transfer'
+      path: '/transfer'
+      fullPath: '/cx/transfer'
+      preLoaderRoute: typeof AuthenticatedCxTransferRouteImport
+      parentRoute: typeof AuthenticatedCxRouteRoute
+    }
   }
 }
 
+interface AuthenticatedCxRouteRouteChildren {
+  AuthenticatedCxAnalyticsRoute: typeof AuthenticatedCxAnalyticsRoute
+  AuthenticatedCxChargebackRoute: typeof AuthenticatedCxChargebackRoute
+  AuthenticatedCxTransferRoute: typeof AuthenticatedCxTransferRoute
+  AuthenticatedCxIndexRoute: typeof AuthenticatedCxIndexRoute
+}
+
+const AuthenticatedCxRouteRouteChildren: AuthenticatedCxRouteRouteChildren = {
+  AuthenticatedCxAnalyticsRoute: AuthenticatedCxAnalyticsRoute,
+  AuthenticatedCxChargebackRoute: AuthenticatedCxChargebackRoute,
+  AuthenticatedCxTransferRoute: AuthenticatedCxTransferRoute,
+  AuthenticatedCxIndexRoute: AuthenticatedCxIndexRoute,
+}
+
+const AuthenticatedCxRouteRouteWithChildren =
+  AuthenticatedCxRouteRoute._addFileChildren(AuthenticatedCxRouteRouteChildren)
+
 interface AuthenticatedRouteRouteChildren {
+  AuthenticatedCxRouteRoute: typeof AuthenticatedCxRouteRouteWithChildren
+  AuthenticatedAdminRoute: typeof AuthenticatedAdminRoute
   AuthenticatedCloserRoute: typeof AuthenticatedCloserRoute
+  AuthenticatedClosingRoute: typeof AuthenticatedClosingRoute
+  AuthenticatedForwardedLeadsRoute: typeof AuthenticatedForwardedLeadsRoute
   AuthenticatedManagerRoute: typeof AuthenticatedManagerRoute
+  AuthenticatedUploadRoute: typeof AuthenticatedUploadRoute
+  AuthenticatedValidatorRoute: typeof AuthenticatedValidatorRoute
+  AuthenticatedValidatorFormRoute: typeof AuthenticatedValidatorFormRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
+  AuthenticatedCxRouteRoute: AuthenticatedCxRouteRouteWithChildren,
+  AuthenticatedAdminRoute: AuthenticatedAdminRoute,
   AuthenticatedCloserRoute: AuthenticatedCloserRoute,
+  AuthenticatedClosingRoute: AuthenticatedClosingRoute,
+  AuthenticatedForwardedLeadsRoute: AuthenticatedForwardedLeadsRoute,
   AuthenticatedManagerRoute: AuthenticatedManagerRoute,
+  AuthenticatedUploadRoute: AuthenticatedUploadRoute,
+  AuthenticatedValidatorRoute: AuthenticatedValidatorRoute,
+  AuthenticatedValidatorFormRoute: AuthenticatedValidatorFormRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =
@@ -137,6 +407,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   LoginRoute: LoginRoute,
+  ResetPasswordRoute: ResetPasswordRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

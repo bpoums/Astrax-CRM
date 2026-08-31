@@ -97,7 +97,6 @@
   --sidebar-ring: oklch(0.8 0.145 80);
 }
 
-
 .dark {
   --background: oklch(0.129 0.042 264.695);
   --foreground: oklch(0.984 0.003 247.858);
@@ -156,7 +155,6 @@
 }
 
 @layer utilities {
-
   .no-scrollbar::-webkit-scrollbar {
     display: none;
   }
@@ -196,6 +194,45 @@
   letter-spacing: 0.22em;
   text-transform: uppercase;
   color: var(--color-muted-foreground);
+}
+
+/**
+ * The band behind a table header row, so the headers read as a header rather
+ * than as the first data row. Paired with .field-label typography on the cells
+ * themselves — see TableHeader/TableHead in components/ui/table.tsx, which is
+ * where every table in the app picks this up.
+ */
+@utility table-head-band {
+  background: color-mix(in oklab, var(--color-card) 92%, black 8%);
+}
+
+/**
+ * Table header cells. Same small-caps treatment as .field-label but WITHOUT its
+ * overflow/ellipsis rules: a header must always render its full word. If a
+ * table is ever short of room the data cells truncate, never the headers, so
+ * the reader can always tell what a column is.
+ */
+@utility table-head-label {
+  font-size: 0.66rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-muted-foreground);
+  white-space: nowrap;
+}
+
+/**
+ * Free text somebody typed: a status reason, a flag's raw value, a note.
+ *
+ * `min-width: 0` is the load-bearing half. A flex or grid child defaults to
+ * min-width:auto and refuses to shrink below its own content, so one unbroken
+ * 200-character string widens its container — and every container above it —
+ * straight past the viewport, no matter what overflow-wrap says. The wrap rule
+ * on its own does nothing until the box is allowed to be narrow.
+ */
+@utility free-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 @utility field-label {
@@ -266,7 +303,9 @@
   font-weight: 600;
   letter-spacing: 0.02em;
   box-shadow: 0 8px 24px -12px color-mix(in oklab, var(--color-accent) 80%, transparent);
-  transition: transform 0.15s ease, filter 0.15s ease;
+  transition:
+    transform 0.15s ease,
+    filter 0.15s ease;
   cursor: pointer;
 
   &:hover {
