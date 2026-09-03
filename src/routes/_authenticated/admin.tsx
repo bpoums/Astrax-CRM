@@ -12,6 +12,7 @@ import { SettingsAudit } from "@/components/settings-audit";
 import { AdminSettings } from "@/components/admin-settings";
 import { CxStatusAdmin } from "@/components/cx-status-admin";
 import { CarrierAdmin } from "@/components/carrier-admin";
+import { CenterAdmin } from "@/components/center-admin";
 import { CarrierDeclineReport } from "@/components/carrier-declines";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -148,6 +149,7 @@ function AdminPage() {
 
           <TabsContent value="settings" className="flex flex-col gap-4">
             <AdminSettings />
+            <CenterAdmin />
             <CarrierAdmin />
             <CxStatusAdmin />
           </TabsContent>

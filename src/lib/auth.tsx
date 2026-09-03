@@ -16,6 +16,13 @@ export type Profile = {
   id: string;
   full_name: string | null;
   role: AppRole;
+  /**
+   * The centre this person belongs to, null where none has been set. Nothing
+   * client-side is allowed to scope a query with it — the submissions read
+   * policy already does that server-side — but a closing manager whose desk is
+   * empty because this is unset needs to be told which of the two it is.
+   */
+  center_id: string | null;
   active: boolean;
 };
 
@@ -93,7 +100,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       const { data } = await supabase
         .from("profiles")
-        .select("id, full_name, role, active")
+        .select("id, full_name, role, center_id, active")
         .eq("id", userId)
         .maybeSingle();
       if (active) setProfile((data as Profile) ?? null);

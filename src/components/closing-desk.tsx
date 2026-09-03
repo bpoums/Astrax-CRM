@@ -34,6 +34,7 @@ import {
   type CxCategory,
 } from "@/lib/cx-status";
 import { useDeclinedCarrierMap } from "@/lib/carriers";
+import { useAuth } from "@/lib/auth";
 import {
   LEAD_PAGE_SIZE,
   matchingProfileIds,
@@ -177,6 +178,17 @@ const UNFILTERED_CX = CX_CATEGORIES.map(() => ANY).join("|");
 
 export function ClosingDesk() {
   const queryClient = useQueryClient();
+  const { profile } = useAuth();
+  /**
+   * Fail-closed, and said out loud.
+   *
+   * The read policy matches a closing manager's `center_id` against each lead's,
+   * and a null one matches nothing — so an unassigned desk is empty in exactly
+   * the same way a quiet morning is. This does not filter anything; it only
+   * tells the two apart in the empty row, which is the difference between
+   * waiting and raising a ticket.
+   */
+  const noCenter = profile?.role === "closing_manager" && !profile.center_id;
   const [page, setPage] = useState(0);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<StatusFilter>(ANY);
@@ -431,9 +443,11 @@ export function ClosingDesk() {
                 <TableCell colSpan={10} className="text-center text-muted-foreground">
                   {leads.isLoading
                     ? "Loading…"
-                    : filtersActive
-                      ? "No leads match that filter."
-                      : "No closer leads yet."}
+                    : noCenter
+                      ? "No center is assigned to your account, so this desk can show nothing. Ask an admin to set one."
+                      : filtersActive
+                        ? "No leads match that filter."
+                        : "No closer leads yet."}
                 </TableCell>
               </TableRow>
             ) : null}

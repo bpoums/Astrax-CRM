@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { STATUS_LABEL, customerName, dataFlags, relativeTime, useNow } from "@/components/ops";
+import { useAuth } from "@/lib/auth";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -20,6 +21,13 @@ type ImportRow = {
   skipped_count: number;
   created_at: string;
   uploader?: { full_name: string | null } | null;
+  /**
+   * Where the file was uploaded from, captured best-effort when the batch was
+   * opened. Null on every batch that predates the column and on any upload
+   * where the address could not be read — which is why it is only ever
+   * secondary metadata, never something to reason about a batch from.
+   */
+  upload_ip?: string | null;
 };
 
 /**
@@ -61,18 +69,36 @@ function DecisionBadge({ counts }: { counts: DecisionCounts | undefined }) {
  */
 export function ImportHistory({ allUploaders = false }: { allUploaders?: boolean }) {
   const now = useNow(30_000);
+  const { profile } = useAuth();
   const [openId, setOpenId] = useState<string | null>(null);
 
+  /**
+   * The upload address is admin-only, and gated on the role rather than on
+   * `allUploaders` — a manager reaches this list too. RLS lets both of them
+   * read the row, so this decides who is shown the column.
+   */
+  const showIp = profile?.role === "admin";
+
   const imports = useQuery({
-    queryKey: ["lead-imports", allUploaders],
+    // `showIp` is part of the key: the two variants fetch different columns,
+    // and a cached row without upload_ip must not be served to an admin.
+    queryKey: ["lead-imports", allUploaders, showIp],
     queryFn: async () => {
+      const columns = [
+        "id",
+        "file_name",
+        "row_count",
+        "imported_count",
+        "skipped_count",
+        "created_at",
+      ];
+      if (allUploaders) {
+        columns.push("uploader:profiles!lead_imports_uploaded_by_fkey(full_name)");
+      }
+      if (showIp) columns.push("upload_ip");
       const { data, error } = await supabase
         .from("lead_imports")
-        .select(
-          allUploaders
-            ? "id, file_name, row_count, imported_count, skipped_count, created_at, uploader:profiles!lead_imports_uploaded_by_fkey(full_name)"
-            : "id, file_name, row_count, imported_count, skipped_count, created_at",
-        )
+        .select(columns.join(", "))
         .order("created_at", { ascending: false })
         .limit(100);
       if (error) throw error;
@@ -134,6 +160,7 @@ export function ImportHistory({ allUploaders = false }: { allUploaders?: boolean
           <TableRow>
             <TableHead>File</TableHead>
             {allUploaders ? <TableHead>Uploader</TableHead> : null}
+            {showIp ? <TableHead>Upload IP</TableHead> : null}
             <TableHead className="text-right">Rows</TableHead>
             <TableHead className="text-right">Imported</TableHead>
             <TableHead className="text-right">Skipped</TableHead>
@@ -152,6 +179,11 @@ export function ImportHistory({ allUploaders = false }: { allUploaders?: boolean
               {allUploaders ? (
                 <TableCell className="text-muted-foreground">
                   {row.uploader?.full_name ?? "—"}
+                </TableCell>
+              ) : null}
+              {showIp ? (
+                <TableCell className="tabular-nums text-muted-foreground">
+                  {row.upload_ip ?? "—"}
                 </TableCell>
               ) : null}
               <TableCell className="text-right tabular-nums">{row.row_count}</TableCell>
@@ -174,7 +206,7 @@ export function ImportHistory({ allUploaders = false }: { allUploaders?: boolean
           {rows.length === 0 ? (
             <TableRow>
               <TableCell
-                colSpan={allUploaders ? 7 : 6}
+                colSpan={(allUploaders ? 7 : 6) + (showIp ? 1 : 0)}
                 className="text-center text-muted-foreground"
               >
                 {imports.isLoading ? "Loading…" : "No imports yet."}

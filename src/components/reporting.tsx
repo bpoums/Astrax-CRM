@@ -54,6 +54,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { CxCoverageCard } from "./cx-status-breakdown";
 
 /**
  * Reporting, in two halves that can be mounted separately.
@@ -88,7 +89,7 @@ type LeadTab = "closer" | "validator" | "offline";
 const LEAD_TABS: { id: LeadTab; label: string }[] = [
   { id: "closer", label: "Closer Submissions" },
   { id: "validator", label: "Validator Submissions" },
-  { id: "offline", label: "Offline Submissions" },
+  { id: "offline", label: "Manual Submissions" },
 ];
 
 type TimelineEvent = {
@@ -103,6 +104,7 @@ type TimelineEvent = {
 const SUBMISSIONS_KEY = ["reporting", "submissions"];
 const TOTALS_KEY = ["reporting", "totals"];
 const VALIDATOR_STATS_KEY = ["reporting", "validator-stats"];
+const CENTER_TOTALS_KEY = ["reporting", "center-totals"];
 const ON_HOLD_KEY = ["reporting", "on-hold"];
 
 /**
@@ -226,6 +228,34 @@ export function ReportingStats({
     },
   });
 
+  /**
+   * The same volume, split by centre.
+   *
+   * One row per ACTIVE centre, including the ones with nothing on them yet —
+   * the view left-joins from `centers`, so a centre that has taken no leads
+   * reports zeroes rather than dropping out of the table. Nothing here names a
+   * centre; adding one in Settings is all it takes to appear.
+   *
+   * `sort_order` is restated as an explicit order rather than trusted from the
+   * view: PostgREST makes no promise about the order rows come back in without
+   * one, and this table is meant to read in the same sequence as the Center
+   * picker.
+   */
+  const centerTotals = useQuery({
+    queryKey: CENTER_TOTALS_KEY,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("submission_totals_by_center")
+        .select(
+          "center_id, center_name, total_submissions, approved, declined, pending, awaiting_manager",
+        )
+        .order("sort_order", { ascending: true })
+        .order("center_name", { ascending: true });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
   const totals = useQuery({
     queryKey: TOTALS_KEY,
     queryFn: async () => {
@@ -273,6 +303,7 @@ export function ReportingStats({
       .on("postgres_changes", { event: "*", schema: "public", table: "submissions" }, () => {
         queryClient.invalidateQueries({ queryKey: TOTALS_KEY });
         queryClient.invalidateQueries({ queryKey: VALIDATOR_STATS_KEY });
+        queryClient.invalidateQueries({ queryKey: CENTER_TOTALS_KEY });
         queryClient.invalidateQueries({ queryKey: ON_HOLD_KEY });
       })
       .subscribe();
@@ -282,6 +313,7 @@ export function ReportingStats({
   }, [queryClient]);
 
   const perValidator = useMemo(() => validatorStats.data ?? [], [validatorStats.data]);
+  const perCenter = useMemo(() => centerTotals.data ?? [], [centerTotals.data]);
   const totalsRow = totals.data ?? null;
 
   return (
@@ -293,7 +325,7 @@ export function ReportingStats({
             same rule the Offline Submissions tab uses — so a batch contributes
             nothing here until it is approved, and there is no client-side
             condition to keep in step with it. */}
-        <StatCard label="Offline Submissions" value={totalsRow?.offline_submissions} />
+        <StatCard label="Manual Submissions" value={totalsRow?.offline_submissions} />
         <StatCard label="Submitted" value={totalsRow?.approved} />
         <StatCard label="Declined" value={totalsRow?.declined} tone="destructive" />
         <StatCard label="On Hold" value={onHold.data} tone="accent" />
@@ -311,6 +343,66 @@ export function ReportingStats({
       {showValidatorSubmissions ? (
         <section className="grid gap-3 sm:grid-cols-3 xl:grid-cols-5">
           <StatCard label="Validator Submissions" value={totalsRow?.validator_submissions} />
+        </section>
+      ) : null}
+
+      {/* Same panel-and-table shape as the validator dashboard below rather
+          than a third pattern: a name, then right-aligned tabular columns.
+          Gated on the same flag the neighbouring cards are — this is the admin
+          Overview's picture, and the manager's Reporting tab shows the queue
+          it works rather than a breakdown of the whole business. */}
+      {showValidatorSubmissions ? (
+        <section className="panel">
+          <h2 className="panel-title">Leads by Center ({perCenter.length})</h2>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Center</TableHead>
+                <TableHead className="text-right">Submissions</TableHead>
+                {/* <TableHead className="text-right">Submitted</TableHead>
+                <TableHead className="text-right">Declined</TableHead>
+                <TableHead className="text-right">Pending</TableHead> */}
+                {/* The queue's own word for pending_manager, read from the one
+                    place it is spelled. */}
+                {/* <TableHead className="text-right">{STATUS_LABEL.pending_manager}</TableHead> */}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {perCenter.map((center) => (
+                <TableRow key={center.center_id ?? center.center_name}>
+                  <TableCell className="font-medium">{center.center_name ?? "—"}</TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {center.total_submissions ?? 0}
+                  </TableCell>
+                  {/* <TableCell className="text-right tabular-nums">{center.approved ?? 0}</TableCell>
+                  <TableCell
+                    className={`text-right tabular-nums ${
+                      (center.declined ?? 0) > 0 ? "text-destructive" : "text-muted-foreground"
+                    }`}
+                  >
+                    {center.declined ?? 0}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground">
+                    {center.pending ?? 0}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground">
+                    {center.awaiting_manager ?? 0}
+                  </TableCell> */}
+                </TableRow>
+              ))}
+              {perCenter.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center text-muted-foreground">
+                    {centerTotals.isLoading
+                      ? "Loading…"
+                      : centerTotals.isError
+                        ? (centerTotals.error as Error).message
+                        : "No active centers."}
+                  </TableCell>
+                </TableRow>
+              ) : null}
+            </TableBody>
+          </Table>
         </section>
       ) : null}
 
@@ -655,7 +747,10 @@ export function SubmissionsExplorer() {
                   <TableCell>
                     <OriginBadge row={row} />
                   </TableCell>
-                  <TableCell className="font-medium">{row.uploader?.org_name ?? "—"}</TableCell>
+                  {/* The stamped name, not a join: a lead keeps the centre it
+                      was taken in even after that centre is renamed or the
+                      closer is moved to another one. */}
+                  <TableCell className="text-muted-foreground">{row.center_name ?? "—"}</TableCell>
                   <TableCell className="font-medium">{customerName(row.payload)}</TableCell>
                   <TableCell className="text-muted-foreground">{closerName(row)}</TableCell>
                   <TableCell className="text-muted-foreground">
@@ -681,7 +776,7 @@ export function SubmissionsExplorer() {
               {filteredCloser.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={showArchived ? 8 : 7}
+                    colSpan={showArchived ? 9 : 8}
                     className="text-center text-muted-foreground"
                   >
                     {closerQuery.isLoading ? "Loading…" : "No submissions match that search."}

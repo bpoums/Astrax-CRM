@@ -64,6 +64,14 @@ export type SubmissionRow = {
    * cope with that — use `closerName()` rather than reaching for full_name.
    */
   closer_id: string | null;
+  /**
+   * The centre the lead was taken in, stamped at submission. `center_name` is
+   * the name as it stood then — read it rather than joining `centers` through
+   * `center_id`, so a renamed or reassigned centre cannot rewrite what the
+   * history says. Both are null on leads that predate the column.
+   */
+  center_id: string | null;
+  center_name: string | null;
   source: LeadSource;
   source_ref: string | null;
   uploaded_by: string | null;

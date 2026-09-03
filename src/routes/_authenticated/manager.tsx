@@ -548,6 +548,7 @@ function ManagerPage() {
                             }
                           />
                         </TableHead>
+                        <TableHead>Center</TableHead>
                         <TableHead>Customer</TableHead>
                         <TableHead>Closer</TableHead>
                         <TableHead>Submitted</TableHead>
@@ -571,6 +572,12 @@ function ManagerPage() {
                               />
                             ) : null}
                           </TableCell>
+                          {/* The stamped name, not a join: a lead keeps the
+                              centre it was taken in even after that centre is
+                              renamed or the closer is moved to another one. */}
+                          <TableCell className="text-muted-foreground">
+                            {row.center_name ?? "—"}
+                          </TableCell>
                           <TableCell className="font-medium">{customerName(row.payload)}</TableCell>
                           <TableCell className="text-muted-foreground">{closerName(row)}</TableCell>
                           <TableCell className="text-muted-foreground">
@@ -589,7 +596,7 @@ function ManagerPage() {
                       ))}
                       {rows.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={5} className="text-center text-muted-foreground">
+                          <TableCell colSpan={6} className="text-center text-muted-foreground">
                             {submissions.isLoading ? "Loading…" : "Nothing in the queue."}
                           </TableCell>
                         </TableRow>

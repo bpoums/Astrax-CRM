@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { customerName, dataFlags, relativeTime, useNow } from "@/components/ops";
+import { useAuth } from "@/lib/auth";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table,
@@ -54,6 +55,9 @@ type PendingLead = {
 export function PendingImports() {
   const queryClient = useQueryClient();
   const now = useNow(30_000);
+  const { profile } = useAuth();
+  // This screen is the manager's; the upload address is the admin's.
+  const showIp = profile?.role === "admin";
   const [openId, setOpenId] = useState<string | null>(null);
   /** Leads ticked for rejection inside the open batch. */
   const [excluded, setExcluded] = useState<string[]>([]);
@@ -73,6 +77,36 @@ export function PendingImports() {
         .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as BatchRow[];
+    },
+  });
+
+  // Derived straight from the batches rather than from `rows` below, which is
+  // computed after the queries — same ids either way, since `rows` only drops
+  // the null import_id the view's type allows and never reorders.
+  const batchIds = useMemo(
+    () => (batches.data ?? []).flatMap((batch) => (batch.import_id ? [batch.import_id] : [])),
+    [batches.data],
+  );
+
+  /**
+   * The upload addresses for the batches on screen.
+   *
+   * A second small query rather than a column on `pending_import_batches`:
+   * the view does not carry `upload_ip`, and this is a display detail for one
+   * role — not a reason to change a view four screens read. One request covers
+   * every row, the same way the import history resolves its decisions, and it
+   * does not run at all for anyone but an admin.
+   */
+  const uploadIps = useQuery({
+    queryKey: [...PENDING_IMPORTS_KEY, "upload-ips", batchIds],
+    enabled: showIp && batchIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("lead_imports")
+        .select("id, upload_ip")
+        .in("id", batchIds);
+      if (error) throw error;
+      return new Map((data ?? []).map((row) => [row.id, row.upload_ip]));
     },
   });
 
@@ -205,6 +239,7 @@ export function PendingImports() {
           <TableRow>
             <TableHead>File</TableHead>
             <TableHead>Uploader</TableHead>
+            {showIp ? <TableHead>Upload IP</TableHead> : null}
             <TableHead className="text-right">Leads</TableHead>
             <TableHead className="text-right">Flagged</TableHead>
             <TableHead>Uploaded</TableHead>
@@ -222,6 +257,13 @@ export function PendingImports() {
             >
               <TableCell className="font-medium">{row.file_name ?? "—"}</TableCell>
               <TableCell className="text-muted-foreground">{row.uploader_name ?? "—"}</TableCell>
+              {showIp ? (
+                <TableCell className="tabular-nums text-muted-foreground">
+                  {/* Captured best-effort, and blank on anything uploaded
+                      before it was — a dash, never an empty cell. */}
+                  {uploadIps.data?.get(row.importId) ?? "—"}
+                </TableCell>
+              ) : null}
               <TableCell className="text-right tabular-nums">{row.lead_count ?? 0}</TableCell>
               <TableCell
                 className={`text-right tabular-nums ${
@@ -237,7 +279,7 @@ export function PendingImports() {
           ))}
           {rows.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={5} className="text-center text-muted-foreground">
+              <TableCell colSpan={showIp ? 6 : 5} className="text-center text-muted-foreground">
                 {loading ? "Loading…" : "No imports waiting."}
               </TableCell>
             </TableRow>

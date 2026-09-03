@@ -229,6 +229,30 @@ export type Database = {
         }
         Relationships: []
       }
+      centers: {
+        Row: {
+          active: boolean
+          created_at: string
+          id: string
+          name: string
+          sort_order: number
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          name: string
+          sort_order?: number
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          name?: string
+          sort_order?: number
+        }
+        Relationships: []
+      }
       cx_lead_status: {
         Row: {
           chargeback_reason: string | null
@@ -556,6 +580,7 @@ export type Database = {
           imported_count: number
           row_count: number
           skipped_count: number
+          upload_ip: string | null
           uploaded_by: string
         }
         Insert: {
@@ -565,6 +590,7 @@ export type Database = {
           imported_count?: number
           row_count?: number
           skipped_count?: number
+          upload_ip?: string | null
           uploaded_by: string
         }
         Update: {
@@ -574,6 +600,7 @@ export type Database = {
           imported_count?: number
           row_count?: number
           skipped_count?: number
+          upload_ip?: string | null
           uploaded_by?: string
         }
         Relationships: [
@@ -746,6 +773,7 @@ export type Database = {
       profiles: {
         Row: {
           active: boolean
+          center_id: string | null
           created_at: string
           full_name: string | null
           id: string
@@ -755,6 +783,7 @@ export type Database = {
         }
         Insert: {
           active?: boolean
+          center_id?: string | null
           created_at?: string
           full_name?: string | null
           id: string
@@ -764,6 +793,7 @@ export type Database = {
         }
         Update: {
           active?: boolean
+          center_id?: string | null
           created_at?: string
           full_name?: string | null
           id?: string
@@ -771,7 +801,22 @@ export type Database = {
           role?: Database["public"]["Enums"]["app_role"]
           staff_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "profiles_center_id_fkey"
+            columns: ["center_id"]
+            isOneToOne: false
+            referencedRelation: "centers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profiles_center_id_fkey"
+            columns: ["center_id"]
+            isOneToOne: false
+            referencedRelation: "submission_totals_by_center"
+            referencedColumns: ["center_id"]
+          },
+        ]
       }
       settings_audit: {
         Row: {
@@ -892,6 +937,8 @@ export type Database = {
           archived_by: string | null
           assigned_at: string | null
           assigned_to: string | null
+          center_id: string | null
+          center_name: string | null
           claimed_at: string | null
           closer_id: string | null
           created_at: string
@@ -921,6 +968,8 @@ export type Database = {
           archived_by?: string | null
           assigned_at?: string | null
           assigned_to?: string | null
+          center_id?: string | null
+          center_name?: string | null
           claimed_at?: string | null
           closer_id?: string | null
           created_at?: string
@@ -950,6 +999,8 @@ export type Database = {
           archived_by?: string | null
           assigned_at?: string | null
           assigned_to?: string | null
+          center_id?: string | null
+          center_name?: string | null
           claimed_at?: string | null
           closer_id?: string | null
           created_at?: string
@@ -1002,6 +1053,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "validator_stats"
             referencedColumns: ["validator_id"]
+          },
+          {
+            foreignKeyName: "submissions_center_id_fkey"
+            columns: ["center_id"]
+            isOneToOne: false
+            referencedRelation: "centers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "submissions_center_id_fkey"
+            columns: ["center_id"]
+            isOneToOne: false
+            referencedRelation: "submission_totals_by_center"
+            referencedColumns: ["center_id"]
           },
           {
             foreignKeyName: "submissions_closer_id_fkey"
@@ -1256,6 +1321,19 @@ export type Database = {
         }
         Relationships: []
       }
+      submission_totals_by_center: {
+        Row: {
+          approved: number | null
+          awaiting_manager: number | null
+          center_id: string | null
+          center_name: string | null
+          declined: number | null
+          pending: number | null
+          sort_order: number | null
+          total_submissions: number | null
+        }
+        Relationships: []
+      }
       validator_stats: {
         Row: {
           approved: number | null
@@ -1289,6 +1367,8 @@ export type Database = {
           archived_by: string | null
           assigned_at: string | null
           assigned_to: string | null
+          center_id: string | null
+          center_name: string | null
           claimed_at: string | null
           closer_id: string | null
           created_at: string
@@ -1327,6 +1407,8 @@ export type Database = {
           archived_by: string | null
           assigned_at: string | null
           assigned_to: string | null
+          center_id: string | null
+          center_name: string | null
           claimed_at: string | null
           closer_id: string | null
           created_at: string
@@ -1370,6 +1452,8 @@ export type Database = {
           archived_by: string | null
           assigned_at: string | null
           assigned_to: string | null
+          center_id: string | null
+          center_name: string | null
           claimed_at: string | null
           closer_id: string | null
           created_at: string
@@ -1408,6 +1492,8 @@ export type Database = {
           archived_by: string | null
           assigned_at: string | null
           assigned_to: string | null
+          center_id: string | null
+          center_name: string | null
           claimed_at: string | null
           closer_id: string | null
           created_at: string
@@ -1446,6 +1532,8 @@ export type Database = {
           archived_by: string | null
           assigned_at: string | null
           assigned_to: string | null
+          center_id: string | null
+          center_name: string | null
           claimed_at: string | null
           closer_id: string | null
           created_at: string
@@ -1487,6 +1575,8 @@ export type Database = {
           archived_by: string | null
           assigned_at: string | null
           assigned_to: string | null
+          center_id: string | null
+          center_name: string | null
           claimed_at: string | null
           closer_id: string | null
           created_at: string
@@ -1526,6 +1616,8 @@ export type Database = {
           archived_by: string | null
           assigned_at: string | null
           assigned_to: string | null
+          center_id: string | null
+          center_name: string | null
           claimed_at: string | null
           closer_id: string | null
           created_at: string
@@ -1571,6 +1663,8 @@ export type Database = {
           archived_by: string | null
           assigned_at: string | null
           assigned_to: string | null
+          center_id: string | null
+          center_name: string | null
           claimed_at: string | null
           closer_id: string | null
           created_at: string
@@ -1627,6 +1721,8 @@ export type Database = {
           archived_by: string | null
           assigned_at: string | null
           assigned_to: string | null
+          center_id: string | null
+          center_name: string | null
           claimed_at: string | null
           closer_id: string | null
           created_at: string
@@ -1708,6 +1804,7 @@ export type Database = {
           imported_count: number
           row_count: number
           skipped_count: number
+          upload_ip: string | null
           uploaded_by: string
         }
         SetofOptions: {
@@ -1724,6 +1821,8 @@ export type Database = {
           archived_by: string | null
           assigned_at: string | null
           assigned_to: string | null
+          center_id: string | null
+          center_name: string | null
           claimed_at: string | null
           closer_id: string | null
           created_at: string
@@ -1762,6 +1861,8 @@ export type Database = {
           archived_by: string | null
           assigned_at: string | null
           assigned_to: string | null
+          center_id: string | null
+          center_name: string | null
           claimed_at: string | null
           closer_id: string | null
           created_at: string
@@ -1835,12 +1936,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1864,11 +1965,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1889,11 +1990,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1914,11 +2015,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1931,11 +2032,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
