@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { SECTIONS, type Field } from "@/components/closer-form";
 import { fieldWarning } from "@/lib/form-warnings";
-import { orderedPayloadEntries } from "@/components/ops";
+import { orderedPayloadEntries, payloadDisplayLabel } from "@/components/ops";
 
 /**
  * The payload as editable fields, one `update_payload_field` call per field.
@@ -96,7 +96,9 @@ export function PayloadEditor({
 function LockedField({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex min-w-0 flex-col gap-1">
-      <span className="field-label">{label}</span>
+      {/* `label` stays the stored key everywhere it is used as one — including
+          the `p_field` this editor writes with. See payloadDisplayLabel. */}
+      <span className="field-label">{payloadDisplayLabel(label)}</span>
       <span className="free-text text-xs text-muted-foreground">{value || "—"}</span>
       <span className="text-[0.62rem] text-muted-foreground">Set by the system</span>
     </div>
@@ -187,7 +189,7 @@ function EditableField({
   return (
     <div className={`flex min-w-0 flex-col gap-1 ${field?.span ?? ""}`}>
       <label htmlFor={id} className="field-label">
-        {label}
+        {payloadDisplayLabel(label)}
       </label>
 
       {type === "textarea" ? (

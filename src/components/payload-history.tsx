@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { ClampedText } from "@/components/free-text";
-import { eventTime } from "@/components/validation-timeline";
+import { payloadDisplayLabel } from "@/components/ops";
+import { formatEventTime } from "@/lib/format-date";
 
 /**
  * Who changed which payload field, from what to what.
@@ -154,14 +155,17 @@ export function PayloadEditHistory({ submissionId }: { submissionId: string | nu
       <ol className="min-w-0 divide-y divide-border rounded-md border border-border">
         {entries.map((entry) => (
           <li key={entry.key} className="flex min-w-0 flex-col gap-0.5 px-3 py-1.5">
-            <span className="field-label">{entry.field}</span>
+            {/* The same word the panel above calls this field, so a lead does
+                not read as "Carrier Name" in the details and "Agency" in its
+                own edit history. `entry.field` stays the stored key. */}
+            <span className="field-label">{payloadDisplayLabel(entry.field)}</span>
             {entry.recorded ? (
               <span className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-baseline gap-1.5">
-                <Value field={entry.field} text={entry.old} muted />
+                <Value field={payloadDisplayLabel(entry.field)} text={entry.old} muted />
                 <span aria-hidden className="text-muted-foreground">
                   →
                 </span>
-                <Value field={entry.field} text={entry.next} />
+                <Value field={payloadDisplayLabel(entry.field)} text={entry.next} />
               </span>
             ) : (
               <span className="text-[0.68rem] italic text-muted-foreground">
@@ -170,7 +174,7 @@ export function PayloadEditHistory({ submissionId }: { submissionId: string | nu
             )}
             <span className="text-[0.66rem] text-muted-foreground">
               <span className="text-foreground">{entry.actor ?? "system"}</span> ·{" "}
-              {eventTime(entry.at)}
+              {formatEventTime(entry.at)}
             </span>
           </li>
         ))}

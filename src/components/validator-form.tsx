@@ -2,7 +2,9 @@ import { useState, type FormEvent } from "react";
 import { Link } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { draftDateWarning, fieldWarning } from "@/lib/form-warnings";
+import { duplicateSsnWarning, SSN_FIELD, useDuplicateSsn } from "@/lib/duplicate-ssn";
 import { calcAge, formatExpDate, formatSSN, zodiacSign } from "@/lib/form-fields";
+import { closeField, maskField } from "@/lib/field-mask";
 import { roleHome, useAuth } from "@/lib/auth";
 import { useCarriers } from "@/lib/carriers";
 import { BrandLogo } from "./brand-logo";
@@ -77,21 +79,25 @@ const SECTIONS: Section[] = [
     // own, and both belong to the policy rather than to the customer's details.
     title: "Policy",
     fields: [
-      { label: "Plan Type", type: "radio", span: "sm:col-span-2" , options: ["Level", "Graded","MOD", "G.I"] },
+      {
+        label: "Plan Type",
+        type: "radio",
+        span: "sm:col-span-2",
+        options: ["Level", "Graded", "MOD", "G.I"],
+      },
       { label: "Coverage Amount", type: "number", required: true },
       { label: "Premium", type: "text", required: true },
       { label: "Agent Name", type: "text", required: true },
       { label: "Policy Number", type: "text", required: true },
       { label: "Draft Date", type: "date", required: true },
       { label: "Future Draft Date", type: "date", required: true },
-     
     ],
   },
   {
     title: "Banking",
     fields: [
-      { label: "Bank Name", type: "text"  },
-      { label: "Bank Type", type: "radio" , options: ["Checking", "Saving"] },
+      { label: "Bank Name", type: "text" },
+      { label: "Bank Type", type: "radio", options: ["Checking", "Saving"] },
       { label: "Account Title", type: "text" },
       { label: "Routing Number", type: "number" },
       { label: "Account Number", type: "text" },
@@ -139,8 +145,17 @@ export function ValidatorForm() {
         const age = calcAge(value);
         return { ...prev, [label]: value, [AGE]: age === null ? "" : String(age) };
       }
-      return { ...prev, [label]: value };
+      // The shared masks. This form has Height, Premium, Coverage Amount and
+      // Birth State; anything else comes back untouched.
+      return { ...prev, [label]: maskField(label, value, prev[label] ?? "") };
     });
+
+  /**
+   * A value written exactly as given, with no mask applied — the blur pass has
+   * already produced the final string, and re-masking `5'6"` would reopen it.
+   */
+  const commit = (label: string, value: string) =>
+    setValues((prev) => ({ ...prev, [label]: value }));
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -267,6 +282,7 @@ export function ValidatorForm() {
                     value={values[field.label] ?? ""}
                     values={values}
                     onChange={(v) => set(field.label, v)}
+                    onCommit={(v) => commit(field.label, v)}
                   />
                 ))}
               </div>
@@ -285,18 +301,38 @@ function FieldControl({
   value,
   values,
   onChange,
+  onCommit,
 }: {
   field: Field;
   value: string;
   /** The whole form — the zip/state cross-check needs a second field. */
   values: Record<string, string>;
   onChange: (value: string) => void;
+  /** Writes verbatim, bypassing the keystroke mask. Blur only. */
+  onCommit: (value: string) => void;
 }) {
   const id = field.label.replace(/[^a-zA-Z0-9]+/g, "-").toLowerCase();
 
   // Checked on blur, not per keystroke: a half-typed routing number is not a
   // mistake, and saying so while it is still being typed is pure noise.
   const [touched, setTouched] = useState(false);
+
+  // Inert on every field but the SSN — nothing is asked until `check` is called
+  // on blur, and only that field calls it.
+  const duplicate = useDuplicateSsn(value);
+
+  /**
+   * Blur marks the field checked and closes any mask that could not finish
+   * live — here, the " on a height shorter than three digits.
+   */
+  function handleBlur() {
+    setTouched(true);
+    const closed = closeField(field.label, value);
+    if (closed !== value) onCommit(closed);
+    // Advisory only, and only ever from here: a partial SSN asks nothing, and
+    // the check never runs on a keystroke. See useDuplicateSsn.
+    if (field.label === SSN_FIELD) duplicate.check(closed);
+  }
 
   // Every check here is the shared one the closer form uses — ABA checksum,
   // Luhn, SSN shape, zip against state — reached by this field's label.
@@ -308,6 +344,10 @@ function FieldControl({
     // and applies to both draft dates.
     ...(DRAFT_DATES.includes(field.label) ? [draftDateWarning(value)] : []),
     touched ? fieldWarning(field.label, value, values) : null,
+    // Last, so it reads after the shape check rather than in front of it: "this
+    // isn't a valid SSN" and "this SSN is already sold" are different questions
+    // and the first one comes first.
+    duplicateSsnWarning(duplicate.hit, Date.now()),
   ].filter((hint) => hint !== null);
 
   return (
@@ -323,7 +363,7 @@ function FieldControl({
           rows={2}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          onBlur={() => setTouched(true)}
+          onBlur={handleBlur}
           className="field-input resize-none"
         />
       ) : field.type === "radio" ? (
@@ -347,7 +387,7 @@ function FieldControl({
           inputMode={field.type === "number" ? "numeric" : undefined}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          onBlur={() => setTouched(true)}
+          onBlur={handleBlur}
           className="field-input"
           autoComplete="off"
         />

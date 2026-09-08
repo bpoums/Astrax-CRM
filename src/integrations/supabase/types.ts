@@ -933,6 +933,7 @@ export type Database = {
       }
       submissions: {
         Row: {
+          agent_name: string | null
           archived_at: string | null
           archived_by: string | null
           assigned_at: string | null
@@ -948,6 +949,9 @@ export type Database = {
           disposed_at: string | null
           disposed_by: string | null
           disposition: Database["public"]["Enums"]["disposition_t"] | null
+          draft_date: string | null
+          final_carrier_id: string | null
+          future_draft_date: string | null
           hold_count: number
           id: string
           import_id: string | null
@@ -955,15 +959,18 @@ export type Database = {
           last_rejected_by: string | null
           last_timeout_by: string | null
           payload: Json
+          policy_number: string | null
           rejection_count: number
           source: string
           source_ref: string | null
+          ssn_normalized: string | null
           status: Database["public"]["Enums"]["sub_status"]
           submitted_by_role: Database["public"]["Enums"]["app_role"] | null
           timeout_count: number
           uploaded_by: string | null
         }
         Insert: {
+          agent_name?: string | null
           archived_at?: string | null
           archived_by?: string | null
           assigned_at?: string | null
@@ -979,6 +986,9 @@ export type Database = {
           disposed_at?: string | null
           disposed_by?: string | null
           disposition?: Database["public"]["Enums"]["disposition_t"] | null
+          draft_date?: string | null
+          final_carrier_id?: string | null
+          future_draft_date?: string | null
           hold_count?: number
           id?: string
           import_id?: string | null
@@ -986,15 +996,18 @@ export type Database = {
           last_rejected_by?: string | null
           last_timeout_by?: string | null
           payload: Json
+          policy_number?: string | null
           rejection_count?: number
           source?: string
           source_ref?: string | null
+          ssn_normalized?: string | null
           status?: Database["public"]["Enums"]["sub_status"]
           submitted_by_role?: Database["public"]["Enums"]["app_role"] | null
           timeout_count?: number
           uploaded_by?: string | null
         }
         Update: {
+          agent_name?: string | null
           archived_at?: string | null
           archived_by?: string | null
           assigned_at?: string | null
@@ -1010,6 +1023,9 @@ export type Database = {
           disposed_at?: string | null
           disposed_by?: string | null
           disposition?: Database["public"]["Enums"]["disposition_t"] | null
+          draft_date?: string | null
+          final_carrier_id?: string | null
+          future_draft_date?: string | null
           hold_count?: number
           id?: string
           import_id?: string | null
@@ -1017,9 +1033,11 @@ export type Database = {
           last_rejected_by?: string | null
           last_timeout_by?: string | null
           payload?: Json
+          policy_number?: string | null
           rejection_count?: number
           source?: string
           source_ref?: string | null
+          ssn_normalized?: string | null
           status?: Database["public"]["Enums"]["sub_status"]
           submitted_by_role?: Database["public"]["Enums"]["app_role"] | null
           timeout_count?: number
@@ -1109,6 +1127,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "validator_stats"
             referencedColumns: ["validator_id"]
+          },
+          {
+            foreignKeyName: "submissions_final_carrier_id_fkey"
+            columns: ["final_carrier_id"]
+            isOneToOne: false
+            referencedRelation: "carrier_decline_stats"
+            referencedColumns: ["carrier_id"]
+          },
+          {
+            foreignKeyName: "submissions_final_carrier_id_fkey"
+            columns: ["final_carrier_id"]
+            isOneToOne: false
+            referencedRelation: "carriers"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "submissions_import_id_fkey"
@@ -1363,6 +1395,7 @@ export type Database = {
       archive_submission: {
         Args: { p_reason?: string; p_sub: string }
         Returns: {
+          agent_name: string | null
           archived_at: string | null
           archived_by: string | null
           assigned_at: string | null
@@ -1378,6 +1411,9 @@ export type Database = {
           disposed_at: string | null
           disposed_by: string | null
           disposition: Database["public"]["Enums"]["disposition_t"] | null
+          draft_date: string | null
+          final_carrier_id: string | null
+          future_draft_date: string | null
           hold_count: number
           id: string
           import_id: string | null
@@ -1385,9 +1421,11 @@ export type Database = {
           last_rejected_by: string | null
           last_timeout_by: string | null
           payload: Json
+          policy_number: string | null
           rejection_count: number
           source: string
           source_ref: string | null
+          ssn_normalized: string | null
           status: Database["public"]["Enums"]["sub_status"]
           submitted_by_role: Database["public"]["Enums"]["app_role"] | null
           timeout_count: number
@@ -1403,6 +1441,7 @@ export type Database = {
       assign_to_validator: {
         Args: { p_sub: string; p_validator: string }
         Returns: {
+          agent_name: string | null
           archived_at: string | null
           archived_by: string | null
           assigned_at: string | null
@@ -1418,6 +1457,9 @@ export type Database = {
           disposed_at: string | null
           disposed_by: string | null
           disposition: Database["public"]["Enums"]["disposition_t"] | null
+          draft_date: string | null
+          final_carrier_id: string | null
+          future_draft_date: string | null
           hold_count: number
           id: string
           import_id: string | null
@@ -1425,9 +1467,11 @@ export type Database = {
           last_rejected_by: string | null
           last_timeout_by: string | null
           payload: Json
+          policy_number: string | null
           rejection_count: number
           source: string
           source_ref: string | null
+          ssn_normalized: string | null
           status: Database["public"]["Enums"]["sub_status"]
           submitted_by_role: Database["public"]["Enums"]["app_role"] | null
           timeout_count: number
@@ -1445,9 +1489,11 @@ export type Database = {
         Returns: undefined
       }
       card_details: { Args: { p_sub: string }; Returns: Json }
+      check_duplicate_ssn: { Args: { p_ssn: string }; Returns: Json }
       claim_submission: {
         Args: { p_sub: string }
         Returns: {
+          agent_name: string | null
           archived_at: string | null
           archived_by: string | null
           assigned_at: string | null
@@ -1463,6 +1509,9 @@ export type Database = {
           disposed_at: string | null
           disposed_by: string | null
           disposition: Database["public"]["Enums"]["disposition_t"] | null
+          draft_date: string | null
+          final_carrier_id: string | null
+          future_draft_date: string | null
           hold_count: number
           id: string
           import_id: string | null
@@ -1470,9 +1519,11 @@ export type Database = {
           last_rejected_by: string | null
           last_timeout_by: string | null
           payload: Json
+          policy_number: string | null
           rejection_count: number
           source: string
           source_ref: string | null
+          ssn_normalized: string | null
           status: Database["public"]["Enums"]["sub_status"]
           submitted_by_role: Database["public"]["Enums"]["app_role"] | null
           timeout_count: number
@@ -1488,6 +1539,7 @@ export type Database = {
       clear_data_flag: {
         Args: { p_field: string; p_sub: string }
         Returns: {
+          agent_name: string | null
           archived_at: string | null
           archived_by: string | null
           assigned_at: string | null
@@ -1503,6 +1555,9 @@ export type Database = {
           disposed_at: string | null
           disposed_by: string | null
           disposition: Database["public"]["Enums"]["disposition_t"] | null
+          draft_date: string | null
+          final_carrier_id: string | null
+          future_draft_date: string | null
           hold_count: number
           id: string
           import_id: string | null
@@ -1510,9 +1565,11 @@ export type Database = {
           last_rejected_by: string | null
           last_timeout_by: string | null
           payload: Json
+          policy_number: string | null
           rejection_count: number
           source: string
           source_ref: string | null
+          ssn_normalized: string | null
           status: Database["public"]["Enums"]["sub_status"]
           submitted_by_role: Database["public"]["Enums"]["app_role"] | null
           timeout_count: number
@@ -1528,6 +1585,7 @@ export type Database = {
       decline_with_carriers: {
         Args: { p_carrier_ids: string[]; p_reason?: string; p_sub: string }
         Returns: {
+          agent_name: string | null
           archived_at: string | null
           archived_by: string | null
           assigned_at: string | null
@@ -1543,6 +1601,9 @@ export type Database = {
           disposed_at: string | null
           disposed_by: string | null
           disposition: Database["public"]["Enums"]["disposition_t"] | null
+          draft_date: string | null
+          final_carrier_id: string | null
+          future_draft_date: string | null
           hold_count: number
           id: string
           import_id: string | null
@@ -1550,9 +1611,11 @@ export type Database = {
           last_rejected_by: string | null
           last_timeout_by: string | null
           payload: Json
+          policy_number: string | null
           rejection_count: number
           source: string
           source_ref: string | null
+          ssn_normalized: string | null
           status: Database["public"]["Enums"]["sub_status"]
           submitted_by_role: Database["public"]["Enums"]["app_role"] | null
           timeout_count: number
@@ -1571,6 +1634,7 @@ export type Database = {
           p_sub: string
         }
         Returns: {
+          agent_name: string | null
           archived_at: string | null
           archived_by: string | null
           assigned_at: string | null
@@ -1586,6 +1650,9 @@ export type Database = {
           disposed_at: string | null
           disposed_by: string | null
           disposition: Database["public"]["Enums"]["disposition_t"] | null
+          draft_date: string | null
+          final_carrier_id: string | null
+          future_draft_date: string | null
           hold_count: number
           id: string
           import_id: string | null
@@ -1593,9 +1660,11 @@ export type Database = {
           last_rejected_by: string | null
           last_timeout_by: string | null
           payload: Json
+          policy_number: string | null
           rejection_count: number
           source: string
           source_ref: string | null
+          ssn_normalized: string | null
           status: Database["public"]["Enums"]["sub_status"]
           submitted_by_role: Database["public"]["Enums"]["app_role"] | null
           timeout_count: number
@@ -1612,6 +1681,7 @@ export type Database = {
       hold_submission: {
         Args: { p_sub: string }
         Returns: {
+          agent_name: string | null
           archived_at: string | null
           archived_by: string | null
           assigned_at: string | null
@@ -1627,6 +1697,9 @@ export type Database = {
           disposed_at: string | null
           disposed_by: string | null
           disposition: Database["public"]["Enums"]["disposition_t"] | null
+          draft_date: string | null
+          final_carrier_id: string | null
+          future_draft_date: string | null
           hold_count: number
           id: string
           import_id: string | null
@@ -1634,9 +1707,11 @@ export type Database = {
           last_rejected_by: string | null
           last_timeout_by: string | null
           payload: Json
+          policy_number: string | null
           rejection_count: number
           source: string
           source_ref: string | null
+          ssn_normalized: string | null
           status: Database["public"]["Enums"]["sub_status"]
           submitted_by_role: Database["public"]["Enums"]["app_role"] | null
           timeout_count: number
@@ -1659,6 +1734,7 @@ export type Database = {
           p_uploaded_by?: string
         }
         Returns: {
+          agent_name: string | null
           archived_at: string | null
           archived_by: string | null
           assigned_at: string | null
@@ -1674,6 +1750,9 @@ export type Database = {
           disposed_at: string | null
           disposed_by: string | null
           disposition: Database["public"]["Enums"]["disposition_t"] | null
+          draft_date: string | null
+          final_carrier_id: string | null
+          future_draft_date: string | null
           hold_count: number
           id: string
           import_id: string | null
@@ -1681,9 +1760,11 @@ export type Database = {
           last_rejected_by: string | null
           last_timeout_by: string | null
           payload: Json
+          policy_number: string | null
           rejection_count: number
           source: string
           source_ref: string | null
+          ssn_normalized: string | null
           status: Database["public"]["Enums"]["sub_status"]
           submitted_by_role: Database["public"]["Enums"]["app_role"] | null
           timeout_count: number
@@ -1717,6 +1798,7 @@ export type Database = {
       reject_assignment: {
         Args: { p_reason?: string; p_sub: string }
         Returns: {
+          agent_name: string | null
           archived_at: string | null
           archived_by: string | null
           assigned_at: string | null
@@ -1732,6 +1814,9 @@ export type Database = {
           disposed_at: string | null
           disposed_by: string | null
           disposition: Database["public"]["Enums"]["disposition_t"] | null
+          draft_date: string | null
+          final_carrier_id: string | null
+          future_draft_date: string | null
           hold_count: number
           id: string
           import_id: string | null
@@ -1739,9 +1824,11 @@ export type Database = {
           last_rejected_by: string | null
           last_timeout_by: string | null
           payload: Json
+          policy_number: string | null
           rejection_count: number
           source: string
           source_ref: string | null
+          ssn_normalized: string | null
           status: Database["public"]["Enums"]["sub_status"]
           submitted_by_role: Database["public"]["Enums"]["app_role"] | null
           timeout_count: number
@@ -1795,6 +1882,57 @@ export type Database = {
         }
         Returns: Json
       }
+      set_validator_fields: {
+        Args: {
+          p_agent_name: string
+          p_final_carrier_id: string
+          p_policy_number: string
+          p_sub: string
+        }
+        Returns: {
+          agent_name: string | null
+          archived_at: string | null
+          archived_by: string | null
+          assigned_at: string | null
+          assigned_to: string | null
+          center_id: string | null
+          center_name: string | null
+          claimed_at: string | null
+          closer_id: string | null
+          created_at: string
+          cx_assigned_at: string | null
+          cx_assigned_to: string | null
+          data_flags: Json
+          disposed_at: string | null
+          disposed_by: string | null
+          disposition: Database["public"]["Enums"]["disposition_t"] | null
+          draft_date: string | null
+          final_carrier_id: string | null
+          future_draft_date: string | null
+          hold_count: number
+          id: string
+          import_id: string | null
+          last_held_at: string | null
+          last_rejected_by: string | null
+          last_timeout_by: string | null
+          payload: Json
+          policy_number: string | null
+          rejection_count: number
+          source: string
+          source_ref: string | null
+          ssn_normalized: string | null
+          status: Database["public"]["Enums"]["sub_status"]
+          submitted_by_role: Database["public"]["Enums"]["app_role"] | null
+          timeout_count: number
+          uploaded_by: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "submissions"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       start_lead_import: {
         Args: { p_file_name: string; p_row_count: number }
         Returns: {
@@ -1817,6 +1955,7 @@ export type Database = {
       submit_form: {
         Args: { p_payload: Json }
         Returns: {
+          agent_name: string | null
           archived_at: string | null
           archived_by: string | null
           assigned_at: string | null
@@ -1832,6 +1971,9 @@ export type Database = {
           disposed_at: string | null
           disposed_by: string | null
           disposition: Database["public"]["Enums"]["disposition_t"] | null
+          draft_date: string | null
+          final_carrier_id: string | null
+          future_draft_date: string | null
           hold_count: number
           id: string
           import_id: string | null
@@ -1839,9 +1981,11 @@ export type Database = {
           last_rejected_by: string | null
           last_timeout_by: string | null
           payload: Json
+          policy_number: string | null
           rejection_count: number
           source: string
           source_ref: string | null
+          ssn_normalized: string | null
           status: Database["public"]["Enums"]["sub_status"]
           submitted_by_role: Database["public"]["Enums"]["app_role"] | null
           timeout_count: number
@@ -1857,6 +2001,7 @@ export type Database = {
       unarchive_submission: {
         Args: { p_sub: string }
         Returns: {
+          agent_name: string | null
           archived_at: string | null
           archived_by: string | null
           assigned_at: string | null
@@ -1872,6 +2017,9 @@ export type Database = {
           disposed_at: string | null
           disposed_by: string | null
           disposition: Database["public"]["Enums"]["disposition_t"] | null
+          draft_date: string | null
+          final_carrier_id: string | null
+          future_draft_date: string | null
           hold_count: number
           id: string
           import_id: string | null
@@ -1879,9 +2027,11 @@ export type Database = {
           last_rejected_by: string | null
           last_timeout_by: string | null
           payload: Json
+          policy_number: string | null
           rejection_count: number
           source: string
           source_ref: string | null
+          ssn_normalized: string | null
           status: Database["public"]["Enums"]["sub_status"]
           submitted_by_role: Database["public"]["Enums"]["app_role"] | null
           timeout_count: number
@@ -1913,6 +2063,7 @@ export type Database = {
         | "cxm"
         | "cxa"
         | "closing_manager"
+        | "general_manager"
       disposition_t: "accepted" | "declined" | "pending"
       sub_status:
         | "pending_manager"
@@ -2060,6 +2211,7 @@ export const Constants = {
         "cxm",
         "cxa",
         "closing_manager",
+        "general_manager",
       ],
       disposition_t: ["accepted", "declined", "pending"],
       sub_status: [

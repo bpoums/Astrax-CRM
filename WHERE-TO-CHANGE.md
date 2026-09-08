@@ -35,6 +35,8 @@ you which file to open and roughly where.
 | Columns the uploader can import into                     | [Import fields](#13-import-fields)                         |
 | The look of panels, buttons, inputs                      | [Reusable styles](#14-reusable-styles)                     |
 | Tabs on the Admin page                                   | [Admin tabs](#15-admin-tabs)                               |
+| Centres (the call centres leads are taken in)            | [Centers](#16-centers-in-the-app) **[in the app]**         |
+| Columns and filters on the closing desk                  | [The closing desk](#17-the-closing-desk)                   |
 
 ---
 
@@ -80,7 +82,7 @@ database forever — the app just shows the word "Submitted" for it.
 
 - Event names in timelines — `EVENT_LABEL`, [ops.tsx:222](src/components/ops.tsx#L222)
 - "Live" vs the centre name for imported leads — `sourceLabel`, [ops.tsx:265](src/components/ops.tsx#L265)
-- Role names shown to users — `ROLE_LABEL`, [src/lib/auth.tsx:49](src/lib/auth.tsx#L49)
+- Role names shown to users — `ROLE_LABEL`, [src/lib/auth.tsx:59](src/lib/auth.tsx#L59)
 
 ---
 
@@ -275,13 +277,52 @@ functions first, so it is not a code-only change.
 
 **File:** [src/lib/auth.tsx](src/lib/auth.tsx)
 
-- **Line 36 — `roleHome`**: which screen each role lands on after signing in.
-- **Line 49 — `ROLE_LABEL`**: what each role is called on screen.
+- **Line 43 — `roleHome`**: which screen each role lands on after signing in.
+- **Line 59 — `ROLE_LABEL`**: what each role is called on screen.
 - **Line 76 — `requireRole`**: the guard each screen uses.
 
+The nine roles, and what each one is for:
+
+| Role                | Lands on     | Sees                                                       |
+| ------------------- | ------------ | ---------------------------------------------------------- |
+| **admin**           | `/admin`     | everything, plus Users and Settings                        |
+| **manager**         | `/manager`   | the validation queue — assigns, disposes, archives         |
+| **closing_manager** | `/closing`   | closer leads **in their own centre**                       |
+| **general_manager** | `/closing`   | closer **and** validator leads, **across every centre**    |
+| **closer**          | `/closer`    | the submission form, nothing else                          |
+| **validator**       | `/validator` | only leads assigned to them, only inside the review window |
+| **data_uploader**   | `/upload`    | that screen only, and only the leads they imported         |
+| **cxm** / **cxa**   | `/cx`        | approved leads; they set the four CX statuses              |
+
+**Closing manager and general manager share one screen.** They open the same
+route and get the same edit controls — the only difference is how much the
+database hands back, and that is decided by the database, not by the code. There
+is no "if general manager" branch anywhere in the closing desk, and there should
+not be one. See [The closing desk](#17-the-closing-desk).
+
+### Adding a new role
+
+The role has to exist in the database first; nothing below creates one.
+
+1. Run `npm run types`. Every role map is typed off the generated list, so the
+   compiler will then point at each place that has not accounted for the new
+   role — you cannot forget steps 2 and 3.
+2. `roleHome` and `ROLE_LABEL` in [src/lib/auth.tsx](src/lib/auth.tsx).
+3. The `requireRole([...])` list at the top of **every route file the role may
+   open** — for example
+   [src/routes/_authenticated/closing.tsx:21](src/routes/_authenticated/closing.tsx#L21).
+   This is the step the compiler cannot catch for you.
+4. `ROLES` in
+   [src/components/user-admin.tsx:26](src/components/user-admin.tsx#L26) — one
+   list, driving both the Add User chips and the role dropdown in the user table.
+5. Only if the role must be pinned to a single centre: `CENTER_ROLES` in
+   [src/lib/centers.ts:46](src/lib/centers.ts#L46). This is what makes the Add
+   User form demand a centre. A general manager is deliberately **not** in it —
+   they span all centres.
+
 **Important:** the real security is in the database, not here. `requireRole` only
-stops someone opening a page that would be empty anyway. Changing it does **not**
-grant anyone access to data — that needs database work.
+stops someone opening a page that would be empty anyway. Adding a role to the
+lists above does **not** grant it access to any data — that needs database work.
 
 **To change who a user is:** Admin → Users. Invite people, change their role, or
 deactivate them there. Deactivating removes all their access instantly.
@@ -338,6 +379,77 @@ Red is only for timeouts and declines.
 Add, rename or reorder the tabs on the Admin page. Two are commented out
 (Imports, Audit) and can be switched back on by uncommenting them in both the
 `TABS` list and the matching block further down.
+
+---
+
+## 16. Centers **[in the app]**
+
+The call centres leads are taken in.
+
+**No code change needed.** Go to **Admin → Settings → Centers** to add, rename,
+reorder or deactivate one. As with carriers there is no delete, on purpose —
+people and leads both point at these records.
+
+Two things a centre does, and they are not the same thing:
+
+- **On a person** — a closer's centre is stamped onto every lead they submit; a
+  closing manager's centre is what their whole desk is scoped to. A closing
+  manager with no centre set sees **nothing at all**, and the closing desk says
+  so in place of the usual "no leads yet".
+- **On a lead** — the centre's name **as it stood when the lead was taken**, kept
+  on the row itself.
+
+> ### Renaming a centre is safe
+>
+> Unlike a carrier rename, this does not split any history. Each lead carries its
+> own copy of the centre name from the day it was submitted, so a rename moves
+> the label on the pickers and leaves what already happened alone.
+
+**Code side** (rarely needed):
+[src/components/center-admin.tsx](src/components/center-admin.tsx) is the panel,
+[src/lib/centers.ts](src/lib/centers.ts) is the shared list and the
+`centerRequired` rule.
+
+---
+
+## 17. The closing desk
+
+The screen at `/closing`, shared by the closing manager and the general manager.
+
+**File:** [src/components/closing-desk.tsx](src/components/closing-desk.tsx)
+
+- **Who gets in** —
+  [src/routes/_authenticated/closing.tsx:21](src/routes/_authenticated/closing.tsx#L21).
+- **Line 101 — `BASE_SELECT`**: the fields fetched for each row. A column you
+  want to show has to be listed here first, and added to the `ClosingRow` type
+  just below it.
+- **Around line 390 — the table header**: the columns, in order. Widths are
+  fixed (`w-32`, `w-28`…), so if you add a column, raise the table's
+  `min-w-[100rem]` by the same amount — otherwise the Customer column, the only
+  one with no set width, gets squeezed instead. The empty-state row's `colSpan`
+  counts columns too.
+- **Around line 313 — the filter row**: Validation Status, Disposition and
+  Center, all built from the same small `FilterSelect` at the bottom of the
+  file. A new filter is one `FilterSelect`, one piece of state, and that state
+  added to the query key, the page reset, `filtersActive` and `clearFilters`.
+
+**The Center column** shows the name stamped on the lead. For a closing manager
+it reads the same on every row — they only ever see one centre — which matches
+how the manager queue and Reporting already show it. For a general manager it is
+the column that tells their rows apart. The filter beside it matches on the
+centre's **id**, not its name, so a rename cannot quietly empty a filter someone
+left applied; retired centres stay in the list, marked `(inactive)`, because
+leads taken in them are still on the desk.
+
+**Not filtered here.** The desk asks the database for submissions and shows what
+comes back. Which leads that is — one centre or all of them, closer leads only or
+validator leads too — is decided entirely by the database. Do not add a filter
+here to "help": it would duplicate a rule that lives in one place, and would
+silently disagree with it the day that rule changes.
+
+The four CX statuses are **read-only** on this screen. Moving a lead through the
+customer lifecycle is the CX team's job, and the database refuses anyone else —
+a control that always fails is worse than no control.
 
 ---
 

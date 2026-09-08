@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { formatEventTime } from "@/lib/format-date";
 import { StatusChip } from "@/components/cx-status-cell";
 import { ClampedText } from "@/components/free-text";
 import { eventLabel } from "@/components/ops";
@@ -24,15 +25,6 @@ type TimelineEvent = {
   detail: Record<string, unknown> | null;
   actor: { full_name: string | null } | null;
 };
-
-export function eventTime(iso: string) {
-  return new Date(iso).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
 
 export function validationTimelineKey(submissionId: string | null) {
   return ["validation-timeline", submissionId] as const;
@@ -103,12 +95,12 @@ function TimelineRow({ event }: { event: TimelineEvent }) {
           </span>
         ) : null}
         <span className="text-foreground">{event.actor?.full_name ?? "system"}</span> ·{" "}
-        {eventTime(event.created_at)}
+        {formatEventTime(event.created_at)}
         {reason ? (
           <ClampedText
             text={reason}
             heading={isStatus && category ? `${category} status` : eventLabel(event.event_type)}
-            meta={`${event.actor?.full_name ?? "system"} · ${eventTime(event.created_at)}`}
+            meta={`${event.actor?.full_name ?? "system"} · ${formatEventTime(event.created_at)}`}
             className="italic"
           />
         ) : null}

@@ -12,6 +12,7 @@ import { SettingsAudit } from "@/components/settings-audit";
 import { AdminSettings } from "@/components/admin-settings";
 import { CxStatusAdmin } from "@/components/cx-status-admin";
 import { CarrierAdmin } from "@/components/carrier-admin";
+import { DraftDateDesk } from "@/components/draft-date-desk";
 import { CenterAdmin } from "@/components/center-admin";
 import { CarrierDeclineReport } from "@/components/carrier-declines";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -20,6 +21,9 @@ const TABS = [
   { id: "overview", label: "Overview" },
   { id: "submissions", label: "Submissions" },
   { id: "pipeline", label: "Customer Pipeline" },
+  // The same screen the manager gets, mounted here because an admin sees
+  // everything a manager does.
+  { id: "draft-dates", label: "By Draft Date" },
   { id: "users", label: "Users" },
   { id: "uploads", label: "Uploads" },
   // { id: "imports", label: "Imports" },
@@ -127,6 +131,10 @@ function AdminPage() {
           <TabsContent value="pipeline" className="flex flex-col gap-4">
             <CxStatusBreakdown />
             <CustomersPipeline readOnly showUpdatedBy />
+          </TabsContent>
+
+          <TabsContent value="draft-dates" className="flex flex-col gap-4">
+            <DraftDateDesk />
           </TabsContent>
 
           <TabsContent value="users" className="flex flex-col gap-4">

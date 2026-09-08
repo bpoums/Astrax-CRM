@@ -4,15 +4,21 @@ import { AppHeader } from "@/components/ops";
 import { ClosingDesk } from "@/components/closing-desk";
 
 /**
- * The closing manager's only screen.
+ * The closing manager's only screen, and the general manager's.
  *
  * `requireRole` sends every other role back to its own home, which is what
  * confines a closing manager here — `roleHome` points them at this URL and
  * every other guard turns them away. Admin is allowed in alongside them, as on
  * every other route.
+ *
+ * A general manager gets exactly this screen and exactly these edit controls.
+ * The two differ only in what the `submissions` read policy hands back — a
+ * closing manager's own centre and closer-originated leads, a general
+ * manager's every centre and both origins — so the difference is settled
+ * server-side and there is nothing here to branch on.
  */
 export const Route = createFileRoute("/_authenticated/closing")({
-  beforeLoad: () => requireRole(["closing_manager", "admin"]),
+  beforeLoad: () => requireRole(["closing_manager", "general_manager", "admin"]),
   head: () => ({
     meta: [
       { title: "Closing Desk | ASTRAX" },

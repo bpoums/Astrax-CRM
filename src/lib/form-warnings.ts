@@ -6,7 +6,8 @@ import {
   normalizeState,
   ssnProblem,
 } from "@/lib/normalize/rules";
-import { stateForZip } from "@/lib/normalize/states";
+import { STATE_ABBREVIATIONS, stateForZip } from "@/lib/normalize/states";
+import { STATE_FIELDS } from "@/lib/field-mask";
 import { digitsOf } from "@/lib/normalize/text";
 
 /**
@@ -38,6 +39,7 @@ const SSN = "SSN Number";
 const ZIP = "Customer Zip Code";
 const CARD = "Card Number";
 const EXPIRY = "Exp Date";
+/** The one the ZIP cross-check reads. The other State fields are its own. */
 const STATE = "State";
 
 const EXPIRY_TEXT: Record<NonNullable<ReturnType<typeof expiryProblem>>, string> = {
@@ -88,8 +90,30 @@ export function fieldWarning(
     case EXPIRY:
       return expiryWarning(value, now);
     default:
-      return null;
+      // Every State-labelled field in either form, checked against the real
+      // USPS list rather than "any two letters".
+      return STATE_FIELDS.includes(label as (typeof STATE_FIELDS)[number])
+        ? stateWarning(value)
+        : null;
   }
+}
+
+/**
+ * A two-letter code that is not a state.
+ *
+ * The mask has already reduced whatever was typed to at most two uppercase
+ * letters, so the only question left is membership — and a single letter is
+ * someone mid-word, not a mistake to interrupt. `STATE_ABBREVIATIONS` is the
+ * same set the uploader's `normalizeState` resolves against, so the form and
+ * the importer agree on what a state is.
+ */
+function stateWarning(value: string): FieldWarning | null {
+  const code = value.trim().toUpperCase();
+  if (code.length < 2) return { tone: "warn", text: "State codes are 2 letters." };
+  if (!STATE_ABBREVIATIONS.has(code)) {
+    return { tone: "warn", text: `"${code}" isn't a US state code.` };
+  }
+  return null;
 }
 
 /**

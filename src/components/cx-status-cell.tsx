@@ -7,10 +7,11 @@ import {
   readStatusTone,
   shortCategory,
   type CxCategory,
+  type CxLeadStatus,
   type CxStatusOption,
   type StatusTone,
 } from "@/lib/cx-status";
-import { shortDate } from "@/components/ops";
+import { formatDate } from "@/lib/format-date";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipTrigger } from "@/components/ui/tooltip";
 import { TooltipBody, TooltipHeading } from "@/components/free-text";
@@ -133,6 +134,43 @@ export function CxStatusValue({
  * `cx_updated_at`) — the view records it per lead, not per status — so it is
  * labelled "last updated by" rather than claiming to attribute this one field.
  */
+/**
+ * One category's chip and reason for a whole lead, resolved from the stored
+ * option id.
+ *
+ * The pairing of "a lead's cx row" with "the vocabulary" lives here rather than
+ * in each screen, so the closing desk and the draft-date desk cannot drift on
+ * how an unresolved id or an untouched lead reads. A lead that has never
+ * entered CX renders a dash in all four categories — `CxStatusValue` already
+ * draws that for a null label, which is why this passes the nulls straight
+ * through instead of guarding them.
+ */
+export function CxLeadStatusValue({
+  category,
+  cx,
+  optionFor,
+}: {
+  category: CxCategory;
+  cx: CxLeadStatus | null;
+  optionFor: (id: string) => { label: string; tone: string } | null;
+}) {
+  const id = cx?.[`${category}_status_id`] ?? null;
+  const option = id ? optionFor(id) : null;
+
+  return (
+    <div className="flex w-full min-w-0 flex-col items-start gap-0.5 px-1 py-0.5">
+      <CxStatusValue
+        category={category}
+        label={option?.label ?? null}
+        tone={option?.tone ?? null}
+        reason={cx?.[`${category}_reason`] ?? null}
+        updatedBy={cx?.updater?.full_name ?? null}
+        updatedAt={cx?.updated_at ?? null}
+      />
+    </div>
+  );
+}
+
 export function CxStatusTooltip({
   heading,
   updatedBy,
@@ -150,7 +188,7 @@ export function CxStatusTooltip({
       {updatedBy || updatedAt ? (
         <span className="free-text text-[0.62rem] text-muted-foreground">
           last updated by {updatedBy ?? "—"}
-          {updatedAt ? `, ${shortDate(updatedAt)}` : ""}
+          {updatedAt ? `, ${formatDate(updatedAt)}` : ""}
         </span>
       ) : null}
       {reason ? (

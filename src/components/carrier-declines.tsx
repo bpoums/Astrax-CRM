@@ -2,7 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { ClampedText } from "@/components/free-text";
-import { dispositionLabel, relativeTime, shortDate, useNow } from "@/components/ops";
+import { dispositionLabel, relativeTime, useNow } from "@/components/ops";
+import { formatDate } from "@/lib/format-date";
 import { CARRIER_DECLINE_STATS_KEY, carrierSummary, useCarrierDeclines } from "@/lib/carriers";
 import {
   Table,
@@ -109,7 +110,7 @@ export function CarrierDeclineList({ submissionId }: { submissionId: string | nu
                 <ClampedText
                   text={row.reason}
                   heading={row.carrier?.name ?? "Carrier decline"}
-                  meta={`${row.by?.full_name ?? "system"} · ${shortDate(row.declined_at)}`}
+                  meta={`${row.by?.full_name ?? "system"} · ${formatDate(row.declined_at)}`}
                   className="italic"
                 />
               ) : null}
@@ -186,7 +187,7 @@ export function CarrierDeclineReport() {
                   {row.leads_declined ?? 0}
                 </TableCell>
                 <TableCell className="text-right text-muted-foreground">
-                  {shortDate(row.last_decline)}
+                  {formatDate(row.last_decline)}
                 </TableCell>
               </TableRow>
             ))}

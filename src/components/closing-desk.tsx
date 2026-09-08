@@ -13,27 +13,32 @@ import {
   dispositionLabel,
   OriginBadge,
   isOnHold,
-  shortDate,
   sourceLabel,
   type Disposition,
   type LeadSource,
   type SubStatus,
   type UploaderRef,
 } from "@/components/ops";
-import { CxStatusValue } from "@/components/cx-status-cell";
+import { formatDate } from "@/lib/format-date";
+import { CxLeadStatusValue } from "@/components/cx-status-cell";
 import { CxLifecycleHistory } from "@/components/cx-lifecycle-history";
 import { ValidationTimeline, validationTimelineKey } from "@/components/validation-timeline";
 import { PayloadEditor } from "@/components/payload-editor";
+import { ValidatorFields } from "@/components/validator-fields";
 import { PayloadEditHistory, payloadHistoryKey } from "@/components/payload-history";
 import { PaymentPanel } from "@/components/payment-panel";
 import { PaginationBar } from "@/components/pagination-bar";
 import {
   CATEGORY_LABEL,
   CX_CATEGORIES,
+  CX_LEAD_STATUS_FK,
+  CX_LEAD_STATUS_SELECT,
   useCxStatusOptions,
   type CxCategory,
+  type CxLeadStatus,
 } from "@/lib/cx-status";
 import { useDeclinedCarrierMap } from "@/lib/carriers";
+import { useCenters } from "@/lib/centers";
 import { useAuth } from "@/lib/auth";
 import {
   LEAD_PAGE_SIZE,
@@ -68,13 +73,19 @@ import {
 } from "@/components/ui/table";
 
 /**
- * The closing manager's desk: every closer-originated lead, at whatever stage
- * it has reached, with the payload editable in place.
+ * The closing desk: every lead the reader is entitled to, at whatever stage it
+ * has reached, with the payload editable in place.
  *
- * The row set is NOT filtered here. The `submissions` read policy already
- * narrows a closing manager to `submitted_by_role = 'closer'` and unarchived
- * rows, so re-stating that in the query would duplicate a rule that lives in
+ * The row set is NOT scoped here. The `submissions` read policy decides it —
+ * a closing manager sees `submitted_by_role = 'closer'` within their own
+ * centre, a general manager sees closer and validator work across all of them —
+ * so re-stating any of that in the query would duplicate a rule that lives in
  * one place, and would quietly diverge the day the policy changes.
+ *
+ * The Submitted By filter is not that. It is the reader narrowing what they
+ * asked for, applied on top of whatever they are allowed to see, and it is the
+ * same control for both roles: a closing manager who picks Validator gets an
+ * empty table, which is the truth about their access, not a broken screen.
  *
  * Unlike the CX pipeline this cannot read `cx_pipeline`, which carries its own
  * `disposition = 'accepted'` and so holds only the tail of what belongs here.
@@ -94,8 +105,6 @@ const PAGE_SIZE = LEAD_PAGE_SIZE;
 const ANY = "any";
 const NOT_SET = "none";
 
-const CX_FK = "cx_lead_status!cx_lead_status_submission_id_fkey";
-
 const BASE_SELECT = [
   "id",
   "payload",
@@ -108,6 +117,15 @@ const BASE_SELECT = [
   "rejected_by:profiles!submissions_last_rejected_by_fkey(full_name)",
   "created_at",
   "source",
+  // The review's own outcome, shown and edited in the ValidatorFields section.
+  "submitted_by_role",
+  "final_carrier_id",
+  "agent_name",
+  "policy_number",
+  // The stamped name, not a join — see `centers.ts`. Constant down the column
+  // for a closing manager, who is scoped to one centre; the useful part of the
+  // row for a general manager, whose rows span all of them.
+  "center_name",
   "closer_id",
   // Not shown as columns of their own — they are what isOnHold() reads to tell
   // a held lead from a merely assigned one.
@@ -116,26 +134,8 @@ const BASE_SELECT = [
   "last_held_at",
   "closer:profiles!submissions_closer_id_fkey(full_name)",
   "uploader:profiles!submissions_uploaded_by_fkey(full_name, org_name)",
-  // One row per lead at most, so this embeds as an object rather than a list.
-  // `updater` is nested a second level so the tooltip can attribute the last CX
-  // change to a person rather than to a uuid.
-  `cx:${CX_FK}(policy_status_id, policy_reason, premium_status_id, premium_reason, ` +
-    "commission_status_id, commission_reason, chargeback_status_id, chargeback_reason, " +
-    "updated_at, updater:profiles!cx_lead_status_updated_by_fkey(full_name))",
+  CX_LEAD_STATUS_SELECT,
 ].join(", ");
-
-type CxLeadStatus = {
-  policy_status_id: string | null;
-  policy_reason: string | null;
-  premium_status_id: string | null;
-  premium_reason: string | null;
-  commission_status_id: string | null;
-  commission_reason: string | null;
-  chargeback_status_id: string | null;
-  chargeback_reason: string | null;
-  updated_at: string | null;
-  updater: { full_name: string | null } | null;
-};
 
 type ClosingRow = {
   id: string;
@@ -147,6 +147,11 @@ type ClosingRow = {
   rejected_by: { full_name: string | null } | null;
   created_at: string;
   source: LeadSource;
+  submitted_by_role: "closer" | "validator" | null;
+  final_carrier_id: string | null;
+  agent_name: string | null;
+  policy_number: string | null;
+  center_name: string | null;
   closer_id: string | null;
   claimed_at: string | null;
   assigned_at: string | null;
@@ -164,6 +169,34 @@ type ClosingRow = {
  */
 type StatusFilter = typeof ANY | SubStatus;
 type DispositionFilter = typeof ANY | typeof NOT_SET | Disposition;
+/** A centre id, or neither. Ids rather than names: a rename must not silently
+ *  empty a filter someone has left applied. */
+type CenterFilter = typeof ANY | typeof NOT_SET | string;
+
+/**
+ * Which form a lead arrived on — the coarsest cut this desk offers, and the one
+ * a general manager needs most: they see closer and validator work in the same
+ * table, and most questions are about one or the other.
+ *
+ * Split by ORIGIN, not by the role tag alone, because the role tag does not
+ * separate them cleanly. `ingest_sheet_lead` writes an imported lead with
+ * `submitted_by_role = 'closer'` and no closer at all, so filtering on the role
+ * by itself files every uploaded lead under Closer with an empty Closer column.
+ * `source` is NOT NULL and defaults to 'live', and a row written before the
+ * role column existed has a null role rather than a wrong one — so the three
+ * tests below cover every row exactly once. This is the same split, and the
+ * same wording, as the Reporting lead tabs; the two are meant to agree.
+ */
+const ORIGINS = ["closer", "validator", "manual"] as const;
+
+type Origin = (typeof ORIGINS)[number];
+type OriginFilter = typeof ANY | Origin;
+
+const ORIGIN_LABEL: Record<Origin, string> = {
+  closer: "Closer",
+  validator: "Validator",
+  manual: "Manual",
+};
 
 type CxFilters = Record<CxCategory, string>;
 
@@ -191,8 +224,10 @@ export function ClosingDesk() {
   const noCenter = profile?.role === "closing_manager" && !profile.center_id;
   const [page, setPage] = useState(0);
   const [search, setSearch] = useState("");
+  const [origin, setOrigin] = useState<OriginFilter>(ANY);
   const [status, setStatus] = useState<StatusFilter>(ANY);
   const [disposition, setDisposition] = useState<DispositionFilter>(ANY);
+  const [center, setCenter] = useState<CenterFilter>(ANY);
   const [cxFilters, setCxFilters] = useState<CxFilters>(NO_CX_FILTERS);
   const [openId, setOpenId] = useState<string | null>(null);
 
@@ -202,20 +237,25 @@ export function ClosingDesk() {
   const vocabulary = useCxStatusOptions(false);
   const { byCategory, byId } = vocabulary;
 
+  // Retired centres included, for the same reason the CX vocabulary is fetched
+  // whole: leads already stamped with one are still on this desk, and a filter
+  // that cannot name them could not find them.
+  const centers = useCenters(false);
+
   const term = sanitizeTerm(search);
   const cxKey = CX_CATEGORIES.map((category) => cxFilters[category]).join("|");
 
   // A filter or a search changes what page 1 even means.
   useEffect(() => {
     setPage(0);
-  }, [term, status, disposition, cxKey]);
+  }, [term, origin, status, disposition, center, cxKey]);
 
   // Names the carriers on a returned lead. The view holds only leads that have
   // been declined at least once, so it stays short whatever this page shows.
   const declinedMap = useDeclinedCarrierMap();
 
   const leads = useQuery({
-    queryKey: ["closing", "leads", page, term, status, disposition, cxKey],
+    queryKey: ["closing", "leads", page, term, origin, status, disposition, center, cxKey],
     queryFn: async () => {
       // Resolved before the main query so a person match can be folded into
       // the same `or` as the payload matches: closer_id and uploaded_by are
@@ -238,14 +278,30 @@ export function ClosingDesk() {
       const unsetFilters = CX_CATEGORIES.filter((category) => cxFilters[category] === NOT_SET);
 
       const select = [BASE_SELECT];
-      if (setFilters.length > 0) select.push(`setf:${CX_FK}!inner(submission_id)`);
-      for (const category of unsetFilters) select.push(`no_${category}:${CX_FK}(submission_id)`);
+      if (setFilters.length > 0) select.push(`setf:${CX_LEAD_STATUS_FK}!inner(submission_id)`);
+      for (const category of unsetFilters)
+        select.push(`no_${category}:${CX_LEAD_STATUS_FK}(submission_id)`);
 
       let query = supabase.from("submissions").select(select.join(", "), { count: "exact" });
+
+      // Anything not tagged 'validator' is closer work, which is what keeps
+      // rows written before the column existed on the Closer side rather than
+      // dropping them out of every option.
+      if (origin === "validator") query = query.eq("submitted_by_role", "validator");
+      else if (origin === "manual") query = query.eq("source", "sheet");
+      else if (origin === "closer")
+        query = query
+          .eq("source", "live")
+          .or("submitted_by_role.is.null,submitted_by_role.neq.validator");
 
       if (status !== ANY) query = query.eq("status", status);
       if (disposition === NOT_SET) query = query.is("disposition", null);
       else if (disposition !== ANY) query = query.eq("disposition", disposition);
+
+      // `center_id`, not the stamped name: the id is what a renamed centre
+      // keeps. The name is only ever what the column renders.
+      if (center === NOT_SET) query = query.is("center_id", null);
+      else if (center !== ANY) query = query.eq("center_id", center);
 
       for (const filter of setFilters) {
         query = query.eq(`setf.${filter.category}_status_id`, filter.optionId);
@@ -285,12 +341,19 @@ export function ClosingDesk() {
   };
 
   const filtersActive =
-    term !== "" || status !== ANY || disposition !== ANY || cxKey !== UNFILTERED_CX;
+    term !== "" ||
+    origin !== ANY ||
+    status !== ANY ||
+    disposition !== ANY ||
+    center !== ANY ||
+    cxKey !== UNFILTERED_CX;
 
   function clearFilters() {
     setSearch("");
+    setOrigin(ANY);
     setStatus(ANY);
     setDisposition(ANY);
+    setCenter(ANY);
     setCxFilters(NO_CX_FILTERS);
   }
 
@@ -299,16 +362,29 @@ export function ClosingDesk() {
     // the browser's ~1s title delay, so a hover reads as instant.
     <TooltipProvider delayDuration={120} skipDelayDuration={300}>
       <section className="panel">
-        <h2 className="panel-title">Closer Leads ({total})</h2>
+        {/* Named after what is actually in the table. This desk used to say
+            "Closer Leads" unconditionally, which stopped being true the day a
+            general manager could see validator work in it. Derived from the
+            filter rather than from the reader's role — the table shows what the
+            database returned, and the heading says which slice of it. */}
+        <h2 className="panel-title">
+          {origin === ANY ? "Leads" : `${ORIGIN_LABEL[origin]} Leads`} ({total})
+        </h2>
 
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <FilterSelect
+            label="Submitted By"
+            value={origin}
+            onChange={setOrigin}
+            options={ORIGINS.map((value) => ({ value, label: ORIGIN_LABEL[value] }))}
+          />
           <FilterSelect
             label="Validation Status"
             value={status}
             onChange={setStatus}
-            /* This desk is closer-originated leads only, and a closer
-               submission never enters import approval — offering it would be a
-               filter that always returns nothing. */
+            /* A submitted form never enters import approval — that gate is
+               for uploaded rows, and they are reviewed in Pending Imports, not
+               here. Offering it would be a filter that always returns nothing. */
             options={SUB_STATUSES.filter((value) => value !== "pending_import_approval").map(
               (value) => ({ value, label: STATUS_LABEL[value] }),
             )}
@@ -323,6 +399,16 @@ export function ClosingDesk() {
               // DISPOSITION_LABEL is the only place that is decided.
               value,
               label: dispositionLabel(value) ?? value,
+            }))}
+          />
+          <FilterSelect
+            label="Center"
+            value={center}
+            onChange={setCenter}
+            notSet="No center"
+            options={(centers.data ?? []).map((entry) => ({
+              value: entry.id,
+              label: entry.active ? entry.name : `${entry.name} (inactive)`,
             }))}
           />
         </div>
@@ -366,13 +452,14 @@ export function ClosingDesk() {
         {/* Fixed layout, so the declared widths hold and the cells truncate to
             their column instead of stretching it. The min-width makes the panel
             scroll sideways on a narrow screen rather than squeezing them. */}
-        <Table className="min-w-[92rem] table-fixed">
+        <Table className="min-w-[100rem] table-fixed">
           <TableHeader>
             <TableRow>
+              <TableHead className="w-20">Center</TableHead>
               {/* No width: Customer absorbs whatever the others leave. */}
-              <TableHead>Customer</TableHead>
-              <TableHead className="w-32">Closer</TableHead>
-              <TableHead className="w-28">Source</TableHead>
+              <TableHead className="w-32">Customer</TableHead>
+              <TableHead className="w-32">Submitted By</TableHead>
+              {/* <TableHead className="w-28">Source</TableHead> */}
               <TableHead className="w-28">Submitted</TableHead>
               <TableHead className="w-28">Validation</TableHead>
               <TableHead className="w-24">Disposition</TableHead>
@@ -393,6 +480,12 @@ export function ClosingDesk() {
                   className="cursor-pointer align-top"
                   onClick={() => setOpenId(row.id)}
                 >
+                  <TableCell
+                    className="truncate text-muted-foreground"
+                    title={row.center_name ?? undefined}
+                  >
+                    {row.center_name ?? "—"}
+                  </TableCell>
                   <TableCell className="font-medium">
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -401,7 +494,7 @@ export function ClosingDesk() {
                       <TooltipBody>
                         <TooltipHeading>{name}</TooltipHeading>
                         <span className="free-text text-[0.62rem] text-muted-foreground">
-                          {closer} · submitted {shortDate(row.created_at)}
+                          {closer} · submitted {formatDate(row.created_at)}
                         </span>
                       </TooltipBody>
                     </Tooltip>
@@ -409,11 +502,11 @@ export function ClosingDesk() {
                   <TableCell className="truncate text-muted-foreground" title={closer}>
                     {closer}
                   </TableCell>
-                  <TableCell title={sourceLabel(row)}>
+                  {/* <TableCell title={sourceLabel(row)}>
                     <OriginBadge row={row} />
-                  </TableCell>
+                  </TableCell> */}
                   <TableCell className="whitespace-nowrap text-muted-foreground">
-                    {shortDate(row.created_at)}
+                    {formatDate(row.created_at)}
                   </TableCell>
                   <TableCell>
                     {/* The same chain the Operations queue draws, so a lead
@@ -428,7 +521,7 @@ export function ClosingDesk() {
                   </TableCell>
                   {CX_CATEGORIES.map((category) => (
                     <TableCell key={category}>
-                      <ReadOnlyStatus
+                      <CxLeadStatusValue
                         category={category}
                         cx={row.cx}
                         optionFor={(id) => byId.get(id) ?? null}
@@ -440,7 +533,7 @@ export function ClosingDesk() {
             })}
             {rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={10} className="text-center text-muted-foreground">
+                <TableCell colSpan={11} className="text-center text-muted-foreground">
                   {leads.isLoading
                     ? "Loading…"
                     : noCenter
@@ -472,7 +565,7 @@ export function ClosingDesk() {
                 <SheetTitle>{customerName(selected.payload)}</SheetTitle>
                 <SheetDescription>
                   {closerName(selected)} · {sourceLabel(selected)} · submitted{" "}
-                  {shortDate(selected.created_at)}
+                  {formatDate(selected.created_at)}
                 </SheetDescription>
               </SheetHeader>
 
@@ -492,7 +585,7 @@ export function ClosingDesk() {
                     {CX_CATEGORIES.map((category) => (
                       <div key={category} className="flex min-w-0 flex-col gap-1">
                         <span className="field-label">{CATEGORY_LABEL[category]}</span>
-                        <ReadOnlyStatus
+                        <CxLeadStatusValue
                           category={category}
                           cx={selected.cx}
                           optionFor={(id) => byId.get(id) ?? null}
@@ -510,6 +603,9 @@ export function ClosingDesk() {
                   payload={selected.payload}
                   onSaved={onEdited}
                 />
+
+                {/* The review's own outcome, below the payload it is about. */}
+                <ValidatorFields row={selected} onSaved={onEdited} />
 
                 {/* Read-only, and no card reveal: `card_details` belongs to an
                     admin and to the validator inside their own open review. */}
@@ -529,33 +625,6 @@ export function ClosingDesk() {
         </SheetContent>
       </Sheet>
     </TooltipProvider>
-  );
-}
-
-/** One category's chip and reason, resolved from the stored option id. */
-function ReadOnlyStatus({
-  category,
-  cx,
-  optionFor,
-}: {
-  category: CxCategory;
-  cx: CxLeadStatus | null;
-  optionFor: (id: string) => { label: string; tone: string } | null;
-}) {
-  const id = cx?.[`${category}_status_id`] ?? null;
-  const option = id ? optionFor(id) : null;
-
-  return (
-    <div className="flex w-full min-w-0 flex-col items-start gap-0.5 px-1 py-0.5">
-      <CxStatusValue
-        category={category}
-        label={option?.label ?? null}
-        tone={option?.tone ?? null}
-        reason={cx?.[`${category}_reason`] ?? null}
-        updatedBy={cx?.updater?.full_name ?? null}
-        updatedAt={cx?.updated_at ?? null}
-      />
-    </div>
   );
 }
 

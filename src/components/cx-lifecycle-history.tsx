@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { formatEventTime } from "@/lib/format-date";
 import { StatusChip } from "@/components/cx-status-cell";
 import { CATEGORY_LABEL, CX_CATEGORIES, groupByCategory, type CxCategory } from "@/lib/cx-status";
 import { ClampedText } from "@/components/free-text";
@@ -28,15 +29,6 @@ type HistoryRow = {
   changed_at: string;
   actor: { full_name: string | null } | null;
 };
-
-function changeTime(iso: string) {
-  return new Date(iso).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
 
 export function CxLifecycleHistory({ submissionId }: { submissionId: string }) {
   const history = useQuery({
@@ -96,14 +88,14 @@ export function CxLifecycleHistory({ submissionId }: { submissionId: string }) {
                       </span>
                       <span className="text-xs text-muted-foreground">
                         <span className="text-foreground">{entry.actor?.full_name ?? "—"}</span> ·{" "}
-                        {changeTime(entry.changed_at)}
+                        {formatEventTime(entry.changed_at)}
                       </span>
                       {entry.reason ? (
                         <span className="min-w-0 border-l-2 border-accent/50 pl-1.5 text-[0.68rem] italic text-muted-foreground">
                           <ClampedText
                             text={entry.reason}
                             heading={CATEGORY_LABEL[category]}
-                            meta={`${entry.actor?.full_name ?? "—"} · ${changeTime(entry.changed_at)}`}
+                            meta={`${entry.actor?.full_name ?? "—"} · ${formatEventTime(entry.changed_at)}`}
                           />
                         </span>
                       ) : null}

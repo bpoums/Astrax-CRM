@@ -118,6 +118,45 @@ function readOption(row: {
   };
 }
 
+/**
+ * One lead's four CX statuses, as `cx_lead_status` stores them: option IDS, not
+ * labels. Resolving them is `CxLeadStatusValue`'s job.
+ *
+ * Null for a lead the CX team has never touched, which is the common case on
+ * any screen that lists leads by something other than CX progress.
+ */
+export type CxLeadStatus = {
+  policy_status_id: string | null;
+  policy_reason: string | null;
+  premium_status_id: string | null;
+  premium_reason: string | null;
+  commission_status_id: string | null;
+  commission_reason: string | null;
+  chargeback_status_id: string | null;
+  chargeback_reason: string | null;
+  updated_at: string | null;
+  updater: { full_name: string | null } | null;
+};
+
+/**
+ * `submission_id` resolves to more than one relation, so the embed names the
+ * constraint. Exported because the closing desk also builds aliased joins off
+ * it to filter on a category being set or unset.
+ */
+export const CX_LEAD_STATUS_FK = "cx_lead_status!cx_lead_status_submission_id_fkey";
+
+/**
+ * The embed that fills `CxLeadStatus`, spelled once.
+ *
+ * At most one row per lead, so it arrives as an object rather than a list.
+ * `updater` is nested a second level so a tooltip can attribute the last change
+ * to a person rather than to a uuid.
+ */
+export const CX_LEAD_STATUS_SELECT =
+  `cx:${CX_LEAD_STATUS_FK}(policy_status_id, policy_reason, premium_status_id, premium_reason, ` +
+  "commission_status_id, commission_reason, chargeback_status_id, chargeback_reason, " +
+  "updated_at, updater:profiles!cx_lead_status_updated_by_fkey(full_name))";
+
 export type OptionsByCategory = Record<CxCategory, CxStatusOption[]>;
 
 /**
@@ -153,9 +192,18 @@ export function groupByCategory<T extends { category: CxCategory }>(
  * offered again. The admin panel asks for all of them, because that is where a
  * deactivated option is brought back.
  */
-export function useCxStatusOptions(activeOnly = true) {
+/**
+ * @param activeOnly the dropdowns want the active options; a table showing
+ *   stored values wants the retired ones too, or a lead sitting on a
+ *   deactivated status renders as a blank.
+ * @param enabled false holds the fetch back, for a screen that must not query
+ *   anything before the reader has chosen what to look at. Same shape as
+ *   `useCarriers`.
+ */
+export function useCxStatusOptions(activeOnly = true, enabled = true) {
   const query = useQuery({
     queryKey: cxStatusOptionsKey(activeOnly),
+    enabled,
     // The vocabulary changes only when an admin edits it, and that invalidates
     // this key directly.
     staleTime: 5 * 60 * 1000,

@@ -5,11 +5,11 @@ import {
   OriginBadge,
   PayloadTable,
   customerName,
-  shortDate,
   sourceLabel,
   type LeadSource,
   type UploaderRef,
 } from "@/components/ops";
+import { formatDate } from "@/lib/format-date";
 import { CxStatusCell } from "@/components/cx-status-cell";
 import { CxLifecycleHistory } from "@/components/cx-lifecycle-history";
 import { ValidationTimeline } from "@/components/validation-timeline";
@@ -348,7 +348,7 @@ export function CustomersPipeline({
               >
                 {/* Fixed columns clip rather than stretch, so anything that can
                     run long truncates and keeps its full text on hover. */}
-                    <TableCell>
+                <TableCell>
                   <OriginBadge row={originOf(row)} />
                 </TableCell>
                 <TableCell className="font-medium">
@@ -362,7 +362,7 @@ export function CustomersPipeline({
                       <TooltipHeading>{customerName(row.payload)}</TooltipHeading>
                       <span className="free-text text-[0.62rem] text-muted-foreground">
                         {payloadText(row.payload, "Carrier Name")} · submitted{" "}
-                        {shortDate(row.submitted_on)}
+                        {formatDate(row.submitted_on)}
                       </span>
                     </TooltipBody>
                   </Tooltip>
@@ -373,9 +373,9 @@ export function CustomersPipeline({
                 >
                   {payloadText(row.payload, "Carrier Name")}
                 </TableCell>
-                
+
                 <TableCell className="whitespace-nowrap text-muted-foreground">
-                  {shortDate(row.submitted_on)}
+                  {formatDate(row.submitted_on)}
                 </TableCell>
                 {CX_CATEGORIES.map((category) => {
                   const status = statusOf(row, category);
@@ -404,7 +404,7 @@ export function CustomersPipeline({
                     {row.cx_updated_at ? (
                       <span className="flex flex-col">
                         <span className="text-xs text-foreground">{row.cx_updated_by ?? "—"}</span>
-                        <span className="text-[0.62rem]">{shortDate(row.cx_updated_at)}</span>
+                        <span className="text-[0.62rem]">{formatDate(row.cx_updated_at)}</span>
                       </span>
                     ) : (
                       "—"
@@ -465,7 +465,7 @@ export function CustomersPipeline({
                 <SheetTitle>{customerName(selected.payload)}</SheetTitle>
                 <SheetDescription>
                   {payloadText(selected.payload, "Carrier Name")} ·{" "}
-                  {sourceLabel(originOf(selected))} · submitted {shortDate(selected.submitted_on)}
+                  {sourceLabel(originOf(selected))} · submitted {formatDate(selected.submitted_on)}
                 </SheetDescription>
               </SheetHeader>
 

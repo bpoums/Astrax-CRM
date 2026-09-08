@@ -3,7 +3,14 @@ import { Link } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { roleHome, useAuth } from "@/lib/auth";
 import { draftDateWarning, fieldWarning } from "@/lib/form-warnings";
+import { duplicateSsnWarning, SSN_FIELD, useDuplicateSsn } from "@/lib/duplicate-ssn";
 import { calcAge, formatSSN, zodiacSign } from "@/lib/form-fields";
+import {
+  BIRTH_COUNTRY_DEFAULT,
+  BIRTH_COUNTRY_FIELD,
+  closeField,
+  maskField,
+} from "@/lib/field-mask";
 import { useCarriers } from "@/lib/carriers";
 import type { Carrier } from "@/lib/carriers";
 import { AppHeader } from "./ops";
@@ -15,7 +22,7 @@ import { BrandLogo } from "./brand-logo";
  * canonical NAME is what lands in the payload — an id would reach Google Sheets
  * and mean nothing to anyone reading the tab.
  */
-type FieldType = "text" | "number" | "date" | "radio" | "textarea" | "carrier";
+type FieldType = "text" | "number" | "date" | "radio" | "textarea" | "carrier" | "country";
 
 export type Field = {
   label: string;
@@ -45,7 +52,9 @@ export const SECTIONS: Section[] = [
       { label: "State", type: "text", required: true },
       { label: "Residential State", type: "text", required: true },
       { label: "Birth State", type: "text", required: true },
-      { label: "Birth Country", type: "text", required: true },
+      // Two chips, not free text: almost every customer is USA, and "Other"
+      // reveals a box whose contents become the value — see FieldControl.
+      { label: "Birth Country", type: "country", required: true },
       { label: "SSN Number", type: "number", required: true },
       { label: "Phone Number", type: "number", required: true },
       { label: "Email Address", type: "text", span: "sm:col-span-2" },
@@ -69,8 +78,9 @@ export const SECTIONS: Section[] = [
   {
     title: "Policy",
     fields: [
-      // { label: "Carrier Name", type: "carrier", required: true }, if type = carrier than carrier name will be selectable
+      //  if type = carrier than carrier name will be selectable
       { label: "Carrier Name", type: "text", required: true },
+      // { label: "Carrier Name", type: "carrier", required: true , span: "sm:col-span-2" },
       { label: "Coverage Amount", type: "number", required: true },
       { label: "Premium", type: "text", required: true },
       { label: "Doc Name", type: "text" },
@@ -80,7 +90,7 @@ export const SECTIONS: Section[] = [
         type: "radio",
         required: true,
         // span: "sm:col-span-2",
-        options: ["Level", "Graded" , "Mod" , "G.I"],
+        options: ["Level", "Graded", "Mod", "G.I"],
       },
       { label: "Doc Address", type: "textarea", span: "sm:col-span-2" },
       { label: "Beneficiary Name", type: "text", required: true },
@@ -116,7 +126,12 @@ const ZIP = "Customer Zip Code";
 const ALL_FIELDS = SECTIONS.flatMap((section) => section.fields);
 
 function emptyForm(): Record<string, string> {
-  return Object.fromEntries(ALL_FIELDS.map((field) => [field.label, ""]));
+  return {
+    ...Object.fromEntries(ALL_FIELDS.map((field) => [field.label, ""])),
+    // Pre-selected rather than blank, so the common case needs no click. A
+    // reset after a submission puts it back.
+    [BIRTH_COUNTRY_FIELD]: BIRTH_COUNTRY_DEFAULT,
+  };
 }
 
 export function CloserForm() {
@@ -136,8 +151,19 @@ export function CloserForm() {
         const age = calcAge(value);
         return { ...prev, [label]: value, [AGE]: age === null ? "" : String(age) };
       }
-      return { ...prev, [label]: value };
+      // Height, money, ZIP and the State fields. A label with no mask comes
+      // back untouched, so this is the ordinary path too.
+      return { ...prev, [label]: maskField(label, value, prev[label] ?? "") };
     });
+
+  /**
+   * A value written exactly as given, with no mask applied.
+   *
+   * The blur pass has already produced the final string — running it back
+   * through the keystroke mask would undo it, since `5'6"` re-masks to `5'6`.
+   */
+  const commit = (label: string, value: string) =>
+    setValues((prev) => ({ ...prev, [label]: value }));
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -226,6 +252,7 @@ export function CloserForm() {
                     carriersLoading={carriers.isLoading}
                     carriersError={carriers.isError ? (carriers.error as Error).message : null}
                     onChange={(v) => set(field.label, v)}
+                    onCommit={(v) => commit(field.label, v)}
                   />
                 ))}
               </div>
@@ -234,6 +261,76 @@ export function CloserForm() {
         </div>
       </form>
     </main>
+  );
+}
+
+/**
+ * Birth country as two chips, with a box behind the second one.
+ *
+ * The stored value is the country itself, never the word "Other" — that chip is
+ * a mode, not an answer, so what lands in the payload (and therefore in the
+ * Sheet column) is "USA" or whatever was typed. USA is pre-selected, so the
+ * overwhelmingly common case costs nobody a click.
+ *
+ * "Other" being chosen has to be remembered separately from the value, because
+ * the moment it is picked the value is empty — and an empty value is
+ * indistinguishable from USA-not-yet-changed unless something tracks the
+ * choice. Reopening a form with a country already stored infers it instead.
+ */
+function BirthCountryControl({
+  id,
+  value,
+  onChange,
+}: {
+  id: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const storedIsOther = value.trim() !== "" && value !== BIRTH_COUNTRY_DEFAULT;
+  const [other, setOther] = useState(storedIsOther);
+  const showOther = other || storedIsOther;
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex flex-wrap gap-1.5">
+        <button
+          type="button"
+          onClick={() => {
+            setOther(false);
+            onChange(BIRTH_COUNTRY_DEFAULT);
+          }}
+          aria-pressed={!showOther}
+          className={!showOther ? "chip chip-active" : "chip"}
+        >
+          {BIRTH_COUNTRY_DEFAULT}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setOther(true);
+            // Cleared, so the box starts empty rather than asking the closer to
+            // delete "USA" before typing the real answer.
+            if (value === BIRTH_COUNTRY_DEFAULT) onChange("");
+          }}
+          aria-pressed={showOther}
+          className={showOther ? "chip chip-active" : "chip"}
+        >
+          Other
+        </button>
+      </div>
+      {showOther ? (
+        <input
+          id={id}
+          type="text"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder="Country of birth"
+          aria-label="Birth country"
+          className="field-input"
+          autoComplete="off"
+        />
+      ) : null}
+    </div>
   );
 }
 
@@ -265,6 +362,15 @@ function useZipInfo(zip: string, enabled: boolean) {
         );
         if (!wRes.ok) throw new Error("weather");
         const w = await wRes.json();
+        /**
+         * The ONE clock in the app that is deliberately not US Pacific.
+         *
+         * `timezone=auto` makes open-meteo return the wall clock at the
+         * customer's own ZIP, and that is the point of showing it — a closer
+         * about to dial needs to know it is 7am where the customer is. Routing
+         * this through `format-date` would restate every customer's morning in
+         * Pacific and destroy the only reason the field exists.
+         */
         const local = new Date(w.current.time);
         const time = local.toLocaleTimeString("en-US", {
           hour: "numeric",
@@ -299,6 +405,7 @@ function FieldControl({
   carriersLoading,
   carriersError,
   onChange,
+  onCommit,
 }: {
   field: Field;
   value: string;
@@ -309,6 +416,8 @@ function FieldControl({
   carriersLoading: boolean;
   carriersError: string | null;
   onChange: (value: string) => void;
+  /** Writes verbatim, bypassing the keystroke mask. Blur only. */
+  onCommit: (value: string) => void;
 }) {
   const id = field.label.replace(/[^a-zA-Z0-9]+/g, "-").toLowerCase();
   const isZip = field.label === ZIP;
@@ -318,6 +427,23 @@ function FieldControl({
   // mistake, and saying so while it is still being typed is pure noise.
   const [touched, setTouched] = useState(false);
   const warning = touched ? fieldWarning(field.label, value, values) : null;
+
+  // Inert on every field but the SSN — nothing is asked until `check` is called
+  // on blur, and only that field calls it.
+  const duplicate = useDuplicateSsn(value);
+
+  /**
+   * Blur marks the field checked and closes any mask that could not finish
+   * live — the " on a short height, the padding on a short ZIP.
+   */
+  function handleBlur() {
+    setTouched(true);
+    const closed = closeField(field.label, value);
+    if (closed !== value) onCommit(closed);
+    // Advisory only, and only ever from here: a partial SSN asks nothing, and
+    // the check never runs on a keystroke. See useDuplicateSsn.
+    if (field.label === SSN_FIELD) duplicate.check(closed);
+  }
 
   type Hint = { tone: "info" | "warn" | "danger" | "ok"; text: string };
   const hints = (() => {
@@ -349,6 +475,12 @@ function FieldControl({
 
   if (warning) hints.push(warning);
 
+  // Last, so it reads after the shape check rather than in front of it: "this
+  // isn't a valid SSN" and "this SSN is already sold" are different questions
+  // and the first one comes first.
+  const duplicateHint = duplicateSsnWarning(duplicate.hit, Date.now());
+  if (duplicateHint) hints.push(duplicateHint);
+
   return (
     <div className={`flex flex-col gap-1 ${field.span ?? ""}`}>
       <label htmlFor={id} className="field-label">
@@ -362,7 +494,7 @@ function FieldControl({
           rows={2}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          onBlur={() => setTouched(true)}
+          onBlur={handleBlur}
           className="field-input resize-none"
         />
       ) : field.type === "radio" ? (
@@ -410,6 +542,8 @@ function FieldControl({
             </span>
           ) : null}
         </div>
+      ) : field.type === "country" ? (
+        <BirthCountryControl id={id} value={value} onChange={onChange} />
       ) : (
         <input
           id={id}
@@ -418,7 +552,7 @@ function FieldControl({
           required={field.required}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          onBlur={() => setTouched(true)}
+          onBlur={handleBlur}
           className="field-input"
         />
       )}

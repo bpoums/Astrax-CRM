@@ -28,6 +28,7 @@ const ROLES: AppRole[] = [
   "validator",
   "manager",
   "closing_manager",
+  "general_manager",
   "data_uploader",
   "cxa",
   "cxm",

@@ -24,6 +24,8 @@ import {
   type SubmissionRow,
 } from "@/components/ops";
 import { PaymentPanel } from "@/components/payment-panel";
+import { acceptBlockedReason, ValidatorFields } from "@/components/validator-fields";
+import { validationTimelineKey } from "@/components/validation-timeline";
 import { DataFlagList } from "@/components/data-flags";
 import { CarrierDeclineList } from "@/components/carrier-declines";
 import { DeclineDialog } from "@/components/decline-dialog";
@@ -202,6 +204,12 @@ function ValidatorPage() {
   const rows = useMemo(() => submissions.data ?? [], [submissions.data]);
   const selected = rows.find((row) => row.id === openId) ?? null;
   const selectedFlags = selected ? dataFlags(selected.data_flags) : [];
+  /**
+   * Why Accept is unavailable, or null. Read off the SAVED row rather than the
+   * editor's draft: the server gates on what is stored, so anything else would
+   * enable a button the RPC then refuses.
+   */
+  const acceptBlocked = selected ? acceptBlockedReason(selected) : null;
   const pending = rows.find((row) => row.id === confirmId) ?? null;
   const declining = rows.find((row) => row.id === declineId) ?? null;
   const remaining =
@@ -433,33 +441,57 @@ function ValidatorPage() {
                 {/* Which carriers have already refused this lead, before the
                     validator spends a call finding out the hard way. */}
                 <CarrierDeclineList submissionId={selected.id} />
+
+                {/* What this review has to produce, and what the Submit button
+                    below is waiting on. */}
+                <ValidatorFields
+                  row={selected}
+                  onSaved={() => {
+                    queryClient.invalidateQueries({ queryKey: QUEUE_KEY });
+                    queryClient.invalidateQueries({
+                      queryKey: validationTimelineKey(selected.id),
+                    });
+                  }}
+                />
               </div>
 
-              <div className="flex gap-2 border-t border-border p-4">
-                <button
-                  type="button"
-                  className="btn-submit flex-1"
-                  disabled={busy}
-                  onClick={() => dispose.mutate({ id: selected.id, disposition: "accepted" })}
-                >
-                  {dispositionLabel("accepted")}
-                </button>
-                <button
-                  type="button"
-                  className="chip flex-1 justify-center border-destructive text-destructive"
-                  disabled={busy}
-                  onClick={() => setDeclineId(selected.id)}
-                >
-                  {dispositionLabel("declined")}
-                </button>
-                <button
-                  type="button"
-                  className="chip flex-1 justify-center"
-                  disabled={busy}
-                  onClick={() => hold.mutate(selected.id)}
-                >
-                  {hold.isPending ? "Holding…" : "Hold"}
-                </button>
+              <div className="flex flex-col gap-2 border-t border-border p-4">
+                {/* Said before the click, not after it. `dispose_submission`
+                    refuses this anyway; showing the reason up here is what
+                    stops a validator pressing Submit and going looking for
+                    why — Decline and Hold stay open either way. */}
+                {acceptBlocked ? (
+                  <span className="text-[0.68rem] font-semibold text-destructive">
+                    {acceptBlocked}
+                  </span>
+                ) : null}
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    className="btn-submit flex-1"
+                    disabled={busy || !!acceptBlocked}
+                    title={acceptBlocked ?? undefined}
+                    onClick={() => dispose.mutate({ id: selected.id, disposition: "accepted" })}
+                  >
+                    {dispositionLabel("accepted")}
+                  </button>
+                  <button
+                    type="button"
+                    className="chip flex-1 justify-center border-destructive text-destructive"
+                    disabled={busy}
+                    onClick={() => setDeclineId(selected.id)}
+                  >
+                    {dispositionLabel("declined")}
+                  </button>
+                  <button
+                    type="button"
+                    className="chip flex-1 justify-center"
+                    disabled={busy}
+                    onClick={() => hold.mutate(selected.id)}
+                  >
+                    {hold.isPending ? "Holding…" : "Hold"}
+                  </button>
+                </div>
               </div>
             </>
           ) : null}

@@ -94,6 +94,21 @@ export type SubmissionRow = {
   disposed_by: string | null;
   disposed_at: string | null;
   created_at: string;
+  /**
+   * Which form the lead came in on. Null on rows written before the column
+   * existed, which are closer submissions — only an explicit 'validator' is
+   * treated as validator-originated anywhere.
+   */
+  submitted_by_role: "closer" | "validator" | null;
+  /**
+   * Set during review, not at submission — see `ValidatorFields`. The carrier
+   * the lead was actually placed with, which is a different question from the
+   * carrier the closer expected in `payload`, and `dispose_submission` will not
+   * accept a closer-originated lead until all three are set.
+   */
+  final_carrier_id: string | null;
+  agent_name: string | null;
+  policy_number: string | null;
 };
 
 export const REVIEW_WINDOW_MS = 10 * 60 * 1000;
@@ -148,6 +163,10 @@ export function useNow(intervalMs = 1000) {
   return now;
 }
 
+/**
+ * "3d ago". A difference between two instants, so it needs no timezone — and
+ * must not be routed through `format-date`, which formats a wall clock.
+ */
 export function relativeTime(iso: string, now: number) {
   const diff = Math.max(0, now - new Date(iso).getTime());
   const s = Math.floor(diff / 1000);
@@ -157,16 +176,6 @@ export function relativeTime(iso: string, now: number) {
   const h = Math.floor(m / 60);
   if (h < 24) return `${h}h ago`;
   return `${Math.floor(h / 24)}d ago`;
-}
-
-/** A short absolute date: "24 Aug 2026". Shared by the CX views. */
-export function shortDate(iso: string | null | undefined) {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
 }
 
 export function formatClock(ms: number) {
@@ -181,9 +190,43 @@ export function remainingMs(claimedAt: string | null, now: number, windowMs = RE
   return new Date(claimedAt).getTime() + windowMs - now;
 }
 
+/**
+ * The payload keys that hold a carrier, in the order they are looked at.
+ *
+ * Exported so the server-side search matches on exactly the keys the column
+ * displays — a search that looked at one key while the cell rendered the other
+ * would report "no results" over rows the reader can see.
+ */
+export const CARRIER_KEYS = ["Carrier Name", "Agency"] as const;
+
 export function customerName(payload: Record<string, unknown>) {
   const value = payload?.["Full Name"];
   return typeof value === "string" && value.trim() ? value : "—";
+}
+
+/**
+ * The carrier a lead was written for, as it was typed.
+ *
+ * TWO keys, because the two forms disagree and always have. A closer submission
+ * and an imported lead carry "Carrier Name"; a validator submission carries
+ * "Agency", which is the key the Apps Script routes a Google Sheet tab off and
+ * so cannot be renamed. Reading only one of them left every row on one of the
+ * Reporting tabs showing a dash.
+ *
+ * The value is trimmed for display and nothing more. The stored values are
+ * whatever the operator typed — "Fidelity Life", "Fidelity Life ", " Fidelity "
+ * are all real rows today — and this is a record of what was written, not a
+ * name resolved against the `carriers` table. Leads taken before the field
+ * existed have no value at all, which is why the dash is a common case rather
+ * than an exception.
+ */
+export function carrierName(payload: Record<string, unknown>) {
+  for (const key of CARRIER_KEYS) {
+    const value = payload?.[key];
+    const trimmed = typeof value === "string" ? value.trim() : "";
+    if (trimmed) return trimmed;
+  }
+  return "—";
 }
 
 /**
@@ -234,6 +277,9 @@ export function isOnHold(row: {
  */
 const EVENT_LABEL: Record<string, string> = {
   submitted: "Sale Closed By",
+  // Written by `set_validator_fields`, so the change already lands in the
+  // validation timeline and needs no history panel of its own.
+  validator_fields_set: "Validator Fields Set",
 };
 
 export function eventLabel(type: string) {
@@ -588,6 +634,30 @@ export function payloadDisplayValue(key: string, value: unknown) {
   return parts ? `${parts[2]}-${parts[3]}-${parts[1]}` : text;
 }
 
+/**
+ * The word a payload key is shown under, where the stored key is not the word
+ * an operator should be reading.
+ *
+ * DISPLAY ONLY, for exactly the reason `payloadDisplayValue` is: the key itself
+ * is load-bearing. A validator submission files the carrier under "Agency", and
+ * the Apps Script routes the Google Sheet tab off that literal string — rename
+ * the key and new submissions land on the wrong tab, quietly, with nothing in
+ * the app to show for it. So the key stays exactly as it is and only the label
+ * above it changes.
+ *
+ * Everything that WRITES a field keeps using the raw key: the `p_field`
+ * argument to `update_payload_field`, the `FIELD_BY_LABEL` lookup that decides
+ * an input's type, and the DOM id built off it. This is the last step before
+ * the text reaches the screen and nothing else.
+ */
+const PAYLOAD_LABEL: Record<string, string> = {
+  Agency: "Carrier Name",
+};
+
+export function payloadDisplayLabel(key: string) {
+  return PAYLOAD_LABEL[key] ?? key;
+}
+
 export function PayloadTable({ payload }: { payload: Record<string, unknown> }) {
   const entries = orderedPayloadEntries(payload);
   const { copied, copy } = useCopy();
@@ -600,13 +670,16 @@ export function PayloadTable({ payload }: { payload: Record<string, unknown> }) 
         // lands on the clipboard, which is the point of showing it this way.
         const text = isEmpty ? "" : payloadDisplayValue(key, value);
         const isCopied = copied === key;
+        // The row is still keyed and copied by the stored key — only the word
+        // above the value, and what a screen reader announces, is the label.
+        const label = payloadDisplayLabel(key);
 
         return (
           <div
             key={key}
             className="group grid grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_auto] items-center gap-2 px-3 py-1.5 transition-colors hover:bg-accent/5"
           >
-            <span className="field-label truncate">{key}</span>
+            <span className="field-label truncate">{label}</span>
 
             <button
               type="button"
@@ -624,7 +697,7 @@ export function PayloadTable({ payload }: { payload: Record<string, unknown> }) 
               <button
                 type="button"
                 onClick={() => copy(key, text)}
-                aria-label={isCopied ? `${key} copied` : `Copy ${key}`}
+                aria-label={isCopied ? `${label} copied` : `Copy ${label}`}
                 className={`flex h-6 w-6 items-center justify-center rounded transition-opacity hover:bg-accent/10 focus:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
                   isCopied ? "opacity-100" : "opacity-40 group-hover:opacity-100"
                 }`}

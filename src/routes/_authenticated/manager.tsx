@@ -20,17 +20,19 @@ import {
   isOnHold,
   relativeTime,
   remainingMs,
-  shortDate,
   useNow,
   useReviewSettings,
   type Disposition,
   type LeadSource,
   type SubmissionRow,
 } from "@/components/ops";
+import { formatDate } from "@/lib/format-date";
 import { PaymentPanel } from "@/components/payment-panel";
 import { DataFlagList } from "@/components/data-flags";
 import { LeadPayload } from "@/components/lead-editor";
+import { acceptBlockedReason, ValidatorFields } from "@/components/validator-fields";
 import { PayloadEditHistory, payloadHistoryKey } from "@/components/payload-history";
+import { validationTimelineKey } from "@/components/validation-timeline";
 import {
   CarrierDeclineList,
   DeclinedCarriersBadge,
@@ -38,6 +40,7 @@ import {
 } from "@/components/carrier-declines";
 import { DeclineDialog } from "@/components/decline-dialog";
 import { PendingImports, PENDING_IMPORTS_KEY } from "@/components/pending-imports";
+import { DraftDateDesk } from "@/components/draft-date-desk";
 import { carrierSummary, useDeclinedCarrierMap } from "@/lib/carriers";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -376,6 +379,12 @@ function ManagerPage() {
   );
   const selected = rows.find((row) => row.id === openId) ?? null;
   const selectedFlags = selected ? dataFlags(selected.data_flags) : [];
+  /**
+   * Why Accept is unavailable, or null. Read off the SAVED row rather than the
+   * editor's draft: the server gates on what is stored, so anything else would
+   * enable a button the RPC then refuses.
+   */
+  const acceptBlocked = selected ? acceptBlockedReason(selected) : null;
   const declining = rows.find((row) => row.id === declineId) ?? null;
   const declinedBy = (id: string) => declinedMap.data?.get(id) ?? [];
   const selectedDeclines = selected ? declinedBy(selected.id) : [];
@@ -453,6 +462,9 @@ function ManagerPage() {
                 queue yet and cannot be assigned or disposed until a batch is
                 accepted. */}
             <TabsTrigger value="imports">Pending Imports</TabsTrigger>
+            {/* Not part of Operations: these leads are all disposed and
+                accepted, so none of the queue's actions apply to them. */}
+            <TabsTrigger value="draft-dates">By Draft Date</TabsTrigger>
             <TabsTrigger value="reporting">Reporting</TabsTrigger>
           </TabsList>
 
@@ -652,7 +664,7 @@ function ManagerPage() {
                           </TableCell>
                           <TableCell className="font-medium">{customerName(row.payload)}</TableCell>
                           <TableCell className="text-muted-foreground">
-                            {shortDate(row.created_at)}
+                            {formatDate(row.created_at)}
                           </TableCell>
                           <TableCell>
                             <QueueStatusCell
@@ -685,6 +697,12 @@ function ManagerPage() {
               here. */}
           <TabsContent value="imports" className="flex flex-col gap-4">
             <PendingImports />
+          </TabsContent>
+
+          {/* Radix leaves an inactive tab unmounted, which is half of what
+              keeps this from querying until it is opened AND a date is picked. */}
+          <TabsContent value="draft-dates" className="flex flex-col gap-4">
+            <DraftDateDesk />
           </TabsContent>
 
           {/* Unfiltered by status, unlike the queue above: a lead stays on
@@ -742,6 +760,18 @@ function ManagerPage() {
                   }}
                 />
 
+                {/* The review's own outcome, and what the Accept button
+                    below is waiting on. */}
+                <ValidatorFields
+                  row={selected}
+                  onSaved={() => {
+                    queryClient.invalidateQueries({ queryKey: ["manager", "submissions"] });
+                    queryClient.invalidateQueries({
+                      queryKey: validationTimelineKey(selected.id),
+                    });
+                  }}
+                />
+
                 {/* Every attempt, separate from the validation timeline. */}
                 <CarrierDeclineList submissionId={selected.id} />
 
@@ -750,11 +780,20 @@ function ManagerPage() {
                 <PayloadEditHistory submissionId={selected.id} />
               </div>
               <div className="flex flex-col gap-2 border-t border-border p-4">
+                {/* Said before the click, not after it. `dispose_submission`
+                    refuses this anyway; showing the reason up here is what
+                    stops someone pressing Accept and going looking for why. */}
+                {acceptBlocked ? (
+                  <span className="text-[0.68rem] font-semibold text-destructive">
+                    {acceptBlocked}
+                  </span>
+                ) : null}
                 <div className="flex gap-2">
                   <button
                     type="button"
                     className="btn-submit flex-1"
-                    disabled={busy}
+                    disabled={busy || !!acceptBlocked}
+                    title={acceptBlocked ?? undefined}
                     onClick={() => dispose.mutate({ id: selected.id, disposition: "accepted" })}
                   >
                     {dispositionLabel("accepted")}

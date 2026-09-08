@@ -10,11 +10,11 @@ import {
   customerName,
   dispositionLabel,
   relativeTime,
-  shortDate,
   useNow,
   type Disposition,
   type SubStatus,
 } from "@/components/ops";
+import { formatDate } from "@/lib/format-date";
 import {
   Sheet,
   SheetContent,
@@ -210,7 +210,7 @@ export function ForwardedLeads() {
                   <TableCell className="font-medium">{customerName(row.payload)}</TableCell>
                   <TableCell className="text-muted-foreground">
                     {/* {relativeTime(row.created_at, now)} */}
-                    {shortDate(row.created_at)}
+                    {formatDate(row.created_at)}
                   </TableCell>
 
                   {/*------ Uncomment this block to get Status and Disposition of Leads ------- */}

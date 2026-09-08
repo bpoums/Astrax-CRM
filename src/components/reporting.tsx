@@ -6,6 +6,7 @@ import {
   DispositionBadge,
   OriginBadge,
   QueueStatusBadge,
+  carrierName,
   closerName,
   customerName,
   dataFlags,
@@ -13,7 +14,6 @@ import {
   eventLabel,
   isOnHold,
   relativeTime,
-  shortDate,
   sourceLabel,
   useNow,
   DISPOSITIONS,
@@ -24,13 +24,17 @@ import {
   type SubStatus,
   type SubmissionRow,
 } from "@/components/ops";
+import { formatDate, formatEventTime } from "@/lib/format-date";
 import { DataFlagList } from "@/components/data-flags";
 import { LeadPayload } from "@/components/lead-editor";
 import { PayloadEditHistory, payloadHistoryKey } from "@/components/payload-history";
 import { CarrierDeclineList } from "@/components/carrier-declines";
+import { validationTimelineKey } from "@/components/validation-timeline";
+import { ValidatorFields } from "@/components/validator-fields";
 import { useDeclinedCarrierMap } from "@/lib/carriers";
 import {
   LEAD_PAGE_SIZE,
+  carrierSearchClauses,
   matchingProfileIds,
   payloadSearchClauses,
   personSearchClauses,
@@ -67,7 +71,6 @@ import { CxCoverageCard } from "./cx-status-breakdown";
  */
 
 type ReportingRow = SubmissionRow & {
-  submitted_by_role: "closer" | "validator" | null;
   closer: { full_name: string | null } | null;
   uploader: { full_name: string | null } | null;
   assignee: { full_name: string | null } | null;
@@ -126,16 +129,6 @@ function eventCounter(event: TimelineEvent) {
 function eventReason(event: TimelineEvent) {
   const reason = (event.detail ?? {})["reason"];
   return typeof reason === "string" && reason.trim() ? reason : null;
-}
-
-function eventTime(iso: string) {
-  return new Date(iso).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    second: "2-digit",
-  });
 }
 
 /**
@@ -199,8 +192,8 @@ function leadSearchClauses(term: string, profileIds: string[]) {
  * One cache entry per tab, page, term and archived state, so paging back and
  * forth is instant and two tabs never share a page number.
  */
-function explorerKey(tab: LeadTab, page: number, term: string, archived: boolean) {
-  return [...SUBMISSIONS_KEY, tab, page, term, archived] as const;
+function explorerKey(tab: LeadTab, page: number, term: string, archived: boolean, carrier: string) {
+  return [...SUBMISSIONS_KEY, tab, page, term, archived, carrier] as const;
 }
 
 /**
@@ -485,6 +478,7 @@ export function SubmissionsExplorer() {
   const { profile } = useAuth();
   const now = useNow();
   const [search, setSearch] = useState("");
+  const [carrierSearch, setCarrierSearch] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
   const [leadTab, setLeadTab] = useState<LeadTab>("closer");
   const [showArchived, setShowArchived] = useState(false);
@@ -495,13 +489,17 @@ export function SubmissionsExplorer() {
   const [offlinePage, setOfflinePage] = useState(0);
 
   const term = sanitizeTerm(search);
+  // Same sanitiser: this ends up in an `or=` group too, so a comma or a bracket
+  // would end the group early exactly as it would in the free-text search.
+  const carrierTerm = sanitizeTerm(carrierSearch);
+  const carrierFiltered = carrierTerm.length > 0;
 
   // Any of these changes what page 1 even means, so all three go back to the start.
   useEffect(() => {
     setCloserPage(0);
     setValidatorPage(0);
     setOfflinePage(0);
-  }, [term, showArchived, leadTab]);
+  }, [term, carrierTerm, showArchived, leadTab]);
 
   /**
    * One page of one sub-tab.
@@ -515,7 +513,7 @@ export function SubmissionsExplorer() {
    */
   function submissionsQuery(tab: LeadTab, page: number) {
     return {
-      queryKey: explorerKey(tab, page, term, showArchived),
+      queryKey: explorerKey(tab, page, term, showArchived, carrierTerm),
       enabled: leadTab === tab,
       queryFn: async () => {
         // Resolved first so a person match can join the same `or` as the
@@ -560,6 +558,13 @@ export function SubmissionsExplorer() {
         // A second `or` group; PostgREST ANDs repeated filters, so this narrows
         // the tab above rather than widening it.
         if (term) query = query.or(leadSearchClauses(term, profileIds).join(","));
+
+        // And a third, for the same reason: the carrier box narrows whatever
+        // the search box already matched rather than competing with it. It runs
+        // in the database like every other filter here — this table is paged, so
+        // a browser-side match would only ever see the twenty-five rows already
+        // fetched and would report nothing for a lead on page four.
+        if (carrierTerm) query = query.or(carrierSearchClauses(carrierTerm).join(","));
 
         const from = page * LEAD_PAGE_SIZE;
         const { data, error, count } = await query
@@ -661,8 +666,8 @@ export function SubmissionsExplorer() {
    * arrives, but putting them in the dependency list would tear down and
    * resubscribe the channel on every keystroke.
    */
-  const activeKeyRef = useRef(explorerKey(leadTab, activePage, term, showArchived));
-  activeKeyRef.current = explorerKey(leadTab, activePage, term, showArchived);
+  const activeKeyRef = useRef(explorerKey(leadTab, activePage, term, showArchived, carrierTerm));
+  activeKeyRef.current = explorerKey(leadTab, activePage, term, showArchived, carrierTerm);
 
   useEffect(() => {
     const channel = supabase
@@ -707,6 +712,26 @@ export function SubmissionsExplorer() {
               className="field-input max-w-xs"
               aria-label="Search submissions"
             />
+            {/* Its own box rather than another word in the one beside it: this
+                NARROWS whatever that search returned, so a carrier and a
+                customer can be asked for together. */}
+            <input
+              type="search"
+              value={carrierSearch}
+              onChange={(event) => setCarrierSearch(event.target.value)}
+              placeholder="Search carrier…"
+              className="field-input w-44"
+              aria-label="Filter submissions by carrier"
+            />
+            {carrierFiltered ? (
+              <button
+                type="button"
+                className="chip px-2.5 py-0.5 text-[0.66rem]"
+                onClick={() => setCarrierSearch("")}
+              >
+                Clear carrier
+              </button>
+            ) : null}
           </div>
         </div>
 
@@ -733,6 +758,7 @@ export function SubmissionsExplorer() {
                 <TableHead>Source</TableHead>
                 <TableHead>Center</TableHead>
                 <TableHead>Customer</TableHead>
+                {/* <TableHead>Carrier Name</TableHead> */}
                 <TableHead>Closer</TableHead>
                 <TableHead>Validator</TableHead>
                 <TableHead>Application Duration</TableHead>
@@ -752,13 +778,17 @@ export function SubmissionsExplorer() {
                       closer is moved to another one. */}
                   <TableCell className="text-muted-foreground">{row.center_name ?? "—"}</TableCell>
                   <TableCell className="font-medium">{customerName(row.payload)}</TableCell>
+                  {/* Free text as the operator typed it — see carrierName(). */}
+                  {/* <TableCell className="text-muted-foreground">
+                    {carrierName(row.payload)}
+                  </TableCell> */}
                   <TableCell className="text-muted-foreground">{closerName(row)}</TableCell>
                   <TableCell className="text-muted-foreground">
                     {row.assignee?.full_name ?? "—"}
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     {/* {relativeTime(row.created_at, now)} */}
-                    {shortDate(row.created_at)}
+                    {formatDate(row.created_at)}
                   </TableCell>
                   {/* The same chain the Operations queue draws, so a lead that
                       came back declined reads the same in both. */}
@@ -776,7 +806,7 @@ export function SubmissionsExplorer() {
               {filteredCloser.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={showArchived ? 9 : 8}
+                    colSpan={showArchived ? 10 : 9}
                     className="text-center text-muted-foreground"
                   >
                     {closerQuery.isLoading ? "Loading…" : "No submissions match that search."}
@@ -790,6 +820,7 @@ export function SubmissionsExplorer() {
             <TableHeader>
               <TableRow>
                 <TableHead>Customer</TableHead>
+                <TableHead>Carrier Name</TableHead>
                 <TableHead>Validator</TableHead>
                 <TableHead>Submitted</TableHead>
                 {showArchived ? <TableHead className="text-right">Action</TableHead> : null}
@@ -799,10 +830,15 @@ export function SubmissionsExplorer() {
               {filteredValidator.map((row) => (
                 <TableRow key={row.id} className="cursor-pointer" onClick={() => setOpenId(row.id)}>
                   <TableCell className="font-medium">{customerName(row.payload)}</TableCell>
+                  {/* A validator submission stores this under "Agency", not
+                      "Carrier Name" — carrierName() reads both. */}
+                  <TableCell className="text-muted-foreground">
+                    {carrierName(row.payload)}
+                  </TableCell>
                   <TableCell className="text-muted-foreground">{closerName(row)}</TableCell>
                   <TableCell className="text-muted-foreground">
                     {/* {relativeTime(row.created_at, now)} */}
-                    {shortDate(row.created_at)}
+                    {formatDate(row.created_at)}
                   </TableCell>
                   {showArchived ? (
                     <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
@@ -814,7 +850,7 @@ export function SubmissionsExplorer() {
               {filteredValidator.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={showArchived ? 4 : 3}
+                    colSpan={showArchived ? 5 : 4}
                     className="text-center text-muted-foreground"
                   >
                     {validatorQuery.isLoading ? "Loading…" : "No submissions match that search."}
@@ -829,6 +865,7 @@ export function SubmissionsExplorer() {
               <TableRow>
                 <TableHead>Source</TableHead>
                 <TableHead>Customer</TableHead>
+                <TableHead>Carrier Name</TableHead>
                 <TableHead>Validator</TableHead>
                 <TableHead>Upload Date</TableHead>
                 <TableHead>Validation Status</TableHead>
@@ -846,6 +883,9 @@ export function SubmissionsExplorer() {
                     <OriginBadge row={row} />
                   </TableCell>
                   <TableCell className="font-medium">{customerName(row.payload)}</TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {carrierName(row.payload)}
+                  </TableCell>
                   {/* No Closer column: an imported lead has none. It can still
                       be assigned to a validator like any other, once its batch
                       has been accepted. */}
@@ -856,7 +896,7 @@ export function SubmissionsExplorer() {
                       file was uploaded, and it is what an operator reconciles
                       against the spreadsheet they sent. */}
                   <TableCell className="text-muted-foreground">
-                    {shortDate(row.created_at)}
+                    {formatDate(row.created_at)}
                   </TableCell>
                   <TableCell>{validationStatus(row)}</TableCell>
                   <TableCell>
@@ -872,7 +912,7 @@ export function SubmissionsExplorer() {
               {filteredOffline.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={showArchived ? 7 : 6}
+                    colSpan={showArchived ? 8 : 7}
                     className="text-center text-muted-foreground"
                   >
                     {offlineQuery.isLoading ? "Loading…" : "No submissions match that search."}
@@ -924,6 +964,18 @@ export function SubmissionsExplorer() {
                   }}
                 />
 
+                {/* Below Lead Details, like everywhere else this renders —
+                    the review's own outcome, not part of what was typed. */}
+                <ValidatorFields
+                  row={selected}
+                  onSaved={() => {
+                    queryClient.invalidateQueries({ queryKey: SUBMISSIONS_KEY });
+                    queryClient.invalidateQueries({
+                      queryKey: validationTimelineKey(selected.id),
+                    });
+                  }}
+                />
+
                 <DataFlagList
                   submissionId={selected.id}
                   payload={selected.payload}
@@ -959,12 +1011,12 @@ export function SubmissionsExplorer() {
                           <span className="text-foreground">
                             {event.actor?.full_name ?? "system"}
                           </span>{" "}
-                          · {eventTime(event.created_at)}
+                          · {formatEventTime(event.created_at, { seconds: true })}
                           {eventReason(event) ? (
                             <ClampedText
                               text={eventReason(event) ?? ""}
                               heading={eventLabel(event.event_type)}
-                              meta={`${event.actor?.full_name ?? "system"} · ${eventTime(event.created_at)}`}
+                              meta={`${event.actor?.full_name ?? "system"} · ${formatEventTime(event.created_at, { seconds: true })}`}
                               className="italic"
                             />
                           ) : null}

@@ -3,7 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { SECTIONS, type Field } from "@/components/closer-form";
-import { PayloadTable, orderedPayloadEntries } from "@/components/ops";
+import { PayloadTable, orderedPayloadEntries, payloadDisplayLabel } from "@/components/ops";
 
 /**
  * A lead's payload — read-only for everyone, editable for a manager or admin.
@@ -195,7 +195,9 @@ export function LeadPayload({
 function LockedField({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-1">
-      <span className="field-label">{label}</span>
+      {/* `label` stays the stored key everywhere it is used as one — this is
+          only the word on screen. See payloadDisplayLabel. */}
+      <span className="field-label">{payloadDisplayLabel(label)}</span>
       <span className="text-xs text-muted-foreground">{value || "—"}</span>
     </div>
   );
@@ -223,7 +225,7 @@ function EditField({
   return (
     <div className={`flex flex-col gap-1 ${field?.span ?? ""}`}>
       <label htmlFor={id} className="field-label">
-        {label}
+        {payloadDisplayLabel(label)}
       </label>
 
       {type === "textarea" ? (

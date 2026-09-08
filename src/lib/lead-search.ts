@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { CARRIER_KEYS } from "@/components/ops";
 
 /**
  * Searching leads server-side.
@@ -42,6 +43,25 @@ export function sanitizeTerm(term: string) {
 /** `payload->>Key ILIKE %term%` for each searched key. */
 export function payloadSearchClauses(term: string) {
   return SEARCH_KEYS.map((key) => `payload->>${key}.ilike.*${term}*`);
+}
+
+/**
+ * The carrier filter, as its own `or` group.
+ *
+ * Kept apart from the free-text search above rather than folded into
+ * `SEARCH_KEYS`, for two reasons. PostgREST ANDs repeated filters, so a
+ * separate group NARROWS the search instead of widening it — a carrier and a
+ * customer name can be combined, which is the useful case. And the general
+ * search box is shared with the closing desk, where quietly matching a carrier
+ * would change what an unrelated screen returns.
+ *
+ * Both carrier keys are OR-ed together because the two forms disagree about
+ * which one they write — see `CARRIER_KEYS`. The match is a substring, so
+ * "fidelity" pulls back "Fidelity Life" and " Fidelity " alike, which is what
+ * makes it usable against a free-text field nobody has ever typed consistently.
+ */
+export function carrierSearchClauses(term: string) {
+  return CARRIER_KEYS.map((key) => `payload->>${key}.ilike.*${term}*`);
 }
 
 /**
