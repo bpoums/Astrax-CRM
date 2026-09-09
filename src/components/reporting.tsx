@@ -29,6 +29,8 @@ import { LeadPayload } from "@/components/lead-editor";
 import { PayloadEditHistory, payloadHistoryKey } from "@/components/payload-history";
 import { CarrierDeclineList } from "@/components/carrier-declines";
 import { ValidationTimeline, validationTimelineKey } from "@/components/validation-timeline";
+import { QueueFlow } from "@/components/queue-flow";
+import { MetricBar } from "@/components/metric-bar";
 import { ValidatorFields } from "@/components/validator-fields";
 import { useDeclinedCarrierMap } from "@/lib/carriers";
 import {
@@ -226,7 +228,7 @@ export function ReportingStats({
       const { data, error } = await supabase
         .from("submission_totals")
         .select(
-          "closer_submissions, validator_submissions, offline_submissions, approved, declined, in_review, timeouts, rejections",
+          "closer_submissions, validator_submissions, offline_submissions, approved, declined, in_review, awaiting_manager, timeouts, rejections",
         )
         .maybeSingle();
       if (error) throw error;
@@ -235,27 +237,36 @@ export function ReportingStats({
   });
 
   /**
-   * How many leads are sitting on a hold right now.
+   * The two open stages `submission_totals` cannot publish, in one read.
    *
-   * `submission_totals` cannot answer this: being on hold is a shape across
-   * four columns, and the last of its conditions — `last_held_at` newer than
-   * `assigned_at` — is a column-to-column comparison PostgREST has no filter
-   * for. So the query narrows to the candidates it CAN express and the last
-   * condition is applied here, over a handful of rows, rather than published as
-   * an over-count.
+   * Being on hold is a SHAPE across four columns, and its last condition —
+   * `last_held_at` newer than `assigned_at` — is a column-to-column comparison
+   * PostgREST has no filter for. So the query narrows to the statuses it can
+   * express and the shape is applied here, over the open rows only.
+   *
+   * Held leads sit in `assigned`, so the two are separated rather than summed:
+   * a lead is counted once, in the stage it is actually in, and the flow strip
+   * above never adds up to more than the work that exists.
+   *
+   * `awaiting_manager` and `in_review` are NOT recomputed here — those the view
+   * publishes, and they are read from it.
    */
-  const onHold = useQuery({
+  const openQueue = useQuery({
     queryKey: ON_HOLD_KEY,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("submissions")
         .select("status, claimed_at, assigned_at, last_held_at")
-        .eq("status", "assigned")
-        .is("claimed_at", null)
-        .not("last_held_at", "is", null)
+        .in("status", ["assigned", "returned_timeout"])
         .is("archived_at", null);
       if (error) throw error;
-      return (data ?? []).filter(isOnHold).length;
+      const rows = data ?? [];
+      const onHold = rows.filter((row) => row.status === "assigned" && isOnHold(row)).length;
+      return {
+        onHold,
+        assigned: rows.filter((row) => row.status === "assigned").length - onHold,
+        returned: rows.filter((row) => row.status === "returned_timeout").length,
+      };
     },
   });
 
@@ -278,95 +289,91 @@ export function ReportingStats({
 
   const perValidator = useMemo(() => validatorStats.data ?? [], [validatorStats.data]);
   const perCenter = useMemo(() => centerTotals.data ?? [], [centerTotals.data]);
+  // What every centre's bar is measured against, so the busiest one fills.
+  const centerMax = useMemo(
+    () => perCenter.reduce((most, center) => Math.max(most, center.total_submissions ?? 0), 0),
+    [perCenter],
+  );
   const totalsRow = totals.data ?? null;
 
   return (
     <>
-      <section className="grid gap-3 sm:grid-cols-3 xl:grid-cols-8">
-        <StatCard label="Closer Submissions" value={totalsRow?.closer_submissions} />
-        {/* Uploaded leads that a manager has accepted. The view counts
-            `source = 'sheet'` excluding `pending_import_approval`, which is the
-            same rule the Manual Submissions tab uses — so a batch contributes
-            nothing here until it is approved, and there is no client-side
-            condition to keep in step with it. */}
-        <StatCard label="Manual Submissions" value={totalsRow?.offline_submissions} />
-        <StatCard label="Submitted" value={totalsRow?.approved} />
-        <StatCard label="Declined" value={totalsRow?.declined} tone="destructive" />
-        <StatCard label="On Hold" value={onHold.data} tone="accent" />
-        <StatCard label="In Review" value={totalsRow?.in_review} tone="accent" />
-        {showValidatorSubmissions ? null : (
-          <>
-            <StatCard label="Timeouts" value={totalsRow?.timeouts} tone="destructive" />
-            <StatCard label="Rejections" value={totalsRow?.rejections} tone="destructive" />
-          </>
-        )}
+      {/* The news, first and largest: open work, and which stage it is
+          sitting in. Everything below this is the record. */}
+      <QueueFlow
+        unassigned={totalsRow?.awaiting_manager ?? 0}
+        assigned={openQueue.data?.assigned ?? 0}
+        inReview={totalsRow?.in_review ?? 0}
+        onHold={openQueue.data?.onHold ?? 0}
+        returned={openQueue.data?.returned ?? 0}
+        loading={totals.isLoading || openQueue.isLoading}
+      />
+
+      {/* Deliberately quieter than the strip above. These are lifetime totals —
+          true, worth having, and not what anybody opens this tab to find out.
+          Eight of them as 3xl cards gave a number nobody can act on the same
+          weight as the queue that needs working today. */}
+      <section className="panel">
+        <h2 className="panel-title">All time</h2>
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 lg:grid-cols-6">
+          <Total label="Closer" value={totalsRow?.closer_submissions} />
+          {/* Uploaded leads that a manager has accepted. The view counts
+              `source = 'sheet'` excluding `pending_import_approval`, which is
+              the same rule the Manual Submissions tab uses — so a batch
+              contributes nothing here until it is approved, and there is no
+              client-side condition to keep in step with it. */}
+          <Total label="Manual" value={totalsRow?.offline_submissions} />
+          {/* Validator submissions are self-entered and auto-approved, so they
+              are named as their own figure rather than mixed into the review
+              outcomes beside them. */}
+          {showValidatorSubmissions ? (
+            <Total label="Validator" value={totalsRow?.validator_submissions} />
+          ) : null}
+          <Total label="Submitted" value={totalsRow?.approved} />
+          <Total label="Declined" value={totalsRow?.declined} tone="destructive" />
+          {showValidatorSubmissions ? null : (
+            <>
+              <Total label="Timeouts" value={totalsRow?.timeouts} tone="destructive" />
+              <Total label="Rejections" value={totalsRow?.rejections} tone="destructive" />
+            </>
+          )}
+        </dl>
       </section>
 
-      {/* Validator submissions are self-entered and auto-approved, so they are
-          kept apart from the review outcomes above rather than mixed in. */}
-      {showValidatorSubmissions ? (
-        <section className="grid gap-3 sm:grid-cols-3 xl:grid-cols-5">
-          <StatCard label="Validator Submissions" value={totalsRow?.validator_submissions} />
-        </section>
-      ) : null}
+      {/* A list rather than a table: two columns over a handful of rows is
+          less than a table earns, and the bar does the comparing that a second
+          numeric column would otherwise be needed for.
 
-      {/* Same panel-and-table shape as the validator dashboard below rather
-          than a third pattern: a name, then right-aligned tabular columns.
-          Gated on the same flag the neighbouring cards are — this is the admin
+          Gated on the same flag the strip above is — this is the admin
           Overview's picture, and the manager's Reporting tab shows the queue
           it works rather than a breakdown of the whole business. */}
       {showValidatorSubmissions ? (
         <section className="panel">
           <h2 className="panel-title">Leads by Center ({perCenter.length})</h2>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Center</TableHead>
-                <TableHead className="text-right">Submissions</TableHead>
-                {/* <TableHead className="text-right">Submitted</TableHead>
-                <TableHead className="text-right">Declined</TableHead>
-                <TableHead className="text-right">Pending</TableHead> */}
-                {/* The queue's own word for pending_manager, read from the one
-                    place it is spelled. */}
-                {/* <TableHead className="text-right">{STATUS_LABEL.pending_manager}</TableHead> */}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {perCenter.map((center) => (
-                <TableRow key={center.center_id ?? center.center_name}>
-                  <TableCell className="font-medium">{center.center_name ?? "—"}</TableCell>
-                  <TableCell className="text-right tabular-nums">
+          <ul className="flex flex-col gap-2.5">
+            {perCenter.map((center) => (
+              <li key={center.center_id ?? center.center_name} className="flex flex-col gap-1">
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="min-w-0 truncate text-xs font-medium">
+                    {center.center_name ?? "—"}
+                  </span>
+                  <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
                     {center.total_submissions ?? 0}
-                  </TableCell>
-                  {/* <TableCell className="text-right tabular-nums">{center.approved ?? 0}</TableCell>
-                  <TableCell
-                    className={`text-right tabular-nums ${
-                      (center.declined ?? 0) > 0 ? "text-destructive" : "text-muted-foreground"
-                    }`}
-                  >
-                    {center.declined ?? 0}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {center.pending ?? 0}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {center.awaiting_manager ?? 0}
-                  </TableCell> */}
-                </TableRow>
-              ))}
-              {perCenter.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground">
-                    {centerTotals.isLoading
-                      ? "Loading…"
-                      : centerTotals.isError
-                        ? (centerTotals.error as Error).message
-                        : "No active centers."}
-                  </TableCell>
-                </TableRow>
-              ) : null}
-            </TableBody>
-          </Table>
+                  </span>
+                </div>
+                <MetricBar value={center.total_submissions ?? 0} max={centerMax} />
+              </li>
+            ))}
+            {perCenter.length === 0 ? (
+              <li className="text-xs text-muted-foreground">
+                {centerTotals.isLoading
+                  ? "Loading…"
+                  : centerTotals.isError
+                    ? (centerTotals.error as Error).message
+                    : "No active centers."}
+              </li>
+            ) : null}
+          </ul>
         </section>
       ) : null}
 
@@ -998,23 +1005,33 @@ function RestoreButton({
 }
 
 /** The totals view returns nullable counts, and is undefined until it loads. */
-function StatCard({
+/**
+ * One lifetime figure inside the all-time strip.
+ *
+ * Deliberately not a panel of its own. These were eight separate cards with
+ * 3xl numerals, which gave a total nobody can act on the same presence as the
+ * queue that needs working today; grouped into one panel at a smaller size they
+ * stay readable and stop competing with it.
+ */
+function Total({
   label,
   value,
   tone,
 }: {
   label: string;
   value: number | null | undefined;
-  tone?: "accent" | "destructive";
+  tone?: "destructive";
 }) {
-  const valueClass =
-    tone === "destructive" ? "text-destructive" : tone === "accent" ? "text-primary" : "";
   return (
-    <div className="panel gap-1">
-      <span className="panel-title">{label}</span>
-      <span className={`font-display text-3xl font-semibold tabular-nums ${valueClass}`}>
+    <div className="flex min-w-0 flex-col gap-0.5">
+      <dt className="field-label">{label}</dt>
+      <dd
+        className={`font-display text-xl font-semibold tabular-nums ${
+          tone === "destructive" && (value ?? 0) > 0 ? "text-destructive" : ""
+        }`}
+      >
         {value ?? 0}
-      </span>
+      </dd>
     </div>
   );
 }

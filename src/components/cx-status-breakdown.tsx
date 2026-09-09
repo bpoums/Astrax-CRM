@@ -1,5 +1,6 @@
 import { STATUS_TONE_CLASS, CATEGORY_LABEL, CX_CATEGORIES } from "@/lib/cx-status";
 import { useCxCoverage, useCxStatusSummary } from "@/lib/cx-overview";
+import { MetricBar } from "@/components/metric-bar";
 
 /**
  * Where the submitted leads are right now, per dimension.
@@ -57,6 +58,11 @@ export function CxStatusBreakdown() {
         {CX_CATEGORIES.map((category) => {
           const rows = byCategory[category];
           const counted = rows.reduce((sum, row) => sum + row.lead_count, 0);
+          // Each block is scaled against its own busiest status, not against
+          // the other three: the question inside a dimension is which status
+          // holds the backlog, and a shared scale would flatten a small
+          // dimension into invisibility next to a large one.
+          const most = rows.reduce((top, row) => Math.max(top, row.lead_count), 0);
           return (
             <div key={category} className="panel gap-2">
               <div className="flex items-baseline justify-between gap-2">
@@ -64,23 +70,29 @@ export function CxStatusBreakdown() {
                 <span className="text-[0.66rem] tabular-nums text-muted-foreground">{counted}</span>
               </div>
 
-              <ul className="flex flex-col gap-1">
+              <ul className="flex flex-col gap-2">
                 {rows.map((row) => (
-                  <li key={row.code} className="flex items-center justify-between gap-2">
-                    <span
-                      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[0.66rem] font-medium ${
-                        STATUS_TONE_CLASS[row.tone]
-                      }`}
-                    >
-                      {row.label}
+                  <li key={row.code} className="flex flex-col gap-1">
+                    <span className="flex items-center justify-between gap-2">
+                      <span
+                        className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[0.66rem] font-medium ${
+                          STATUS_TONE_CLASS[row.tone]
+                        }`}
+                      >
+                        {row.label}
+                      </span>
+                      <span
+                        className={`text-xs tabular-nums ${
+                          row.lead_count > 0 ? "text-foreground" : "text-muted-foreground"
+                        }`}
+                      >
+                        {row.lead_count}
+                      </span>
                     </span>
-                    <span
-                      className={`text-xs tabular-nums ${
-                        row.lead_count > 0 ? "text-foreground" : "text-muted-foreground"
-                      }`}
-                    >
-                      {row.lead_count}
-                    </span>
+                    {/* The chip already carries what this status MEANS; the bar
+                        carries only how big it is, which is why it stays in the
+                        neutral ramp and does not repeat the tone. */}
+                    <MetricBar value={row.lead_count} max={most} />
                   </li>
                 ))}
                 {rows.length === 0 ? (

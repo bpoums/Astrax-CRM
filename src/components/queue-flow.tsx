@@ -1,0 +1,126 @@
+import { STATUS_LABEL } from "@/components/ops";
+
+/**
+ * Where the open work actually is, as one bar.
+ *
+ * The Overview used to answer this with four identical stat cards, which give
+ * every stage the same weight and show no relationship between them. The
+ * question an ops lead opens this tab with is not "how many are assigned" but
+ * "where is it stuck", and that is a question about PROPORTION — a fat
+ * Unassigned segment means the manager is the bottleneck, a fat On hold means
+ * validators are stalling on something. One bar says that; five cards cannot.
+ *
+ * Only open work appears here. Closed leads are the record, not the news, and
+ * they are counted in the all-time strip below this one.
+ *
+ * Colour carries a rough grammar rather than a per-stage identity: grey is
+ * waiting, amber is being worked, red went wrong. Nothing is conveyed by colour
+ * alone — every segment is named and counted in the legend underneath.
+ */
+
+type Stage = {
+  key: string;
+  label: string;
+  value: number;
+  /** The bar segment and its legend dot, which must always match. */
+  fill: string;
+};
+
+export function QueueFlow({
+  unassigned,
+  assigned,
+  inReview,
+  onHold,
+  returned,
+  loading = false,
+}: {
+  unassigned: number;
+  /** Assigned and NOT on hold — the two are exclusive here, never double-counted. */
+  assigned: number;
+  inReview: number;
+  onHold: number;
+  returned: number;
+  loading?: boolean;
+}) {
+  const stages: Stage[] = [
+    // The queue's own words, read from the one place they are spelled, so a
+    // rename in STATUS_LABEL moves this strip with every other screen.
+    {
+      key: "unassigned",
+      label: STATUS_LABEL.pending_manager,
+      value: unassigned,
+      fill: "bg-muted-foreground/40",
+    },
+    {
+      key: "assigned",
+      label: STATUS_LABEL.assigned,
+      value: assigned,
+      fill: "bg-muted-foreground/70",
+    },
+    { key: "in_review", label: STATUS_LABEL.in_review, value: inReview, fill: "bg-accent" },
+    // Quieter amber than a live review: a hold is work paused, not work
+    // happening, and the two should not read as the same thing.
+    { key: "on_hold", label: "On Hold", value: onHold, fill: "bg-accent/45" },
+    {
+      key: "returned",
+      label: STATUS_LABEL.returned_timeout,
+      value: returned,
+      fill: "bg-destructive",
+    },
+  ];
+
+  const total = stages.reduce((sum, stage) => sum + stage.value, 0);
+
+  return (
+    <section className="panel">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="panel-title">Where leads are right now</h2>
+        <span className="text-[0.66rem] tabular-nums text-muted-foreground">
+          {loading ? "Loading…" : `${total} in flight`}
+        </span>
+      </div>
+
+      {/* One track, split by share. A stage with nothing in it takes no width
+          and simply is not drawn; a stage with one lead out of five hundred
+          keeps a sliver, so "a few" never renders as "none". */}
+      <div
+        aria-hidden
+        className="flex h-2 w-full gap-0.5 overflow-hidden rounded-full bg-border/60"
+      >
+        {stages.map((stage) =>
+          stage.value > 0 ? (
+            <div
+              key={stage.key}
+              className={`h-full min-w-[3px] rounded-full ${stage.fill} transition-[flex-grow] duration-300 motion-reduce:transition-none`}
+              style={{ flexGrow: stage.value }}
+            />
+          ) : null,
+        )}
+      </div>
+
+      <ul className="grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-3 lg:grid-cols-5">
+        {stages.map((stage) => (
+          <li key={stage.key} className="flex min-w-0 flex-col gap-0.5">
+            <span className="flex min-w-0 items-center gap-1.5">
+              <span aria-hidden className={`h-1.5 w-1.5 shrink-0 rounded-full ${stage.fill}`} />
+              <span className="field-label truncate">{stage.label}</span>
+            </span>
+            <span
+              className={`font-display text-2xl font-semibold tabular-nums ${
+                stage.value === 0 ? "text-muted-foreground" : ""
+              }`}
+            >
+              {stage.value}
+            </span>
+          </li>
+        ))}
+      </ul>
+
+      {total === 0 && !loading ? (
+        <p className="text-[0.66rem] text-muted-foreground">
+          Nothing open. Every lead has been disposed or archived.
+        </p>
+      ) : null}
+    </section>
+  );
+}
