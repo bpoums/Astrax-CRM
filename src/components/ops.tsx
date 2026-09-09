@@ -315,20 +315,6 @@ export function isOnHold(row: {
  * 'submitted' is the sale being closed, so it is labelled as that rather than
  * as the database verb.
  */
-const EVENT_LABEL: Record<string, string> = {
-  submitted: "Sale Closed By",
-  // Written by `set_validator_fields`, so the change already lands in the
-  // validation timeline and needs no history panel of its own.
-  validator_fields_set: "Validator Fields Set",
-  // Written by `set_cx_status` alongside the cx_status_changed event that
-  // caused it, so the timeline shows both the policy outcome and the move.
-  reopened_from_cx: "Returned From CX",
-};
-
-export function eventLabel(type: string) {
-  return EVENT_LABEL[type] ?? type;
-}
-
 /** submissions.data_flags is jsonb, so it arrives as unknown. */
 export function dataFlags(value: unknown): DataFlag[] {
   if (!Array.isArray(value)) return [];

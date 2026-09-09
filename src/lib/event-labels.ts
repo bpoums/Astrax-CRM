@@ -121,7 +121,11 @@ export function presentEvent(event: TimelineEvent): EventPresentation {
 
   switch (event.event_type) {
     case "submitted":
-      return plain("Submitted");
+      // "Sale closed", not "Submitted": this is the closer's own word for
+      // what they just did, and it is what the timeline has always called it.
+      // It also keeps this row distinct from the `disposed` row further down,
+      // where 'accepted' renders as "Submitted".
+      return plain("Sale closed");
 
     case "parked":
       return plain("Parked for external transfer", "accent");
