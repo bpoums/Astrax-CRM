@@ -1,7 +1,9 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { requireRole } from "@/lib/auth";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { requireRole, useAuth } from "@/lib/auth";
 import { AppHeader } from "@/components/ops";
 import { ClosingDesk } from "@/components/closing-desk";
+import { ParkedLeads } from "@/components/parked-leads";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 /**
  * The closing manager's only screen, and the general manager's.
@@ -11,14 +13,37 @@ import { ClosingDesk } from "@/components/closing-desk";
  * every other guard turns them away. Admin is allowed in alongside them, as on
  * every other route.
  *
- * A general manager gets exactly this screen and exactly these edit controls.
+ * A general manager gets exactly this desk and exactly these edit controls.
  * The two differ only in what the `submissions` read policy hands back — a
  * closing manager's own centre and closer-originated leads, a general
  * manager's every centre and both origins — so the difference is settled
  * server-side and there is nothing here to branch on.
+ *
+ * Parked Leads is the one exception, and it is about which SCREEN a role gets
+ * rather than which rows: `move_to_validation` accepts only an admin or a
+ * general manager, so offering a closing manager a tab whose every button
+ * raises "not authorized" would be worse than not offering it.
  */
+
+const DESK_TAB = "desk";
+const PARKED_TAB = "parked";
+
+type ClosingTab = typeof DESK_TAB | typeof PARKED_TAB;
+
+function isClosingTab(value: unknown): value is ClosingTab {
+  return value === DESK_TAB || value === PARKED_TAB;
+}
+
 export const Route = createFileRoute("/_authenticated/closing")({
   beforeLoad: () => requireRole(["closing_manager", "general_manager", "admin"]),
+  /**
+   * The active tab lives in the URL so a refresh keeps it and a tab can be
+   * linked to (/closing?tab=parked). Anything unrecognised falls back to the
+   * desk rather than erroring — a stale bookmark should still open the page.
+   */
+  validateSearch: (search: Record<string, unknown>): { tab: ClosingTab } => ({
+    tab: isClosingTab(search["tab"]) ? search["tab"] : DESK_TAB,
+  }),
   head: () => ({
     meta: [
       { title: "Closing Desk | ASTRAX" },
@@ -40,11 +65,44 @@ export const Route = createFileRoute("/_authenticated/closing")({
 });
 
 function ClosingPage() {
+  const { tab } = Route.useSearch();
+  const navigate = useNavigate({ from: Route.fullPath });
+  const { profile } = useAuth();
+
+  const canMoveParked = profile?.role === "general_manager" || profile?.role === "admin";
+  // A closing manager reaching ?tab=parked by a stale link gets the desk, not
+  // an empty tab whose trigger is not even on screen.
+  const active: ClosingTab = canMoveParked ? tab : DESK_TAB;
+
   return (
     <main className="min-h-screen bg-background text-foreground">
       <div className="mx-auto flex max-w-[1500px] flex-col gap-4 px-4 py-4 lg:px-8 lg:py-5">
         <AppHeader title="Closing Desk" subtitle="Closing" />
-        <ClosingDesk />
+
+        {canMoveParked ? (
+          <Tabs
+            value={active}
+            onValueChange={(value) => {
+              if (isClosingTab(value)) void navigate({ search: { tab: value } });
+            }}
+            className="flex flex-col gap-4"
+          >
+            <TabsList className="w-fit">
+              <TabsTrigger value={DESK_TAB}>Closing Desk</TabsTrigger>
+              <TabsTrigger value={PARKED_TAB}>Parked Leads</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value={DESK_TAB} className="flex flex-col gap-4">
+              <ClosingDesk />
+            </TabsContent>
+
+            <TabsContent value={PARKED_TAB} className="flex flex-col gap-4">
+              <ParkedLeads />
+            </TabsContent>
+          </Tabs>
+        ) : (
+          <ClosingDesk />
+        )}
       </div>
     </main>
   );

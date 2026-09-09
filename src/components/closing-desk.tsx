@@ -459,9 +459,9 @@ export function ClosingDesk() {
               {/* No width: Customer absorbs whatever the others leave. */}
               <TableHead className="w-32">Customer</TableHead>
               <TableHead className="w-32">Submitted By</TableHead>
-              {/* <TableHead className="w-28">Source</TableHead> */}
+              <TableHead className="w-28">Source</TableHead>
               <TableHead className="w-28">Submitted</TableHead>
-              <TableHead className="w-28">Validation</TableHead>
+              <TableHead className="w-55">Validation</TableHead>
               <TableHead className="w-24">Disposition</TableHead>
               {CX_CATEGORIES.map((category) => (
                 <TableHead key={category} className="w-40">
@@ -502,9 +502,9 @@ export function ClosingDesk() {
                   <TableCell className="truncate text-muted-foreground" title={closer}>
                     {closer}
                   </TableCell>
-                  {/* <TableCell title={sourceLabel(row)}>
+                  <TableCell title={sourceLabel(row)}>
                     <OriginBadge row={row} />
-                  </TableCell> */}
+                  </TableCell>
                   <TableCell className="whitespace-nowrap text-muted-foreground">
                     {formatDate(row.created_at)}
                   </TableCell>

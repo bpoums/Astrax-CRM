@@ -12,12 +12,12 @@ export const Route = createFileRoute("/_authenticated/upload")({
       {
         name: "description",
         content:
-          "Upload an offline lead file, normalise it against the closer form fields and import it into the queue.",
+          "Upload a manual lead file, normalise it against the closer form fields and import it into the queue.",
       },
       { property: "og:title", content: "Lead Uploader | ASTRAX" },
       {
         property: "og:description",
-        content: "Normalise and import offline lead files.",
+        content: "Normalise and import manual lead files.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },

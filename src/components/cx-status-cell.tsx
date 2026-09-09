@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   STATUS_TONE_CLASS,
   readStatusTone,
+  reopensLead,
   shortCategory,
   type CxCategory,
   type CxLeadStatus,
@@ -254,11 +255,21 @@ export function CxStatusCell({
         p_reason: vars.reason,
       } as unknown as SetStatusArgs;
 
-      const { error } = await supabase.rpc("set_cx_status", args);
+      const { data, error } = await supabase.rpc("set_cx_status", args);
       if (error) throw error;
+      // The RPC reports whether this status took the lead out of the pipeline
+      // entirely — see set_cx_status. Read defensively: it returns jsonb.
+      const result = (data ?? {}) as Record<string, unknown>;
+      return { reopened: result["reopened"] === true };
     },
-    onSuccess: () => {
-      toast.success("Status updated");
+    onSuccess: (result) => {
+      // Said plainly, because the row is about to disappear from the table
+      // underneath the person who changed it.
+      toast.success(
+        result.reopened
+          ? "Policy closed — lead returned to the manager's queue for reassignment"
+          : "Status updated",
+      );
       close();
       onSaved();
     },
@@ -276,6 +287,14 @@ export function CxStatusCell({
   }
 
   const isSet = !!code && !!label;
+
+  /**
+   * Saving this choice does more than record a status — it takes the lead out
+   * of the CX queue entirely and puts it back in front of a manager. There is
+   * no undo from this side, so the reason step says so plainly rather than
+   * letting it happen behind an ordinary Save.
+   */
+  const willReopen = picked ? reopensLead(category, picked.option?.code) : false;
 
   // No trigger at all when read-only: an admin should not find a dropdown that
   // refuses them, and the RPC would refuse them anyway.
@@ -388,7 +407,10 @@ export function CxStatusCell({
                 autoComplete="off"
                 autoFocus
                 onKeyDown={(event) => {
-                  if (event.key === "Enter" && !save.isPending) {
+                  // Enter is a shortcut for an ordinary status change only.
+                  // Something this consequential should cost a deliberate
+                  // click on a button that says what it does.
+                  if (event.key === "Enter" && !save.isPending && !willReopen) {
                     event.preventDefault();
                     save.mutate({
                       optionId: picked.option?.id ?? null,
@@ -399,10 +421,25 @@ export function CxStatusCell({
               />
             </div>
 
+            {willReopen ? (
+              <p className="rounded border border-destructive/50 bg-destructive/10 px-2 py-1.5 text-[0.66rem] leading-snug text-destructive">
+                This closes the policy. The lead leaves your queue and goes back to the manager to
+                be assigned to a validator again. You will not be able to update its statuses
+                afterwards, and this cannot be undone here.
+              </p>
+            ) : null}
+
             <div className="flex items-center gap-2">
+              {/* Named for the consequence, not the mechanic, and red rather
+                  than amber — the reader should not be able to confuse it with
+                  the ordinary Save on every other status. */}
               <button
                 type="button"
-                className="btn-submit"
+                className={
+                  willReopen
+                    ? "chip justify-center border-destructive bg-destructive/10 text-destructive"
+                    : "btn-submit"
+                }
                 disabled={save.isPending}
                 onClick={() =>
                   save.mutate({
@@ -411,7 +448,7 @@ export function CxStatusCell({
                   })
                 }
               >
-                {save.isPending ? "Saving…" : "Save"}
+                {save.isPending ? "Saving…" : willReopen ? "Close policy & return lead" : "Save"}
               </button>
               <button
                 type="button"

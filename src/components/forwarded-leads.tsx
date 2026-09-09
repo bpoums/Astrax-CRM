@@ -67,6 +67,9 @@ const STATUS_TEXT: Record<SubStatus, string> = {
   // A closer's lead never sits here — only imported ones do — but the record
   // has to be total, and this is what it would read as if one ever did.
   pending_import_approval: "Awaiting import approval",
+  // Their own lead, transferred rather than submitted — worded from the
+  // closer's side, since this is the one status here they caused themselves.
+  parked: "Parked for transfer",
   pending_manager: "Awaiting review",
   assigned: "With a validator",
   in_review: "In review",

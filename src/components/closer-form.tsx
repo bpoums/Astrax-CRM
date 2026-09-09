@@ -73,6 +73,7 @@ export const SECTIONS: Section[] = [
         required: true,
         options: ["Smoker", "Non Smoker"],
       },
+      { label: "Health Conditions", type: "textarea", span: "sm:col-span-2" },
     ],
   },
   {
@@ -165,9 +166,16 @@ export function CloserForm() {
   const commit = (label: string, value: string) =>
     setValues((prev) => ({ ...prev, [label]: value }));
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
+  /**
+   * Both buttons, which differ only in which RPC they call.
+   *
+   * `submit_form` lands the lead in the manager's queue as it always has.
+   * `submit_form_parked` writes the same lead in `parked` — it still reaches
+   * Google Sheets and the admin's Submissions listing, but no manager sees it
+   * until a general manager releases it from Parked Leads. Validation, the
+   * reset and the messaging are identical, so they live here once.
+   */
+  async function submitWith(mode: "queue" | "park") {
     // Chip groups are buttons, so the browser never validates them for us.
     const missing = ALL_FIELDS.find((field) => field.required && !values[field.label]?.trim());
     if (missing) {
@@ -179,16 +187,25 @@ export function CloserForm() {
     setStatus("sending");
     setMessage("");
     try {
-      const { error } = await supabase.rpc("submit_form", { p_payload: values });
+      const { error } = await supabase.rpc(mode === "park" ? "submit_form_parked" : "submit_form", {
+        p_payload: values,
+      });
       if (error) throw new Error(error.message);
       setStatus("sent");
-      setMessage("Submission saved to the sheet.");
+      setMessage(
+        mode === "park" ? "Transferred and saved to the sheet." : "Submission saved to the sheet.",
+      );
       setValues(emptyForm());
       window.setTimeout(() => setStatus("idle"), 4000);
     } catch (error) {
       setStatus("error");
       setMessage(error instanceof Error ? error.message : "Could not submit.");
     }
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await submitWith("queue");
   }
 
   return (
@@ -222,6 +239,17 @@ export function CloserForm() {
             )}
             <button type="submit" className="btn-submit" disabled={status === "sending"}>
               {status === "sending" ? "Submitting…" : "Submit entry"}
+            </button>
+            {/* A chip, not a second amber button: this is the alternative
+                path, and the form keeps one emphasis. `type="button"` so it
+                never triggers the form's own submit. */}
+            <button
+              type="button"
+              className="chip"
+              disabled={status === "sending"}
+              onClick={() => void submitWith("park")}
+            >
+              External Transfer
             </button>
             <Link to="/forwarded-leads" className="chip inline-block">
               Forwarded Leads

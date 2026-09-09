@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
+  CARRIER_KEYS,
+  carrierName,
   OriginBadge,
   PayloadTable,
   customerName,
@@ -9,7 +11,7 @@ import {
   type LeadSource,
   type UploaderRef,
 } from "@/components/ops";
-import { formatDate } from "@/lib/format-date";
+import { formatCalendarDate, formatDate } from "@/lib/format-date";
 import { CxStatusCell } from "@/components/cx-status-cell";
 import { CxLifecycleHistory } from "@/components/cx-lifecycle-history";
 import { ValidationTimeline } from "@/components/validation-timeline";
@@ -58,13 +60,19 @@ import {
 const PAGE_SIZE = 25;
 
 /** The payload keys the search box spans. */
-const SEARCH_KEYS = ["Full Name", "Carrier Name", "Phone Number"];
+/**
+ * Spread from `CARRIER_KEYS` rather than naming one of them: a validator
+ * submission files the carrier under "Agency", so searching only "Carrier Name"
+ * matched none of them — the same split that used to leave the column blank.
+ */
+const SEARCH_KEYS = ["Full Name", ...CARRIER_KEYS, "Phone Number"];
 
 const SELECT_COLUMNS = [
   "submission_id",
   "payload",
   "submitted_on",
   "source",
+  "draft_date",
   "policy_code, policy_label, policy_tone, policy_reason",
   "premium_code, premium_label, premium_tone, premium_reason",
   "commission_code, commission_label, commission_tone, commission_reason",
@@ -86,13 +94,20 @@ const NO_FILTERS: Filters = {
 };
 
 /** What OriginBadge needs, however it was resolved. */
-type OriginRow = { source: LeadSource | null; uploader: UploaderRef };
+type OriginRow = {
+  source: LeadSource | null;
+  /** Live vs Manual turns on this as well as on `source` — see sourceLabel. */
+  submitted_by_role: string | null;
+  uploader: UploaderRef;
+};
 
 type PipelineRow = {
   submission_id: string;
   source: string | null;
   payload: Record<string, unknown>;
   submitted_on: string | null;
+  /** The date the first premium draws. Null on a lead that never carried one. */
+  draft_date: string | null;
   policy_code: string | null;
   policy_label: string | null;
   policy_tone: string | null;
@@ -121,11 +136,6 @@ function statusOf(row: PipelineRow, category: CxCategory) {
     tone: row[`${category}_tone`],
     reason: row[`${category}_reason`],
   };
-}
-
-function payloadText(payload: Record<string, unknown>, key: string) {
-  const value = payload?.[key];
-  return value === null || value === undefined || value === "" ? "—" : String(value);
 }
 
 /**
@@ -159,6 +169,7 @@ export function CustomersPipeline({
   const queryClient = useQueryClient();
   const [page, setPage] = useState(0);
   const [search, setSearch] = useState("");
+  const [draftDate, setDraftDate] = useState("");
   const [filters, setFilters] = useState<Filters>(NO_FILTERS);
   const [openId, setOpenId] = useState<string | null>(null);
 
@@ -172,10 +183,10 @@ export function CustomersPipeline({
   // A filter or a search changes what page 1 even means.
   useEffect(() => {
     setPage(0);
-  }, [term, filterKey]);
+  }, [term, draftDate, filterKey]);
 
   const pipeline = useQuery({
-    queryKey: ["cx", "pipeline", page, term, filterKey],
+    queryKey: ["cx", "pipeline", page, term, draftDate, filterKey],
     queryFn: async () => {
       const from = page * PAGE_SIZE;
       let query = supabase.from("cx_pipeline").select(SELECT_COLUMNS, { count: "exact" });
@@ -188,6 +199,12 @@ export function CustomersPipeline({
         if (value === NOT_SET) query = query.is(`${category}_code`, null);
         else query = query.eq(`${category}_code`, value);
       }
+
+      // An exact date, not a range: this answers "what is drafting on the
+      // 14th", which is the question a CXA works a day's list from. Applied
+      // server-side like every other filter here, because the table is paged —
+      // matching in the browser would only ever see the current page.
+      if (draftDate) query = query.eq("draft_date", draftDate);
 
       const filter = term ? searchFilter(term) : null;
       if (filter) query = query.or(filter);
@@ -221,12 +238,18 @@ export function CustomersPipeline({
     queryFn: async () => {
       const { data, error } = await supabase
         .from("submissions")
-        .select("id, source, uploader:profiles!submissions_uploaded_by_fkey(full_name, org_name)")
+        .select(
+          "id, source, submitted_by_role, uploader:profiles!submissions_uploaded_by_fkey(full_name, org_name)",
+        )
         .in("id", pageIds);
       if (error) throw error;
       const byId = new Map<string, OriginRow>();
       for (const row of (data ?? []) as unknown as (OriginRow & { id: string })[]) {
-        byId.set(row.id, { source: row.source, uploader: row.uploader });
+        byId.set(row.id, {
+          source: row.source,
+          submitted_by_role: row.submitted_by_role,
+          uploader: row.uploader,
+        });
       }
       return byId;
     },
@@ -234,11 +257,17 @@ export function CustomersPipeline({
 
   /**
    * The view's own `source` is the fallback, so a row still reads Live or
-   * Offline while the names are in flight or if the lookup comes back short.
+   * Manual while the names are in flight or if the lookup comes back short.
+   *
+   * The fallback cannot tell a validator's submission from a closer's — the
+   * view carries no role — so it reads as Live until the lookup lands. That is
+   * the same direction every pre-column row resolves in, and it corrects itself
+   * within the same page load rather than persisting.
    */
   const originOf = (row: PipelineRow): OriginRow =>
     origins.data?.get(row.submission_id) ?? {
       source: row.source === "sheet" ? "sheet" : "live",
+      submitted_by_role: null,
       uploader: null,
     };
   const selected = rows.find((row) => row.submission_id === openId) ?? null;
@@ -252,7 +281,7 @@ export function CustomersPipeline({
 
   const firstShown = total === 0 ? 0 : page * PAGE_SIZE + 1;
   const lastShown = page * PAGE_SIZE + rows.length;
-  const filtersActive = term !== "" || filterKey !== UNFILTERED;
+  const filtersActive = term !== "" || draftDate !== "" || filterKey !== UNFILTERED;
 
   return (
     // One provider for the table and the detail sheet alike. 120ms instead of
@@ -302,12 +331,24 @@ export function CustomersPipeline({
             className="field-input flex-1"
             aria-label="Search the customers pipeline"
           />
+          {/* Its own control rather than another word in the search box: this
+              NARROWS whatever that search returned, so a customer and a draft
+              date can be asked for together. Empty means every date, unlike
+              the admin's By Draft Date screen where a date is the whole query. */}
+          <input
+            type="date"
+            value={draftDate}
+            onChange={(event) => setDraftDate(event.target.value)}
+            className="field-input w-40 shrink-0"
+            aria-label="Filter by draft date"
+          />
           {filtersActive ? (
             <button
               type="button"
               className="chip shrink-0 px-2.5 py-0.5 text-[0.66rem]"
               onClick={() => {
                 setSearch("");
+                setDraftDate("");
                 setFilters(NO_FILTERS);
               }}
             >
@@ -317,20 +358,21 @@ export function CustomersPipeline({
         </div>
 
         {/* Fixed layout, so the declared widths hold and the cells truncate to
-            their column instead of stretching it.
+            their column instead of stretching it. (draft-date filter above.)
 
             The widths are set from the headers up: each is wide enough to spell
             its column out in full, and the min-width makes the panel scroll
             sideways on a narrow screen rather than squeezing them. Headers never
             truncate; data does. */}
-        <Table className="min-w-[78rem] table-fixed">
+        <Table className="min-w-[85rem] table-fixed">
           <TableHeader>
             <TableRow>
               {/* No width: Customer absorbs whatever the others leave. */}
               <TableHead className="w-28">Source</TableHead>
               <TableHead>Customer</TableHead>
-              <TableHead className="w-28">Carrier</TableHead>
-              <TableHead className="w-28">Submitted On</TableHead>
+              <TableHead>Carrier</TableHead>
+              <TableHead>Draft Date</TableHead>
+              <TableHead>Submitted On</TableHead>
               {CX_CATEGORIES.map((category) => (
                 <TableHead key={category} className="w-40">
                   {CATEGORY_LABEL[category]}
@@ -361,17 +403,26 @@ export function CustomersPipeline({
                     <TooltipBody>
                       <TooltipHeading>{customerName(row.payload)}</TooltipHeading>
                       <span className="free-text text-[0.62rem] text-muted-foreground">
-                        {payloadText(row.payload, "Carrier Name")} · submitted{" "}
-                        {formatDate(row.submitted_on)}
+                        {carrierName(row.payload)} · submitted {formatDate(row.submitted_on)}
                       </span>
                     </TooltipBody>
                   </Tooltip>
                 </TableCell>
+                {/* carrierName(), not the payload key: a closer's lead files
+                    this under "Carrier Name" and a validator's under "Agency",
+                    and reading one of them left every validator row blank. */}
                 <TableCell
                   className="truncate text-muted-foreground"
-                  title={payloadText(row.payload, "Carrier Name")}
+                  title={carrierName(row.payload)}
                 >
-                  {payloadText(row.payload, "Carrier Name")}
+                  {carrierName(row.payload)}
+                </TableCell>
+
+                {/* formatCalendarDate, not formatDate: draft_date is a SQL
+                    `date` with no instant in it, and rendering it in Pacific
+                    prints the day before. See format-date.ts. */}
+                <TableCell className="whitespace-nowrap text-muted-foreground">
+                  {formatCalendarDate(row.draft_date)}
                 </TableCell>
 
                 <TableCell className="whitespace-nowrap text-muted-foreground">
@@ -416,7 +467,7 @@ export function CustomersPipeline({
             {rows.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={showUpdatedBy ? 9 : 8}
+                  colSpan={showUpdatedBy ? 10 : 9}
                   className="text-center text-muted-foreground"
                 >
                   {pipeline.isLoading
@@ -464,8 +515,8 @@ export function CustomersPipeline({
               <SheetHeader>
                 <SheetTitle>{customerName(selected.payload)}</SheetTitle>
                 <SheetDescription>
-                  {payloadText(selected.payload, "Carrier Name")} ·{" "}
-                  {sourceLabel(originOf(selected))} · submitted {formatDate(selected.submitted_on)}
+                  {carrierName(selected.payload)} · {sourceLabel(originOf(selected))} · submitted{" "}
+                  {formatDate(selected.submitted_on)}
                 </SheetDescription>
               </SheetHeader>
 

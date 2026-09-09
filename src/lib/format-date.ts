@@ -150,7 +150,8 @@ export function formatCalendarDate(value: string | null | undefined) {
   if (!name) return text;
 
   // Number() drops the leading zero, matching `day: "numeric"` above.
-  return `${Number(day)} ${name} ${year}`;
+  // return `${Number(day)} ${name} ${year}`;
+  return `${month}-${day}-${year}`;
 }
 
 /**

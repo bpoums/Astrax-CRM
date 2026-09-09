@@ -162,7 +162,10 @@ function matchingDispositions(term: string): Disposition[] {
 function matchingSources(term: string): LeadSource[] {
   const out: LeadSource[] = [];
   if ("live".includes(term)) out.push("live");
-  if ("offline".includes(term) || "sheet".includes(term)) out.push("sheet");
+  // "offline" still matches, so a saved search or an old habit keeps working
+  // after the rename.
+  if ("manual".includes(term) || "offline".includes(term) || "sheet".includes(term))
+    out.push("sheet");
   return out;
 }
 
@@ -315,7 +318,7 @@ export function ReportingStats({
         <StatCard label="Closer Submissions" value={totalsRow?.closer_submissions} />
         {/* Uploaded leads that a manager has accepted. The view counts
             `source = 'sheet'` excluding `pending_import_approval`, which is the
-            same rule the Offline Submissions tab uses — so a batch contributes
+            same rule the Manual Submissions tab uses — so a batch contributes
             nothing here until it is approved, and there is no client-side
             condition to keep in step with it. */}
         <StatCard label="Manual Submissions" value={totalsRow?.offline_submissions} />
@@ -600,7 +603,7 @@ export function SubmissionsExplorer() {
   /**
    * The Validation Status cell, for EVERY tab that draws one.
    *
-   * Spelled once on purpose. The Offline tab used to render a bare
+   * Spelled once on purpose. The Manual tab used to render a bare
    * `StatusBadge`, which reads the status column and nothing else — so a lead
    * sitting at `pending_manager` because nobody has touched it and a lead
    * sitting there because a validator declined it both came out as a plain
@@ -876,7 +879,7 @@ export function SubmissionsExplorer() {
             <TableBody>
               {filteredOffline.map((row) => (
                 <TableRow key={row.id} className="cursor-pointer" onClick={() => setOpenId(row.id)}>
-                  {/* Every row here is offline, so the badge earns its place by
+                  {/* Every row here is manual, so the badge earns its place by
                       naming WHICH centre supplied the lead — org_name, or the
                       uploader's own name where the account has none. */}
                   <TableCell>

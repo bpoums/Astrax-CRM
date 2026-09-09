@@ -120,11 +120,11 @@ const OPEN_STATUSES = ["pending_manager", "returned_timeout", "assigned", "in_re
  * Both queues hold the same OPEN statuses and offer the same actions — this is
  * about which columns a queue draws, never about what a manager may do.
  */
-type QueueTab = "live" | "offline";
+type QueueTab = "live" | "manual";
 
 const QUEUE_TABS: { id: QueueTab; label: string }[] = [
   { id: "live", label: "Live" },
-  { id: "offline", label: "Offline" },
+  { id: "manual", label: "Manual" },
 ];
 
 /**
@@ -132,7 +132,7 @@ const QUEUE_TABS: { id: QueueTab; label: string }[] = [
  * database, and mapping them here is what stops a rename in either place from
  * quietly matching nothing.
  */
-const TAB_SOURCE: Record<QueueTab, LeadSource> = { live: "live", offline: "sheet" };
+const TAB_SOURCE: Record<QueueTab, LeadSource> = { live: "live", manual: "sheet" };
 
 function isQueueTab(value: string): value is QueueTab {
   return QUEUE_TABS.some((tab) => tab.id === value);
@@ -150,7 +150,7 @@ const ASSIGNABLE = new Set<ManagerRow["status"]>([
  * Where a lead stands, exactly as the Operations queue has always drawn it: the
  * shared badge chain, who is holding it, and how long they have left.
  *
- * Extracted so the Live and Offline queues cannot drift. The two tables differ
+ * Extracted so the Live and Manual queues cannot drift. The two tables differ
  * in which columns they carry; they must never differ in how a status reads.
  */
 function QueueStatusCell({
@@ -475,7 +475,7 @@ function ManagerPage() {
                 that queue actually needs, instead of a Source column that is
                 noise on one and a Closer column that is always empty on the
                 other. Both hold OPEN leads only, and the actions are identical:
-                an offline lead past the import gate is an ordinary lead. */}
+                a manual lead past the import gate is an ordinary lead. */}
             <Tabs
               value={queueTab}
               onValueChange={(value) => {
@@ -620,7 +620,7 @@ function ManagerPage() {
                 {/* No Closer column here — an imported lead has none. Source
                     names the centre that supplied it instead, and the date is
                     absolute because the column is named for one. */}
-                <TabsContent value="offline" className="m-0">
+                <TabsContent value="manual" className="m-0">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -720,7 +720,7 @@ function ManagerPage() {
               <SheetHeader>
                 <SheetTitle>{customerName(selected.payload)}</SheetTitle>
                 <SheetDescription>
-                  {selected.source === "sheet" ? "Offline lead uploaded by" : "Submitted by"}{" "}
+                  {selected.source === "sheet" ? "Manual lead uploaded by" : "Submitted by"}{" "}
                   {closerName(selected)} · {relativeTime(selected.created_at, now)}
                 </SheetDescription>
               </SheetHeader>

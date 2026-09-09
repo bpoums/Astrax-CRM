@@ -961,6 +961,7 @@ export type Database = {
           payload: Json
           policy_number: string | null
           rejection_count: number
+          reopened_from_cx_at: string | null
           source: string
           source_ref: string | null
           ssn_normalized: string | null
@@ -998,6 +999,7 @@ export type Database = {
           payload: Json
           policy_number?: string | null
           rejection_count?: number
+          reopened_from_cx_at?: string | null
           source?: string
           source_ref?: string | null
           ssn_normalized?: string | null
@@ -1035,6 +1037,7 @@ export type Database = {
           payload?: Json
           policy_number?: string | null
           rejection_count?: number
+          reopened_from_cx_at?: string | null
           source?: string
           source_ref?: string | null
           ssn_normalized?: string | null
@@ -1238,6 +1241,7 @@ export type Database = {
           commission_tone: string | null
           cx_updated_at: string | null
           cx_updated_by: string | null
+          draft_date: string | null
           payload: Json | null
           policy_code: string | null
           policy_label: string | null
@@ -1423,6 +1427,7 @@ export type Database = {
           payload: Json
           policy_number: string | null
           rejection_count: number
+          reopened_from_cx_at: string | null
           source: string
           source_ref: string | null
           ssn_normalized: string | null
@@ -1469,6 +1474,7 @@ export type Database = {
           payload: Json
           policy_number: string | null
           rejection_count: number
+          reopened_from_cx_at: string | null
           source: string
           source_ref: string | null
           ssn_normalized: string | null
@@ -1521,6 +1527,7 @@ export type Database = {
           payload: Json
           policy_number: string | null
           rejection_count: number
+          reopened_from_cx_at: string | null
           source: string
           source_ref: string | null
           ssn_normalized: string | null
@@ -1567,6 +1574,7 @@ export type Database = {
           payload: Json
           policy_number: string | null
           rejection_count: number
+          reopened_from_cx_at: string | null
           source: string
           source_ref: string | null
           ssn_normalized: string | null
@@ -1613,6 +1621,7 @@ export type Database = {
           payload: Json
           policy_number: string | null
           rejection_count: number
+          reopened_from_cx_at: string | null
           source: string
           source_ref: string | null
           ssn_normalized: string | null
@@ -1662,6 +1671,7 @@ export type Database = {
           payload: Json
           policy_number: string | null
           rejection_count: number
+          reopened_from_cx_at: string | null
           source: string
           source_ref: string | null
           ssn_normalized: string | null
@@ -1709,6 +1719,7 @@ export type Database = {
           payload: Json
           policy_number: string | null
           rejection_count: number
+          reopened_from_cx_at: string | null
           source: string
           source_ref: string | null
           ssn_normalized: string | null
@@ -1762,6 +1773,54 @@ export type Database = {
           payload: Json
           policy_number: string | null
           rejection_count: number
+          reopened_from_cx_at: string | null
+          source: string
+          source_ref: string | null
+          ssn_normalized: string | null
+          status: Database["public"]["Enums"]["sub_status"]
+          submitted_by_role: Database["public"]["Enums"]["app_role"] | null
+          timeout_count: number
+          uploaded_by: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "submissions"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      move_to_validation: {
+        Args: { p_sub: string }
+        Returns: {
+          agent_name: string | null
+          archived_at: string | null
+          archived_by: string | null
+          assigned_at: string | null
+          assigned_to: string | null
+          center_id: string | null
+          center_name: string | null
+          claimed_at: string | null
+          closer_id: string | null
+          created_at: string
+          cx_assigned_at: string | null
+          cx_assigned_to: string | null
+          data_flags: Json
+          disposed_at: string | null
+          disposed_by: string | null
+          disposition: Database["public"]["Enums"]["disposition_t"] | null
+          draft_date: string | null
+          final_carrier_id: string | null
+          future_draft_date: string | null
+          hold_count: number
+          id: string
+          import_id: string | null
+          last_held_at: string | null
+          last_rejected_by: string | null
+          last_timeout_by: string | null
+          payload: Json
+          policy_number: string | null
+          rejection_count: number
+          reopened_from_cx_at: string | null
           source: string
           source_ref: string | null
           ssn_normalized: string | null
@@ -1826,6 +1885,7 @@ export type Database = {
           payload: Json
           policy_number: string | null
           rejection_count: number
+          reopened_from_cx_at: string | null
           source: string
           source_ref: string | null
           ssn_normalized: string | null
@@ -1918,6 +1978,7 @@ export type Database = {
           payload: Json
           policy_number: string | null
           rejection_count: number
+          reopened_from_cx_at: string | null
           source: string
           source_ref: string | null
           ssn_normalized: string | null
@@ -1983,6 +2044,54 @@ export type Database = {
           payload: Json
           policy_number: string | null
           rejection_count: number
+          reopened_from_cx_at: string | null
+          source: string
+          source_ref: string | null
+          ssn_normalized: string | null
+          status: Database["public"]["Enums"]["sub_status"]
+          submitted_by_role: Database["public"]["Enums"]["app_role"] | null
+          timeout_count: number
+          uploaded_by: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "submissions"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      submit_form_parked: {
+        Args: { p_payload: Json }
+        Returns: {
+          agent_name: string | null
+          archived_at: string | null
+          archived_by: string | null
+          assigned_at: string | null
+          assigned_to: string | null
+          center_id: string | null
+          center_name: string | null
+          claimed_at: string | null
+          closer_id: string | null
+          created_at: string
+          cx_assigned_at: string | null
+          cx_assigned_to: string | null
+          data_flags: Json
+          disposed_at: string | null
+          disposed_by: string | null
+          disposition: Database["public"]["Enums"]["disposition_t"] | null
+          draft_date: string | null
+          final_carrier_id: string | null
+          future_draft_date: string | null
+          hold_count: number
+          id: string
+          import_id: string | null
+          last_held_at: string | null
+          last_rejected_by: string | null
+          last_timeout_by: string | null
+          payload: Json
+          policy_number: string | null
+          rejection_count: number
+          reopened_from_cx_at: string | null
           source: string
           source_ref: string | null
           ssn_normalized: string | null
@@ -2029,6 +2138,7 @@ export type Database = {
           payload: Json
           policy_number: string | null
           rejection_count: number
+          reopened_from_cx_at: string | null
           source: string
           source_ref: string | null
           ssn_normalized: string | null
@@ -2072,6 +2182,7 @@ export type Database = {
         | "returned_timeout"
         | "closed"
         | "pending_import_approval"
+        | "parked"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -2221,6 +2332,7 @@ export const Constants = {
         "returned_timeout",
         "closed",
         "pending_import_approval",
+        "parked",
       ],
     },
   },

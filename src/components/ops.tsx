@@ -16,6 +16,10 @@ export const SUB_STATUSES = [
   // a manager to accept it before its leads become ordinary queue rows. A
   // closer submission never passes through this state.
   "pending_import_approval",
+  // External transfers, parked by the closer at submission. Held out of every
+  // queue until a general manager or admin releases one — the same shape as
+  // the import gate above, one lead at a time instead of a batch.
+  "parked",
   "pending_manager",
   "assigned",
   "in_review",
@@ -46,12 +50,16 @@ export function dispositionLabel(value: Disposition | null | undefined) {
 }
 
 /**
- * Where a lead came into the system. 'sheet' rows were normalised out of a
- * spreadsheet by a data uploader and have no closer behind them — this is an
- * origin, not a workflow state, so it never joins the status badge chain.
+ * How the row was WRITTEN: 'sheet' rows were normalised out of a spreadsheet by
+ * a data uploader and have no closer behind them, 'live' rows were typed into a
+ * form. An origin, not a workflow state, so it never joins the status chain.
  *
  * These two strings are the whole of `submissions_source_chk`; the database
  * rejects anything else, so they are the only values that can ever arrive.
+ *
+ * This is NOT the Live/Manual distinction an operator reads. That one also
+ * counts a validator's own submission as Manual even though it was typed into a
+ * form, so it cannot be answered by this column alone — see `sourceLabel`.
  */
 export type LeadSource = "live" | "sheet";
 
@@ -60,8 +68,8 @@ export type DataFlag = { field: string; issue: string; raw: string };
 export type SubmissionRow = {
   id: string;
   /**
-   * NULLABLE. An offline lead has no closer. Every read of a closer name has to
-   * cope with that — use `closerName()` rather than reaching for full_name.
+   * NULLABLE. An uploaded lead has no closer. Every read of a closer name has
+   * to cope with that — use `closerName()` rather than reaching for full_name.
    */
   closer_id: string | null;
   /**
@@ -109,6 +117,14 @@ export type SubmissionRow = {
   final_carrier_id: string | null;
   agent_name: string | null;
   policy_number: string | null;
+  /**
+   * Stamped by `set_cx_status` when a declined, withdrawn or cancelled policy
+   * sends an already-accepted lead back to the manager's queue. Never cleared,
+   * so it stays as the record that this lead has been round once — but the
+   * badge only speaks while the lead is still sitting unassigned, so a later
+   * ordinary timeout or rejection is not masked by it.
+   */
+  reopened_from_cx_at: string | null;
 };
 
 export const REVIEW_WINDOW_MS = 10 * 60 * 1000;
@@ -239,7 +255,7 @@ export function closerName(row: {
   closer?: { full_name: string | null } | null;
   uploader?: { full_name: string | null } | null;
 }) {
-  if (row.source === "sheet") return row.uploader?.full_name ?? "Offline lead";
+  if (row.source === "sheet") return row.uploader?.full_name ?? "Manual lead";
   return row.closer?.full_name ?? "—";
 }
 
@@ -280,6 +296,9 @@ const EVENT_LABEL: Record<string, string> = {
   // Written by `set_validator_fields`, so the change already lands in the
   // validation timeline and needs no history panel of its own.
   validator_fields_set: "Validator Fields Set",
+  // Written by `set_cx_status` alongside the cx_status_changed event that
+  // caused it, so the timeline shows both the policy outcome and the move.
+  reopened_from_cx: "Returned From CX",
 };
 
 export function eventLabel(type: string) {
@@ -313,20 +332,35 @@ export type UploaderRef = { full_name: string | null; org_name?: string | null }
 /**
  * Where a lead came from, in words an operator recognises.
  *
- * A closer's own submission is "Live". An imported one is named for the centre
- * that supplied it — `org_name` if the uploading account has one, otherwise the
- * person's own name, which is the most specific thing left to say.
+ * Only a closer's own submission is **Live**, whatever centre or organisation
+ * they belong to. Everything else is **Manual**: a lead the uploader tool
+ * imported, and a validator's own submission — which is typed into a form like
+ * a closer's, so `source` alone cannot tell them apart and the role has to be
+ * read as well.
  *
- * "Offline" survives as the last fallback for the rows that predate any of
- * this: sheet leads with no `uploaded_by` at all. It is not a default for rows
- * that simply have not been given an org_name — those name the uploader.
+ * An imported lead says something more specific than "Manual" where it can: the
+ * centre that supplied it, `org_name` if the uploading account has one, else
+ * that person's own name. Both are kinds of Manual; the name is simply the most
+ * useful thing to print, and the Offline/Manual queue is built around it.
+ *
+ * The bare word is the last fallback, for sheet rows with no `uploaded_by` at
+ * all. It is not a default for accounts that merely lack an org_name.
+ *
+ * Callers that can show a validator submission must select `submitted_by_role`.
+ * Where it is absent this reads as a closer submission, which is what every row
+ * predating the column is.
  */
-export function sourceLabel(row: { source?: LeadSource | null; uploader?: UploaderRef }) {
+export function sourceLabel(row: {
+  source?: LeadSource | null;
+  submitted_by_role?: string | null;
+  uploader?: UploaderRef;
+}) {
+  if (row.submitted_by_role === "validator") return "Manual";
   if (row.source !== "sheet") return "Live";
   const org = row.uploader?.org_name?.trim();
   if (org) return org;
   const name = row.uploader?.full_name?.trim();
-  return name || "Offline";
+  return name || "Manual";
 }
 
 /**
@@ -340,7 +374,7 @@ export function sourceLabel(row: { source?: LeadSource | null; uploader?: Upload
 export function OriginBadge({
   row,
 }: {
-  row: { source?: LeadSource | null; uploader?: UploaderRef };
+  row: { source?: LeadSource | null; submitted_by_role?: string | null; uploader?: UploaderRef };
 }) {
   return (
     <Badge variant="outline" className="max-w-[10rem] border-border text-muted-foreground">
@@ -360,6 +394,7 @@ export function FlagBadge({ count }: { count: number }) {
 
 export const STATUS_LABEL: Record<SubStatus, string> = {
   pending_import_approval: "Awaiting import approval",
+  parked: "Parked",
   pending_manager: "Unassigned",
   assigned: "Assigned",
   in_review: "Attempting",
@@ -417,10 +452,15 @@ export function DispositionBadge({
  * The precedence, highest first:
  *
  *   1. returned_timeout                    "Unsubmitted by {name}"  destructive
- *   2. pending_manager + rejections        "Rejected by {name}"     destructive
- *   3. pending_manager + declined          "Unassigned!"            destructive
- *   4. pending_manager + no disposition    "Unassigned"             muted
- *   5. anything else                       `fallback`, or StatusBadge
+ *   2. pending_manager + back from CX      "Returned from CX"       destructive
+ *   3. pending_manager + rejections        "Rejected by {name}"     destructive
+ *   4. pending_manager + declined          "Unassigned!"            destructive
+ *   5. pending_manager + no disposition    "Unassigned"             muted
+ *   6. anything else                       `fallback`, or StatusBadge
+ *
+ * The CX branch sits above the rejection one because a reopened lead keeps the
+ * counters of the pass it already completed — without it, a lead rejected once
+ * long ago would come back from CX still reading "Rejected by {name}".
  *
  * Every view that lists leads renders this same component, so the three of them
  * cannot drift; `fallback` is how a view keeps badges of its own for the rows
@@ -443,6 +483,9 @@ export function QueueStatusBadge({
     rejection_count?: number;
     timeout_by?: { full_name: string | null } | null;
     rejected_by?: { full_name: string | null } | null;
+    /** Both optional: a view that selects neither simply misses this branch. */
+    reopened_from_cx_at?: string | null;
+    assigned_at?: string | null;
   };
   /** From `submission_declined_carriers`. Empty where none are recorded. */
   declinedCarriers?: string[];
@@ -453,6 +496,13 @@ export function QueueStatusBadge({
     return (
       <Badge variant="destructive">Unsubmitted by {row.timeout_by?.full_name ?? "validator"}</Badge>
     );
+  }
+
+  // `assigned_at` is what keeps this from becoming permanent: the reopen
+  // clears it, and assigning the lead again sets it, at which point the lead is
+  // an ordinary queue row and the branches below take over for good.
+  if (row.status === "pending_manager" && row.reopened_from_cx_at && !row.assigned_at) {
+    return <Badge variant="destructive">Returned from CX</Badge>;
   }
 
   if (row.status === "pending_manager" && (row.rejection_count ?? 0) > 0) {

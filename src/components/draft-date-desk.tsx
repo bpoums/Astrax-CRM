@@ -82,7 +82,7 @@ const SELECT = [
   "draft_date",
   "center_name",
   "closer_id",
-  // Null on an offline lead, which has no closer at all — rendered as a dash
+  // Null on an uploaded lead, which has no closer at all — rendered as a dash
   // rather than left to print "undefined".
   "closer:profiles!submissions_closer_id_fkey(full_name)",
   CX_LEAD_STATUS_SELECT,
@@ -270,7 +270,7 @@ export function DraftDateDesk() {
                       <TableCell className="truncate text-muted-foreground">
                         {row.center_name ?? "—"}
                       </TableCell>
-                      {/* An offline lead has no closer — dash, never a blank. */}
+                      {/* An uploaded lead has no closer — dash, never a blank. */}
                       <TableCell className="truncate text-muted-foreground">
                         {row.closer?.full_name ?? "—"}
                       </TableCell>

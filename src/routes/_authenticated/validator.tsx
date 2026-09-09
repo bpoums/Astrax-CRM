@@ -400,7 +400,7 @@ function ValidatorPage() {
               <SheetHeader>
                 <SheetTitle>{customerName(selected.payload)}</SheetTitle>
                 <SheetDescription>
-                  {selected.source === "sheet" ? "Offline lead uploaded by" : "Submitted by"}{" "}
+                  {selected.source === "sheet" ? "Manual lead uploaded by" : "Submitted by"}{" "}
                   {closerName(selected)} · {relativeTime(selected.created_at, now)}
                 </SheetDescription>
               </SheetHeader>

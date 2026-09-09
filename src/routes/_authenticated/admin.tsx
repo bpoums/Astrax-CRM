@@ -15,11 +15,15 @@ import { CarrierAdmin } from "@/components/carrier-admin";
 import { DraftDateDesk } from "@/components/draft-date-desk";
 import { CenterAdmin } from "@/components/center-admin";
 import { CarrierDeclineReport } from "@/components/carrier-declines";
+import { ParkedLeads } from "@/components/parked-leads";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const TABS = [
   { id: "overview", label: "Overview" },
   { id: "submissions", label: "Submissions" },
+  // External transfers nobody has released yet. An admin can move one along
+  // for the same reason they can do anything a general manager can.
+  { id: "parked", label: "Parked Leads" },
   { id: "pipeline", label: "Customer Pipeline" },
   // The same screen the manager gets, mounted here because an admin sees
   // everything a manager does.
@@ -123,6 +127,10 @@ function AdminPage() {
 
           <TabsContent value="submissions" className="flex flex-col gap-4">
             <SubmissionsExplorer />
+          </TabsContent>
+
+          <TabsContent value="parked" className="flex flex-col gap-4">
+            <ParkedLeads />
           </TabsContent>
 
           {/* Read-only: an admin needs to see where the submitted leads are,
