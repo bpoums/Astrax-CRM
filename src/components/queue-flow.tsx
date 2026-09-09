@@ -13,9 +13,14 @@ import { STATUS_LABEL } from "@/components/ops";
  * Only open work appears here. Closed leads are the record, not the news, and
  * they are counted in the all-time strip below this one.
  *
- * Colour carries a rough grammar rather than a per-stage identity: grey is
+ * Colour carries a rough grammar rather than a per-stage identity: neutral is
  * waiting, amber is being worked, red went wrong. Nothing is conveyed by colour
  * alone — every segment is named and counted in the legend underneath.
+ *
+ * The two waiting stages are separated by LUMINANCE, not by opacity of the same
+ * grey — dim for a lead nobody holds, bright for one a validator does. Two
+ * steps of one colour looked distinct in source and merged into a single band
+ * eight pixels tall on screen, which is the only place it matters.
  */
 
 type Stage = {
@@ -49,13 +54,17 @@ export function QueueFlow({
       key: "unassigned",
       label: STATUS_LABEL.pending_manager,
       value: unassigned,
-      fill: "bg-muted-foreground/40",
+      fill: "bg-muted-foreground/45",
     },
     {
       key: "assigned",
       label: STATUS_LABEL.assigned,
       value: assigned,
-      fill: "bg-muted-foreground/70",
+      // Near-white against the dim grey above it. Also the right reading:
+      // somebody is holding this lead, so it is brighter than the pile nobody
+      // has picked up — and it matches QueueStatusBadge, where an untouched
+      // lead is deliberately the quiet one.
+      fill: "bg-foreground/80",
     },
     { key: "in_review", label: STATUS_LABEL.in_review, value: inReview, fill: "bg-accent" },
     // Quieter amber than a live review: a hold is work paused, not work
