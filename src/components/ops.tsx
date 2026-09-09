@@ -194,6 +194,30 @@ export function relativeTime(iso: string, now: number) {
   return `${Math.floor(h / 24)}d ago`;
 }
 
+/**
+ * "+5s", "+3m 34s", "+2h 03m" — how long after some earlier moment.
+ *
+ * A duration, so it belongs here beside `relativeTime` and `formatClock` rather
+ * than in `format-date.ts`: it is the difference between two instants and reads
+ * the same in every timezone.
+ *
+ * Used inside a validation pass, where the useful fact is not the wall clock
+ * but the gap — a validator holding a lead six times in eight minutes is a
+ * story the timestamps tell only after arithmetic the reader should not have to
+ * do. Boundaries between passes keep their absolute time.
+ */
+export function formatOffset(fromIso: string, toIso: string) {
+  const ms = new Date(toIso).getTime() - new Date(fromIso).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return "";
+  const total = Math.round(ms / 1000);
+  if (total < 60) return `+${total}s`;
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  if (minutes < 60) return seconds ? `+${minutes}m ${seconds}s` : `+${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  return `+${hours}h ${String(minutes % 60).padStart(2, "0")}m`;
+}
+
 export function formatClock(ms: number) {
   const total = Math.max(0, Math.floor(ms / 1000));
   const m = Math.floor(total / 60);

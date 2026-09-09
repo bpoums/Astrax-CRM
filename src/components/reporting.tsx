@@ -11,7 +11,6 @@ import {
   customerName,
   dataFlags,
   dispositionLabel,
-  eventLabel,
   isOnHold,
   relativeTime,
   sourceLabel,
@@ -24,12 +23,12 @@ import {
   type SubStatus,
   type SubmissionRow,
 } from "@/components/ops";
-import { formatDate, formatEventTime } from "@/lib/format-date";
+import { formatDate } from "@/lib/format-date";
 import { DataFlagList } from "@/components/data-flags";
 import { LeadPayload } from "@/components/lead-editor";
 import { PayloadEditHistory, payloadHistoryKey } from "@/components/payload-history";
 import { CarrierDeclineList } from "@/components/carrier-declines";
-import { validationTimelineKey } from "@/components/validation-timeline";
+import { ValidationTimeline, validationTimelineKey } from "@/components/validation-timeline";
 import { ValidatorFields } from "@/components/validator-fields";
 import { useDeclinedCarrierMap } from "@/lib/carriers";
 import {
@@ -42,7 +41,6 @@ import {
 } from "@/lib/lead-search";
 import { PaginationBar } from "@/components/pagination-bar";
 import { useAuth } from "@/lib/auth";
-import { ClampedText } from "@/components/free-text";
 import {
   Sheet,
   SheetContent,
@@ -95,41 +93,11 @@ const LEAD_TABS: { id: LeadTab; label: string }[] = [
   { id: "offline", label: "Manual Submissions" },
 ];
 
-type TimelineEvent = {
-  id: number;
-  event_type: string;
-  created_at: string;
-  actor_id: string | null;
-  detail: Record<string, unknown> | null;
-  actor: { full_name: string | null } | null;
-};
-
 const SUBMISSIONS_KEY = ["reporting", "submissions"];
 const TOTALS_KEY = ["reporting", "totals"];
 const VALIDATOR_STATS_KEY = ["reporting", "validator-stats"];
 const CENTER_TOTALS_KEY = ["reporting", "center-totals"];
 const ON_HOLD_KEY = ["reporting", "on-hold"];
-
-/**
- * Held and rejected events number themselves, claimed events number the
- * attempt, and a rejection may carry the reason the validator typed.
- */
-function eventCounter(event: TimelineEvent) {
-  const detail = event.detail ?? {};
-  const holdNumber = detail["hold_number"];
-  const rejectionNumber = detail["rejection_number"];
-  const attempt = detail["attempt"];
-  if (event.event_type === "held" && typeof holdNumber === "number") return `#${holdNumber}`;
-  if (event.event_type === "rejected" && typeof rejectionNumber === "number")
-    return `#${rejectionNumber}`;
-  if (event.event_type === "claimed" && typeof attempt === "number") return `attempt ${attempt}`;
-  return null;
-}
-
-function eventReason(event: TimelineEvent) {
-  const reason = (event.detail ?? {})["reason"];
-  return typeof reason === "string" && reason.trim() ? reason : null;
-}
 
 /**
  * Enums cannot be searched with ILIKE — Postgres has no such operator for them
@@ -616,22 +584,6 @@ export function SubmissionsExplorer() {
     <QueueStatusBadge row={row} declinedCarriers={declinedMap.data?.get(row.id) ?? []} />
   );
 
-  const timeline = useQuery({
-    queryKey: ["reporting", "timeline", openId],
-    enabled: !!openId,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("form_events")
-        .select(
-          "id, event_type, created_at, actor_id, detail, actor:profiles!form_events_actor_id_fkey(full_name)",
-        )
-        .eq("submission_id", openId!)
-        .order("created_at", { ascending: true });
-      if (error) throw error;
-      return (data ?? []) as unknown as TimelineEvent[];
-    },
-  });
-
   const filteredCloser = useMemo(() => closerQuery.data?.rows ?? [], [closerQuery.data]);
   const filteredValidator = useMemo(() => validatorQuery.data?.rows ?? [], [validatorQuery.data]);
   const filteredOffline = useMemo(() => offlineQuery.data?.rows ?? [], [offlineQuery.data]);
@@ -994,45 +946,12 @@ export function SubmissionsExplorer() {
                     what the value was. Same panel as the closing desk. */}
                 <PayloadEditHistory submissionId={selected.id} />
 
-                <div className="flex flex-col gap-2">
-                  <h3 className="panel-title">Timeline</h3>
-                  <ol className="divide-y divide-border rounded-md border border-border">
-                    {(timeline.data ?? []).map((event) => (
-                      <li
-                        key={event.id}
-                        className="grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] gap-2 px-3 py-1.5"
-                      >
-                        <span className="field-label">
-                          {eventLabel(event.event_type)}
-                          {eventCounter(event) ? (
-                            <span className="ml-1 normal-case tracking-normal text-accent">
-                              {eventCounter(event)}
-                            </span>
-                          ) : null}
-                        </span>
-                        <span className="min-w-0 text-xs text-muted-foreground">
-                          <span className="text-foreground">
-                            {event.actor?.full_name ?? "system"}
-                          </span>{" "}
-                          · {formatEventTime(event.created_at, { seconds: true })}
-                          {eventReason(event) ? (
-                            <ClampedText
-                              text={eventReason(event) ?? ""}
-                              heading={eventLabel(event.event_type)}
-                              meta={`${event.actor?.full_name ?? "system"} · ${formatEventTime(event.created_at, { seconds: true })}`}
-                              className="italic"
-                            />
-                          ) : null}
-                        </span>
-                      </li>
-                    ))}
-                    {(timeline.data ?? []).length === 0 ? (
-                      <li className="px-3 py-1.5 text-xs text-muted-foreground">
-                        {timeline.isLoading ? "Loading…" : "No events recorded."}
-                      </li>
-                    ) : null}
-                  </ol>
-                </div>
+                {/* The same component the closing desk and the CX pipeline
+                    draw, so the four copies of this that had already drifted
+                    are now one. `seconds` is the one thing Reporting needs of
+                    its own: its events can land inside the same minute and the
+                    order is the point. */}
+                <ValidationTimeline submissionId={selected.id} seconds />
               </div>
             </>
           ) : null}

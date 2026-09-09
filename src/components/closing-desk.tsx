@@ -614,11 +614,15 @@ export function ClosingDesk() {
                 <PayloadEditHistory submissionId={selected.id} />
 
                 {/* Three separate stories about the same lead — what was
-                    corrected, what the customer lifecycle did after approval,
-                    and the validation workflow that got it there. Kept apart and
-                    labelled so none reads as a continuation of another. */}
-                <CxLifecycleHistory submissionId={selected.id} />
+                    corrected, the validation workflow, and what the customer
+                    lifecycle did after approval. Kept apart and labelled so none
+                    reads as a continuation of another.
+
+                    Validation first here: this desk is about getting a lead
+                    placed, so the workflow is the story and the lifecycle is
+                    the epilogue. The CX pipeline orders them the other way. */}
                 <ValidationTimeline submissionId={selected.id} />
+                <CxLifecycleHistory submissionId={selected.id} />
               </div>
             </>
           ) : null}
