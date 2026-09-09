@@ -280,23 +280,45 @@ export function ReportingStats({
    * above never adds up to more than the work that exists.
    *
    * `awaiting_manager` and `in_review` are NOT recomputed here — those the view
-   * publishes, and they are read from it.
+   * publishes, and they are read from it. The open rows are still fetched, but
+   * only for the age of the oldest lead in each stage, which no view carries.
    */
   const openQueue = useQuery({
     queryKey: ON_HOLD_KEY,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("submissions")
-        .select("status, claimed_at, assigned_at, last_held_at")
-        .in("status", ["assigned", "returned_timeout"])
+        .select("status, created_at, claimed_at, assigned_at, last_held_at")
+        .in("status", ["pending_manager", "assigned", "in_review", "returned_timeout"])
         .is("archived_at", null);
       if (error) throw error;
       const rows = data ?? [];
-      const onHold = rows.filter((row) => row.status === "assigned" && isOnHold(row)).length;
+      const held = rows.filter((row) => row.status === "assigned" && isOnHold(row));
+
+      /** The submission date of the oldest lead among these, or null. */
+      const oldest = (of: typeof rows) =>
+        of.reduce<string | null>(
+          (first, row) => (!first || row.created_at < first ? row.created_at : first),
+          null,
+        );
+
+      const byStatus = (status: string) => rows.filter((row) => row.status === status);
+      const assigned = byStatus("assigned").filter((row) => !isOnHold(row));
+
       return {
-        onHold,
-        assigned: rows.filter((row) => row.status === "assigned").length - onHold,
-        returned: rows.filter((row) => row.status === "returned_timeout").length,
+        // COUNTS for the two stages the view publishes are not taken from here
+        // — see the note above. These rows exist for the ages, and for the
+        // three counts submission_totals cannot express.
+        onHold: held.length,
+        assigned: assigned.length,
+        returned: byStatus("returned_timeout").length,
+        oldest: {
+          unassigned: oldest(byStatus("pending_manager")),
+          assigned: oldest(assigned),
+          inReview: oldest(byStatus("in_review")),
+          onHold: oldest(held),
+          returned: oldest(byStatus("returned_timeout")),
+        },
       };
     },
   });
@@ -332,11 +354,26 @@ export function ReportingStats({
       {/* The news, first and largest: open work, and which stage it is
           sitting in. Everything below this is the record. */}
       <QueueFlow
-        unassigned={totalsRow?.awaiting_manager ?? 0}
-        assigned={openQueue.data?.assigned ?? 0}
-        inReview={totalsRow?.in_review ?? 0}
-        onHold={openQueue.data?.onHold ?? 0}
-        returned={openQueue.data?.returned ?? 0}
+        unassigned={{
+          value: totalsRow?.awaiting_manager ?? 0,
+          oldest: openQueue.data?.oldest.unassigned ?? null,
+        }}
+        assigned={{
+          value: openQueue.data?.assigned ?? 0,
+          oldest: openQueue.data?.oldest.assigned ?? null,
+        }}
+        inReview={{
+          value: totalsRow?.in_review ?? 0,
+          oldest: openQueue.data?.oldest.inReview ?? null,
+        }}
+        onHold={{
+          value: openQueue.data?.onHold ?? 0,
+          oldest: openQueue.data?.oldest.onHold ?? null,
+        }}
+        returned={{
+          value: openQueue.data?.returned ?? 0,
+          oldest: openQueue.data?.oldest.returned ?? null,
+        }}
         loading={totals.isLoading || openQueue.isLoading}
       />
 

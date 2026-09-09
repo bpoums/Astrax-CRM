@@ -1,4 +1,4 @@
-import { STATUS_LABEL } from "@/components/ops";
+import { relativeTime, STATUS_LABEL, useNow } from "@/components/ops";
 
 /**
  * Where the open work actually is, as one bar.
@@ -21,14 +21,30 @@ import { STATUS_LABEL } from "@/components/ops";
  * grey — dim for a lead nobody holds, bright for one a validator does. Two
  * steps of one colour looked distinct in source and merged into a single band
  * eight pixels tall on screen, which is the only place it matters.
+ *
+ * Each stage also carries the AGE of its oldest lead, which is the difference
+ * between three timeouts this morning and three that have been sitting since
+ * August. The count alone draws those identically, and the second is the one
+ * worth doing something about. It is the lead's own age, not time in this
+ * stage: no column records when a lead entered `pending_manager`, and "this
+ * lead is fifteen days old and still not resolved" is the more useful fact
+ * anyway.
  */
 
 type Stage = {
   key: string;
   label: string;
   value: number;
+  /** When the oldest lead in this stage was submitted. Null where none is. */
+  oldest: string | null;
   /** The bar segment and its legend dot, which must always match. */
   fill: string;
+};
+
+/** One stage's numbers, as the caller supplies them. */
+export type StageCount = {
+  value: number;
+  oldest?: string | null;
 };
 
 export function QueueFlow({
@@ -39,41 +55,60 @@ export function QueueFlow({
   returned,
   loading = false,
 }: {
-  unassigned: number;
+  unassigned: StageCount;
   /** Assigned and NOT on hold — the two are exclusive here, never double-counted. */
-  assigned: number;
-  inReview: number;
-  onHold: number;
-  returned: number;
+  assigned: StageCount;
+  inReview: StageCount;
+  onHold: StageCount;
+  returned: StageCount;
   loading?: boolean;
 }) {
+  // A minute is plenty: these ages are read in days and hours, and a faster
+  // clock would re-render the whole strip for nothing.
+  const now = useNow(60_000);
+
   const stages: Stage[] = [
     // The queue's own words, read from the one place they are spelled, so a
     // rename in STATUS_LABEL moves this strip with every other screen.
     {
       key: "unassigned",
       label: STATUS_LABEL.pending_manager,
-      value: unassigned,
+      value: unassigned.value,
+      oldest: unassigned.oldest ?? null,
       fill: "bg-muted-foreground/45",
     },
     {
       key: "assigned",
       label: STATUS_LABEL.assigned,
-      value: assigned,
+      value: assigned.value,
+      oldest: assigned.oldest ?? null,
       // Near-white against the dim grey above it. Also the right reading:
       // somebody is holding this lead, so it is brighter than the pile nobody
       // has picked up — and it matches QueueStatusBadge, where an untouched
       // lead is deliberately the quiet one.
       fill: "bg-foreground/80",
     },
-    { key: "in_review", label: STATUS_LABEL.in_review, value: inReview, fill: "bg-accent" },
+    {
+      key: "in_review",
+      label: STATUS_LABEL.in_review,
+      value: inReview.value,
+      oldest: inReview.oldest ?? null,
+      fill: "bg-accent",
+    },
     // Quieter amber than a live review: a hold is work paused, not work
     // happening, and the two should not read as the same thing.
-    { key: "on_hold", label: "On Hold", value: onHold, fill: "bg-accent/45" },
+    {
+      key: "on_hold",
+      label: "On Hold",
+      value: onHold.value,
+      oldest: onHold.oldest ?? null,
+      fill: "bg-accent/45",
+    },
     {
       key: "returned",
       label: STATUS_LABEL.returned_timeout,
-      value: returned,
+      value: returned.value,
+      oldest: returned.oldest ?? null,
       fill: "bg-destructive",
     },
   ];
@@ -84,8 +119,11 @@ export function QueueFlow({
     <section className="panel">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="panel-title">Where leads are right now</h2>
+        {/* Said here rather than only beside the period chips below, where it
+            was missed: this strip is current state and the window does not
+            touch it. */}
         <span className="text-[0.66rem] tabular-nums text-muted-foreground">
-          {loading ? "Loading…" : `${total} in flight`}
+          {loading ? "Loading…" : `${total} in flight · always live, not filtered by period`}
         </span>
       </div>
 
@@ -121,6 +159,13 @@ export function QueueFlow({
             >
               {stage.value}
             </span>
+            {/* Only where there is something to age. An empty stage saying
+                "oldest —" is noise, and the count already says it is empty. */}
+            {stage.value > 0 && stage.oldest ? (
+              <span className="truncate text-[0.62rem] text-muted-foreground">
+                oldest {relativeTime(stage.oldest, now)}
+              </span>
+            ) : null}
           </li>
         ))}
       </ul>
