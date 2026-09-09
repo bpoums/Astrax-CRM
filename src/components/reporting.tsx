@@ -95,6 +95,33 @@ const LEAD_TABS: { id: LeadTab; label: string }[] = [
   { id: "offline", label: "Manual Submissions" },
 ];
 
+/**
+ * The windows the record can be read over.
+ *
+ * `days` is what the RPCs take, and null means all time — the same value the
+ * functions treat as "no filter", so All time returns exactly what the old
+ * unscoped views did. The boundary itself is a Pacific calendar day computed in
+ * `reporting_since`, not in the browser: "today" must mean the same day for a
+ * reader in Lahore as for the business in Los Angeles.
+ */
+const PERIODS = [
+  { id: "today", label: "Today", days: 1, heading: "Today" },
+  { id: "7d", label: "7 days", days: 7, heading: "Last 7 days" },
+  { id: "30d", label: "30 days", days: 30, heading: "Last 30 days" },
+  { id: "all", label: "All time", days: null, heading: "All time" },
+] as const;
+
+type PeriodId = (typeof PERIODS)[number]["id"];
+
+/**
+ * All time by default, deliberately.
+ *
+ * Every figure on this page has been a lifetime total until now. Opening it to
+ * a 30-day window would make each one appear to drop, which reads as data loss
+ * rather than as a filter. The reader opts in.
+ */
+const DEFAULT_PERIOD: PeriodId = "all";
+
 const SUBMISSIONS_KEY = ["reporting", "submissions"];
 const TOTALS_KEY = ["reporting", "totals"];
 const VALIDATOR_STATS_KEY = ["reporting", "validator-stats"];
@@ -179,15 +206,27 @@ export function ReportingStats({
   showValidatorSubmissions?: boolean;
 }) {
   const queryClient = useQueryClient();
+  const [periodId, setPeriodId] = useState<PeriodId>(DEFAULT_PERIOD);
+  const period = PERIODS.find((entry) => entry.id === periodId) ?? PERIODS[3];
+  const days = period.days;
+  /**
+   * All time omits the argument rather than passing null.
+   *
+   * `p_days` has a SQL default, so the generated type is `p_days?: number` —
+   * and under exactOptionalPropertyTypes an explicit null is rejected. Omitting
+   * the key lets the default apply, which is the same "no filter" the functions
+   * read a null as.
+   */
+  const range = days === null ? {} : { p_days: days };
 
   const validatorStats = useQuery({
-    queryKey: VALIDATOR_STATS_KEY,
+    queryKey: [...VALIDATOR_STATS_KEY, days],
     queryFn: async () => {
+      // Ordered again here as well as in the function body: PostgREST makes no
+      // promise about preserving a function's own ORDER BY, and this table is
+      // meant to read alphabetically however it was fetched.
       const { data, error } = await supabase
-        .from("validator_stats")
-        .select(
-          "validator_id, validator_name, assigned, approved, declined, rejected, timed_out, holds",
-        )
+        .rpc("validator_stats_range", range)
         .order("validator_name");
       if (error) throw error;
       return data ?? [];
@@ -208,13 +247,10 @@ export function ReportingStats({
    * picker.
    */
   const centerTotals = useQuery({
-    queryKey: CENTER_TOTALS_KEY,
+    queryKey: [...CENTER_TOTALS_KEY, days],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("submission_totals_by_center")
-        .select(
-          "center_id, center_name, total_submissions, approved, declined, pending, awaiting_manager",
-        )
+        .rpc("submission_totals_by_center_range", range)
         .order("sort_order", { ascending: true })
         .order("center_name", { ascending: true });
       if (error) throw error;
@@ -223,14 +259,9 @@ export function ReportingStats({
   });
 
   const totals = useQuery({
-    queryKey: TOTALS_KEY,
+    queryKey: [...TOTALS_KEY, days],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("submission_totals")
-        .select(
-          "closer_submissions, validator_submissions, offline_submissions, approved, declined, in_review, awaiting_manager, timeouts, rejections",
-        )
-        .maybeSingle();
+      const { data, error } = await supabase.rpc("submission_totals_range", range).maybeSingle();
       if (error) throw error;
       return data;
     },
@@ -309,12 +340,38 @@ export function ReportingStats({
         loading={totals.isLoading || openQueue.isLoading}
       />
 
-      {/* Deliberately quieter than the strip above. These are lifetime totals —
+      {/* The window applies to everything BELOW it, never to the strip above:
+          "where leads are right now" is current state, and scoping it to a past
+          week would answer a question nobody asked. Said out loud beside the
+          chips, because a filter that silently leaves one panel out is worse
+          than no filter. */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap gap-1.5">
+          {PERIODS.map((entry) => (
+            <button
+              key={entry.id}
+              type="button"
+              onClick={() => setPeriodId(entry.id)}
+              aria-pressed={entry.id === periodId}
+              className={`chip px-2.5 py-0.5 text-[0.66rem] ${
+                entry.id === periodId ? "chip-active" : ""
+              }`}
+            >
+              {entry.label}
+            </button>
+          ))}
+        </div>
+        <span className="text-[0.66rem] text-muted-foreground">
+          Applies to the totals below. The queue above is always live.
+        </span>
+      </div>
+
+      {/* Deliberately quieter than the strip above. These are the record —
           true, worth having, and not what anybody opens this tab to find out.
           Eight of them as 3xl cards gave a number nobody can act on the same
           weight as the queue that needs working today. */}
       <section className="panel">
-        <h2 className="panel-title">All time</h2>
+        <h2 className="panel-title">{period.heading}</h2>
         <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 lg:grid-cols-6">
           <Total label="Closer" value={totalsRow?.closer_submissions} />
           {/* Uploaded leads that a manager has accepted. The view counts
@@ -349,7 +406,10 @@ export function ReportingStats({
           it works rather than a breakdown of the whole business. */}
       {showValidatorSubmissions ? (
         <section className="panel">
-          <h2 className="panel-title">Leads by Center ({perCenter.length})</h2>
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="panel-title">Leads by Center ({perCenter.length})</h2>
+            <span className="text-[0.66rem] text-muted-foreground">{period.heading}</span>
+          </div>
           <ul className="flex flex-col gap-2.5">
             {perCenter.map((center) => (
               <li key={center.center_id ?? center.center_name} className="flex flex-col gap-1">
@@ -380,7 +440,13 @@ export function ReportingStats({
       {showValidatorSubmissions ? null : (
         <>
           <section className="panel">
-            <h2 className="panel-title">Validators Team Dashboard ({perValidator.length})</h2>
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="panel-title">Validators Team Dashboard ({perValidator.length})</h2>
+              {/* Scoped on when the validator ACTED, not on when the lead
+                  arrived — a lead submitted last month and disposed today is
+                  today's work. See validator_stats_range. */}
+              <span className="text-[0.66rem] text-muted-foreground">{period.heading}</span>
+            </div>
             <Table>
               <TableHeader>
                 <TableRow>

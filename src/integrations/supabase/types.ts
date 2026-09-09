@@ -1910,6 +1910,7 @@ export type Database = {
         Returns: undefined
       }
       reporting_retention_status: { Args: never; Returns: Json }
+      reporting_since: { Args: { p_days: number }; Returns: string }
       resolve_carrier: {
         Args: { p_input: string }
         Returns: {
@@ -2012,6 +2013,34 @@ export type Database = {
           isOneToOne: true
           isSetofReturn: false
         }
+      }
+      submission_totals_by_center_range: {
+        Args: { p_days?: number }
+        Returns: {
+          approved: number
+          awaiting_manager: number
+          center_id: string
+          center_name: string
+          declined: number
+          pending: number
+          sort_order: number
+          total_submissions: number
+        }[]
+      }
+      submission_totals_range: {
+        Args: { p_days?: number }
+        Returns: {
+          approved: number
+          awaiting_manager: number
+          closer_submissions: number
+          declined: number
+          in_review: number
+          offline_submissions: number
+          pending: number
+          rejections: number
+          timeouts: number
+          validator_submissions: number
+        }[]
       }
       submit_form: {
         Args: { p_payload: Json }
@@ -2161,6 +2190,21 @@ export type Database = {
       update_payment_field: {
         Args: { p_field: string; p_sub: string; p_value: string }
         Returns: Json
+      }
+      validator_stats_range: {
+        Args: { p_days?: number }
+        Returns: {
+          approved: number
+          assigned: number
+          declined: number
+          holds: number
+          pending: number
+          rejected: number
+          staff_id: string
+          timed_out: number
+          validator_id: string
+          validator_name: string
+        }[]
       }
     }
     Enums: {
