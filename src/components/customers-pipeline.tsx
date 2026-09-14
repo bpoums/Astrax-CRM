@@ -3,14 +3,15 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
   CARRIER_KEYS,
+  CenterBadge,
   carrierName,
-  OriginBadge,
   PayloadTable,
   customerName,
   sourceLabel,
   type LeadSource,
   type UploaderRef,
 } from "@/components/ops";
+import { useCenterColorById } from "@/lib/centers";
 import { formatCalendarDate, formatDate } from "@/lib/format-date";
 import { CxStatusCell, ReturnForValidationButton } from "@/components/cx-status-cell";
 import { LeadHistoryDialog } from "@/components/lead-history-dialog";
@@ -93,12 +94,14 @@ const NO_FILTERS: Filters = {
   chargeback: ANY,
 };
 
-/** What OriginBadge needs, however it was resolved. */
+/** What `sourceLabel()`/the Center column need, however it was resolved. */
 type OriginRow = {
   source: LeadSource | null;
   /** Live vs Manual turns on this as well as on `source` — see sourceLabel. */
   submitted_by_role: string | null;
   uploader: UploaderRef;
+  center_id: string | null;
+  center_name: string | null;
 };
 
 type PipelineRow = {
@@ -167,6 +170,7 @@ export function CustomersPipeline({
   showUpdatedBy?: boolean;
 }) {
   const queryClient = useQueryClient();
+  const centerColorById = useCenterColorById();
   const [page, setPage] = useState(0);
   const [search, setSearch] = useState("");
   const [draftDate, setDraftDate] = useState("");
@@ -240,7 +244,7 @@ export function CustomersPipeline({
       const { data, error } = await supabase
         .from("submissions")
         .select(
-          "id, source, submitted_by_role, uploader:profiles!submissions_uploaded_by_fkey(full_name, org_name)",
+          "id, source, submitted_by_role, center_id, center_name, uploader:profiles!submissions_uploaded_by_fkey(full_name, org_name)",
         )
         .in("id", pageIds);
       if (error) throw error;
@@ -250,6 +254,8 @@ export function CustomersPipeline({
           source: row.source,
           submitted_by_role: row.submitted_by_role,
           uploader: row.uploader,
+          center_id: row.center_id,
+          center_name: row.center_name,
         });
       }
       return byId;
@@ -259,6 +265,8 @@ export function CustomersPipeline({
   /**
    * The view's own `source` is the fallback, so a row still reads Live or
    * Manual while the names are in flight or if the lookup comes back short.
+   * `cx_pipeline` carries no center at all, so the fallback has nothing to
+   * offer there — the Center column reads "—" until the lookup lands.
    *
    * The fallback cannot tell a validator's submission from a closer's — the
    * view carries no role — so it reads as Live until the lookup lands. That is
@@ -270,6 +278,8 @@ export function CustomersPipeline({
       source: row.source === "sheet" ? "sheet" : "live",
       submitted_by_role: null,
       uploader: null,
+      center_id: null,
+      center_name: null,
     };
   const selected = rows.find((row) => row.submission_id === openId) ?? null;
 
@@ -369,11 +379,11 @@ export function CustomersPipeline({
           <TableHeader>
             <TableRow>
               {/* No width: Customer absorbs whatever the others leave. */}
-              <TableHead className="w-28">Source</TableHead>
+              <TableHead className="w-28">Center</TableHead>
               <TableHead>Customer</TableHead>
               <TableHead>Carrier</TableHead>
               <TableHead>Draft Date</TableHead>
-              <TableHead>Submitted On</TableHead>
+              {/* <TableHead>Submitted On</TableHead> */}
               {CX_CATEGORIES.map((category) => (
                 <TableHead key={category} className="w-40">
                   {CATEGORY_LABEL[category]}
@@ -386,99 +396,107 @@ export function CustomersPipeline({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.map((row) => (
-              <TableRow
-                key={row.submission_id}
-                className="cursor-pointer align-top"
-                onClick={() => setOpenId(row.submission_id)}
-              >
-                {/* Fixed columns clip rather than stretch, so anything that can
-                    run long truncates and keeps its full text on hover. */}
-                <TableCell>
-                  <OriginBadge row={originOf(row)} />
-                </TableCell>
-                <TableCell className="font-medium">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="free-text block max-w-full truncate">
-                        {customerName(row.payload)}
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipBody>
-                      <TooltipHeading>{customerName(row.payload)}</TooltipHeading>
-                      <span className="free-text text-[0.62rem] text-muted-foreground">
-                        {carrierName(row.payload)} · submitted {formatDate(row.submitted_on)}
-                      </span>
-                    </TooltipBody>
-                  </Tooltip>
-                </TableCell>
-                {/* carrierName(), not the payload key: a closer's lead files
-                    this under "Carrier Name" and a validator's under "Agency",
-                    and reading one of them left every validator row blank. */}
-                <TableCell
-                  className="truncate text-muted-foreground"
-                  title={carrierName(row.payload)}
+            {rows.map((row) => {
+              const origin = originOf(row);
+              return (
+                <TableRow
+                  key={row.submission_id}
+                  className="cursor-pointer align-top"
+                  onClick={() => setOpenId(row.submission_id)}
                 >
-                  {carrierName(row.payload)}
-                </TableCell>
-
-                {/* formatCalendarDate, not formatDate: draft_date is a SQL
-                    `date` with no instant in it, and rendering it in Pacific
-                    prints the day before. See format-date.ts. */}
-                <TableCell className="whitespace-nowrap text-muted-foreground">
-                  {formatCalendarDate(row.draft_date)}
-                </TableCell>
-
-                <TableCell className="whitespace-nowrap text-muted-foreground">
-                  {formatDate(row.submitted_on)}
-                </TableCell>
-                {CX_CATEGORIES.map((category) => {
-                  const status = statusOf(row, category);
-                  return (
-                    // The status cells are the interactive part of the row, so
-                    // they must not open the detail sheet underneath them.
-                    <TableCell key={category} onClick={(event) => event.stopPropagation()}>
-                      <CxStatusCell
-                        submissionId={row.submission_id}
-                        category={category}
-                        code={status.code}
-                        label={status.label}
-                        tone={status.tone}
-                        reason={status.reason}
-                        options={byCategory[category]}
-                        updatedBy={row.cx_updated_by}
-                        updatedAt={row.cx_updated_at}
-                        readOnly={readOnly}
-                        onSaved={onStatusSaved}
-                      />
-                    </TableCell>
-                  );
-                })}
-                {showUpdatedBy ? (
-                  <TableCell className="text-muted-foreground">
-                    {row.cx_updated_at ? (
-                      <span className="flex flex-col">
-                        <span className="text-xs text-foreground">{row.cx_updated_by ?? "—"}</span>
-                        <span className="text-[0.62rem]">{formatDate(row.cx_updated_at)}</span>
-                      </span>
-                    ) : (
-                      "—"
-                    )}
-                  </TableCell>
-                ) : null}
-                {/* The action is the interactive part of the row, so it must
-                    not open the detail sheet underneath it. Admin's read-only
-                    mount has no column for it at all — see the header above. */}
-                {readOnly ? null : (
-                  <TableCell onClick={(event) => event.stopPropagation()}>
-                    <ReturnForValidationButton
-                      submissionId={row.submission_id}
-                      onReturned={onStatusSaved}
+                  {/* Fixed columns clip rather than stretch, so anything that can
+                    run long truncates and keeps its full text on hover. */}
+                  <TableCell>
+                    <CenterBadge
+                      name={origin.center_name}
+                      color={origin.center_id ? centerColorById.get(origin.center_id) : null}
                     />
                   </TableCell>
-                )}
-              </TableRow>
-            ))}
+                  <TableCell className="font-medium">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="free-text block max-w-full truncate">
+                          {customerName(row.payload)}
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipBody>
+                        <TooltipHeading>{customerName(row.payload)}</TooltipHeading>
+                        <span className="free-text text-[0.62rem] text-muted-foreground">
+                          {carrierName(row.payload)} · submitted {formatDate(row.submitted_on)}
+                        </span>
+                      </TooltipBody>
+                    </Tooltip>
+                  </TableCell>
+                  {/* carrierName(), not the payload key: a closer's lead files
+                    this under "Carrier Name" and a validator's under "Agency",
+                    and reading one of them left every validator row blank. */}
+                  <TableCell
+                    className="truncate text-muted-foreground"
+                    title={carrierName(row.payload)}
+                  >
+                    {carrierName(row.payload)}
+                  </TableCell>
+
+                  {/* formatCalendarDate, not formatDate: draft_date is a SQL
+                    `date` with no instant in it, and rendering it in Pacific
+                    prints the day before. See format-date.ts. */}
+                  <TableCell className="whitespace-nowrap text-muted-foreground">
+                    {formatCalendarDate(row.draft_date)}
+                  </TableCell>
+
+                  {/* <TableCell className="whitespace-nowrap text-muted-foreground">
+                  {formatDate(row.submitted_on)}
+                </TableCell> */}
+                  {CX_CATEGORIES.map((category) => {
+                    const status = statusOf(row, category);
+                    return (
+                      // The status cells are the interactive part of the row, so
+                      // they must not open the detail sheet underneath them.
+                      <TableCell key={category} onClick={(event) => event.stopPropagation()}>
+                        <CxStatusCell
+                          submissionId={row.submission_id}
+                          category={category}
+                          code={status.code}
+                          label={status.label}
+                          tone={status.tone}
+                          reason={status.reason}
+                          options={byCategory[category]}
+                          updatedBy={row.cx_updated_by}
+                          updatedAt={row.cx_updated_at}
+                          readOnly={readOnly}
+                          onSaved={onStatusSaved}
+                        />
+                      </TableCell>
+                    );
+                  })}
+                  {showUpdatedBy ? (
+                    <TableCell className="text-muted-foreground">
+                      {row.cx_updated_at ? (
+                        <span className="flex flex-col">
+                          <span className="text-xs text-foreground">
+                            {row.cx_updated_by ?? "—"}
+                          </span>
+                          <span className="text-[0.62rem]">{formatDate(row.cx_updated_at)}</span>
+                        </span>
+                      ) : (
+                        "—"
+                      )}
+                    </TableCell>
+                  ) : null}
+                  {/* The action is the interactive part of the row, so it must
+                    not open the detail sheet underneath it. Admin's read-only
+                    mount has no column for it at all — see the header above. */}
+                  {readOnly ? null : (
+                    <TableCell onClick={(event) => event.stopPropagation()}>
+                      <ReturnForValidationButton
+                        submissionId={row.submission_id}
+                        onReturned={onStatusSaved}
+                      />
+                    </TableCell>
+                  )}
+                </TableRow>
+              );
+            })}
             {rows.length === 0 ? (
               <TableRow>
                 <TableCell
