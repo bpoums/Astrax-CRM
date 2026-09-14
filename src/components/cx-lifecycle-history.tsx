@@ -50,7 +50,14 @@ type HistoryRow = {
   actor: { full_name: string | null } | null;
 };
 
-export function CxLifecycleHistory({ submissionId }: { submissionId: string }) {
+export function CxLifecycleHistory({
+  submissionId,
+  /** The larger, more breathing-room variant `LeadHistoryDialog` asks for. */
+  comfortable = false,
+}: {
+  submissionId: string;
+  comfortable?: boolean;
+}) {
   /**
    * Retired options included: a lead can be sitting on a status that has since
    * been deactivated, and a change that resolved to a blank chip would be worse
@@ -116,9 +123,13 @@ export function CxLifecycleHistory({ submissionId }: { submissionId: string }) {
           {history.isLoading ? "Loading…" : "No CX status has been set on this lead yet."}
         </TimelineEmpty>
       ) : (
-        <TimelineList>
+        <TimelineList comfortable={comfortable}>
           {dimensions.map((category) => (
-            <TimelineGroup key={category} heading={CATEGORY_LABEL[category]}>
+            <TimelineGroup
+              key={category}
+              heading={CATEGORY_LABEL[category]}
+              comfortable={comfortable}
+            >
               {byCategory[category].map((entry) => {
                 const actor = entry.actor?.full_name ?? "—";
                 const when = formatEventTime(entry.changed_at);
@@ -127,6 +138,7 @@ export function CxLifecycleHistory({ submissionId }: { submissionId: string }) {
                     key={entry.id}
                     actor={actor}
                     time={when}
+                    comfortable={comfortable}
                     note={
                       entry.reason ? (
                         <ClampedText

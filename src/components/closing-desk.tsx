@@ -21,8 +21,9 @@ import {
 } from "@/components/ops";
 import { formatDate } from "@/lib/format-date";
 import { CxLeadStatusValue } from "@/components/cx-status-cell";
-import { CxLifecycleHistory } from "@/components/cx-lifecycle-history";
-import { ValidationTimeline, validationTimelineKey } from "@/components/validation-timeline";
+import { validationTimelineKey } from "@/components/validation-timeline";
+import { LeadHistoryDialog } from "@/components/lead-history-dialog";
+import { History } from "lucide-react";
 import { PayloadEditor } from "@/components/payload-editor";
 import { ValidatorFields } from "@/components/validator-fields";
 import { PayloadEditHistory, payloadHistoryKey } from "@/components/payload-history";
@@ -230,6 +231,7 @@ export function ClosingDesk() {
   const [center, setCenter] = useState<CenterFilter>(ANY);
   const [cxFilters, setCxFilters] = useState<CxFilters>(NO_CX_FILTERS);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   // The whole vocabulary in one fetch, deactivated options included: a lead can
   // still be sitting on a status that has since been retired, and rendering it
@@ -557,7 +559,15 @@ export function ClosingDesk() {
         />
       </section>
 
-      <Sheet open={!!selected} onOpenChange={(open) => !open && setOpenId(null)}>
+      <Sheet
+        open={!!selected}
+        onOpenChange={(open) => {
+          if (!open) {
+            setOpenId(null);
+            setHistoryOpen(false);
+          }
+        }}
+      >
         <SheetContent className="w-full overflow-y-auto overflow-x-hidden sm:max-w-2xl">
           {selected ? (
             <>
@@ -613,21 +623,30 @@ export function ClosingDesk() {
 
                 <PayloadEditHistory submissionId={selected.id} />
 
-                {/* Three separate stories about the same lead — what was
-                    corrected, the validation workflow, and what the customer
-                    lifecycle did after approval. Kept apart and labelled so none
-                    reads as a continuation of another.
-
-                    Validation first here: this desk is about getting a lead
-                    placed, so the workflow is the story and the lifecycle is
-                    the epilogue. The CX pipeline orders them the other way. */}
-                <ValidationTimeline submissionId={selected.id} />
-                <CxLifecycleHistory submissionId={selected.id} />
+                {/* The validation workflow and the customer lifecycle both
+                    live in the dedicated history dialog now — squeezed inline
+                    here, a lead with real history made this sheet scroll a
+                    long way in a column too narrow to read comfortably. */}
+                <button
+                  type="button"
+                  className="chip w-full justify-center gap-1.5"
+                  onClick={() => setHistoryOpen(true)}
+                >
+                  <History className="h-3.5 w-3.5" aria-hidden />
+                  View History
+                </button>
               </div>
             </>
           ) : null}
         </SheetContent>
       </Sheet>
+
+      <LeadHistoryDialog
+        submissionId={selected?.id ?? null}
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        customerName={selected ? customerName(selected.payload) : null}
+      />
     </TooltipProvider>
   );
 }

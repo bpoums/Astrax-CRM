@@ -28,7 +28,9 @@ import { DataFlagList } from "@/components/data-flags";
 import { LeadPayload } from "@/components/lead-editor";
 import { PayloadEditHistory, payloadHistoryKey } from "@/components/payload-history";
 import { CarrierDeclineList } from "@/components/carrier-declines";
-import { ValidationTimeline, validationTimelineKey } from "@/components/validation-timeline";
+import { validationTimelineKey } from "@/components/validation-timeline";
+import { LeadHistoryDialog } from "@/components/lead-history-dialog";
+import { History } from "lucide-react";
 import { QueueFlow } from "@/components/queue-flow";
 import { MetricBar } from "@/components/metric-bar";
 import { ValidatorFields } from "@/components/validator-fields";
@@ -561,6 +563,7 @@ export function SubmissionsExplorer() {
   const [search, setSearch] = useState("");
   const [carrierSearch, setCarrierSearch] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [leadTab, setLeadTab] = useState<LeadTab>("closer");
   const [showArchived, setShowArchived] = useState(false);
   // A page number each. The three tabs are separate lists of separate lengths;
@@ -1000,7 +1003,15 @@ export function SubmissionsExplorer() {
         />
       </section>
 
-      <Sheet open={!!selected} onOpenChange={(open) => !open && setOpenId(null)}>
+      <Sheet
+        open={!!selected}
+        onOpenChange={(open) => {
+          if (!open) {
+            setOpenId(null);
+            setHistoryOpen(false);
+          }
+        }}
+      >
         <SheetContent className="w-full overflow-y-auto overflow-x-hidden sm:max-w-xl">
           {selected ? (
             <>
@@ -1056,17 +1067,34 @@ export function SubmissionsExplorer() {
                     what the value was. Same panel as the closing desk. */}
                 <PayloadEditHistory submissionId={selected.id} />
 
-                {/* The same component the closing desk and the CX pipeline
-                    draw, so the four copies of this that had already drifted
-                    are now one. `seconds` is the one thing Reporting needs of
-                    its own: its events can land inside the same minute and the
-                    order is the point. */}
-                <ValidationTimeline submissionId={selected.id} seconds />
+                {/* The validation timeline now lives in the dedicated history
+                    dialog — squeezed inline here, a lead with real history
+                    made this sheet scroll a long way in a column too narrow
+                    to read comfortably. `seconds` is the one thing Reporting
+                    needs of its own: its events can land inside the same
+                    minute and the order is the point. */}
+                <button
+                  type="button"
+                  className="chip w-full justify-center gap-1.5"
+                  onClick={() => setHistoryOpen(true)}
+                >
+                  <History className="h-3.5 w-3.5" aria-hidden />
+                  View History
+                </button>
               </div>
             </>
           ) : null}
         </SheetContent>
       </Sheet>
+
+      <LeadHistoryDialog
+        submissionId={selected?.id ?? null}
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        customerName={selected ? customerName(selected.payload) : null}
+        showCxLifecycle={false}
+        seconds
+      />
     </>
   );
 }
