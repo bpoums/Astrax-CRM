@@ -13,8 +13,8 @@ import {
 } from "@/components/ops";
 import { formatCalendarDate, formatDate } from "@/lib/format-date";
 import { CxStatusCell, ReturnForValidationButton } from "@/components/cx-status-cell";
-import { CxLifecycleHistory } from "@/components/cx-lifecycle-history";
-import { ValidationTimeline } from "@/components/validation-timeline";
+import { LeadHistoryDialog } from "@/components/lead-history-dialog";
+import { History } from "lucide-react";
 import {
   CATEGORY_LABEL,
   CX_CATEGORIES,
@@ -172,6 +172,7 @@ export function CustomersPipeline({
   const [draftDate, setDraftDate] = useState("");
   const [filters, setFilters] = useState<Filters>(NO_FILTERS);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   // One fetch for the whole vocabulary, handed to every cell as props.
   const vocabulary = useCxStatusOptions(true);
@@ -522,7 +523,15 @@ export function CustomersPipeline({
         ) : null}
       </section>
 
-      <Sheet open={!!selected} onOpenChange={(open) => !open && setOpenId(null)}>
+      <Sheet
+        open={!!selected}
+        onOpenChange={(open) => {
+          if (!open) {
+            setOpenId(null);
+            setHistoryOpen(false);
+          }
+        }}
+      >
         <SheetContent className="w-full overflow-y-auto overflow-x-hidden sm:max-w-xl">
           {selected ? (
             <>
@@ -565,18 +574,30 @@ export function CustomersPipeline({
 
                 <PayloadTable payload={selected.payload} />
 
-                {/* Two separate stories about the same lead: the customer
-                    lifecycle after approval, and the validation workflow that
-                    got it there. Kept apart and labelled so neither reads as a
-                    continuation of the other. */}
-                <CxLifecycleHistory submissionId={selected.submission_id} />
-
-                <ValidationTimeline submissionId={selected.submission_id} />
+                {/* Both stories now live in the dedicated history dialog —
+                    squeezed inline here, a lead with real history made this
+                    sheet scroll a long way in a column too narrow to read
+                    comfortably. */}
+                <button
+                  type="button"
+                  className="chip w-full justify-center gap-1.5"
+                  onClick={() => setHistoryOpen(true)}
+                >
+                  <History className="h-3.5 w-3.5" aria-hidden />
+                  View History
+                </button>
               </div>
             </>
           ) : null}
         </SheetContent>
       </Sheet>
+
+      <LeadHistoryDialog
+        submissionId={selected?.submission_id ?? null}
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        customerName={selected ? customerName(selected.payload) : null}
+      />
     </TooltipProvider>
   );
 }

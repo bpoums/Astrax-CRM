@@ -9,8 +9,8 @@ import {
   type SubStatus,
 } from "@/components/ops";
 import { CxLeadStatusValue } from "@/components/cx-status-cell";
-import { CxLifecycleHistory } from "@/components/cx-lifecycle-history";
-import { ValidationTimeline } from "@/components/validation-timeline";
+import { LeadHistoryDialog } from "@/components/lead-history-dialog";
+import { History } from "lucide-react";
 import { LeadPayload } from "@/components/lead-editor";
 import { PayloadEditHistory } from "@/components/payload-history";
 import { PaginationBar } from "@/components/pagination-bar";
@@ -108,6 +108,7 @@ export function DraftDateDesk() {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const term = sanitizeTerm(search);
   const chosen = draftDate !== "";
@@ -315,7 +316,15 @@ export function DraftDateDesk() {
         )}
       </section>
 
-      <Sheet open={!!selected} onOpenChange={(open) => !open && setOpenId(null)}>
+      <Sheet
+        open={!!selected}
+        onOpenChange={(open) => {
+          if (!open) {
+            setOpenId(null);
+            setHistoryOpen(false);
+          }
+        }}
+      >
         <SheetContent className="w-full overflow-y-auto overflow-x-hidden sm:max-w-2xl">
           {selected ? (
             <>
@@ -355,15 +364,30 @@ export function DraftDateDesk() {
 
                 <PayloadEditHistory submissionId={selected.id} />
 
-                {/* Two separate stories about the same lead, labelled so
-                    neither reads as a continuation of the other. */}
-                <CxLifecycleHistory submissionId={selected.id} />
-                <ValidationTimeline submissionId={selected.id} />
+                {/* Both stories now live in the dedicated history dialog —
+                    squeezed inline here, a lead with real history made this
+                    sheet scroll a long way in a column too narrow to read
+                    comfortably. */}
+                <button
+                  type="button"
+                  className="chip w-full justify-center gap-1.5"
+                  onClick={() => setHistoryOpen(true)}
+                >
+                  <History className="h-3.5 w-3.5" aria-hidden />
+                  View History
+                </button>
               </div>
             </>
           ) : null}
         </SheetContent>
       </Sheet>
+
+      <LeadHistoryDialog
+        submissionId={selected?.id ?? null}
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        customerName={selected ? customerName(selected.payload) : null}
+      />
     </TooltipProvider>
   );
 }

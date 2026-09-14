@@ -54,9 +54,12 @@ export function ValidationTimeline({
   submissionId,
   /** Reporting shows seconds: its events can land inside the same minute. */
   seconds = false,
+  /** The larger, more breathing-room variant `LeadHistoryDialog` asks for. */
+  comfortable = false,
 }: {
   submissionId: string | null;
   seconds?: boolean;
+  comfortable?: boolean;
 }) {
   const timeline = useQuery({
     queryKey: validationTimelineKey(submissionId),
@@ -70,7 +73,14 @@ export function ValidationTimeline({
         .eq("submission_id", submissionId!)
         .order("created_at", { ascending: true });
       if (error) throw error;
-      return (data ?? []) as unknown as TimelineEventRow[];
+      // `cx_status_changed` is a bare marker `set_cx_status` also writes here
+      // — the actual detail (from/to status, reason) lives in
+      // `cx_status_history` and is what `CxLifecycleHistory` renders. Kept in
+      // `form_events` for other tooling, but showing it here too would just
+      // duplicate a story this panel doesn't tell, as a near-empty row.
+      return ((data ?? []) as unknown as TimelineEventRow[]).filter(
+        (event) => event.event_type !== "cx_status_changed",
+      );
     },
   });
 
@@ -89,6 +99,7 @@ export function ValidationTimeline({
         tone={shown.tone}
         actor={actorName(event)}
         time={since ? formatOffset(since, event.created_at) : stamp(event.created_at)}
+        comfortable={comfortable}
         note={
           shown.note ? (
             <ClampedText
@@ -116,7 +127,7 @@ export function ValidationTimeline({
       {events.length === 0 ? (
         <TimelineEmpty>{timeline.isLoading ? "Loading…" : "No events visible."}</TimelineEmpty>
       ) : (
-        <TimelineList>
+        <TimelineList comfortable={comfortable}>
           {segments.map((segment) => {
             if (segment.kind === "event") return row(segment.event);
 
@@ -133,6 +144,7 @@ export function ValidationTimeline({
                 meta={
                   opened ? `assigned by ${actorName(opened)} · ${stamp(opened.created_at)}` : null
                 }
+                comfortable={comfortable}
               >
                 {pass.items.map((item) => {
                   if (item.kind === "event") return row(item.event, since);
@@ -146,6 +158,7 @@ export function ValidationTimeline({
                         item.holds === 1 ? "hold" : "holds"
                       }`}
                       time={since && last ? formatOffset(since, last.created_at) : null}
+                      comfortable={comfortable}
                     >
                       {item.events.map((event) => row(event, since))}
                     </TimelineChurn>
