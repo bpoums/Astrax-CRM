@@ -867,6 +867,7 @@ export function SubmissionsExplorer() {
             <TableHeader>
               <TableRow>
                 <TableHead>Source</TableHead>
+                <TableHead>Center</TableHead>
                 <TableHead>Customer</TableHead>
                 <TableHead>Carrier Name</TableHead>
                 <TableHead>Validator</TableHead>
@@ -879,12 +880,12 @@ export function SubmissionsExplorer() {
             <TableBody>
               {filteredOffline.map((row) => (
                 <TableRow key={row.id} className="cursor-pointer" onClick={() => setOpenId(row.id)}>
-                  {/* Every row here is manual, so the badge earns its place by
-                      naming WHICH centre supplied the lead — org_name, or the
-                      uploader's own name where the account has none. */}
                   <TableCell>
                     <OriginBadge row={row} />
                   </TableCell>
+                  {/* The stamped name, not a join — see the Closer tab's own
+                      Center column above for why. */}
+                  <TableCell className="text-muted-foreground">{row.center_name ?? "—"}</TableCell>
                   <TableCell className="font-medium">{customerName(row.payload)}</TableCell>
                   <TableCell className="text-muted-foreground">
                     {carrierName(row.payload)}
@@ -915,7 +916,7 @@ export function SubmissionsExplorer() {
               {filteredOffline.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={showArchived ? 8 : 7}
+                    colSpan={showArchived ? 9 : 8}
                     className="text-center text-muted-foreground"
                   >
                     {offlineQuery.isLoading ? "Loading…" : "No submissions match that search."}

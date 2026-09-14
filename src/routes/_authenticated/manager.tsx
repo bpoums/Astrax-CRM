@@ -9,7 +9,6 @@ import {
   AppHeader,
   DispositionBadge,
   FlagBadge,
-  OriginBadge,
   QueueStatusBadge,
   StatusBadge,
   closerName,
@@ -617,9 +616,14 @@ function ManagerPage() {
                   </Table>
                 </TabsContent>
 
-                {/* No Closer column here — an imported lead has none. Source
-                    names the centre that supplied it instead, and the date is
-                    absolute because the column is named for one. */}
+                {/* No Closer column here — an imported lead has none. Center
+                    names the centre that supplied it instead (the stamped
+                    name, not a join — see the live tab's own Center column
+                    above), and the date is absolute because the column is
+                    named for one. Source used to sit here, but every row on
+                    this tab already reads "Manual" (see `sourceLabel()`), so
+                    a Source column said nothing a reader didn't already know
+                    from being on this tab at all. */}
                 <TabsContent value="manual" className="m-0">
                   <Table>
                     <TableHeader>
@@ -636,7 +640,7 @@ function ManagerPage() {
                             }
                           />
                         </TableHead>
-                        <TableHead>Source</TableHead>
+                        <TableHead>Center</TableHead>
                         <TableHead>Customer</TableHead>
                         <TableHead>Uploaded On</TableHead>
                         <TableHead>Status</TableHead>
@@ -659,8 +663,8 @@ function ManagerPage() {
                               />
                             ) : null}
                           </TableCell>
-                          <TableCell>
-                            <OriginBadge row={row} />
+                          <TableCell className="text-muted-foreground">
+                            {row.center_name ?? "—"}
                           </TableCell>
                           <TableCell className="font-medium">{customerName(row.payload)}</TableCell>
                           <TableCell className="text-muted-foreground">
