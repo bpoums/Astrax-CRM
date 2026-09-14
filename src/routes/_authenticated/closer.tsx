@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { requireRole } from "@/lib/auth";
+import { requireRole, useAuth } from "@/lib/auth";
 import { CloserForm } from "@/components/closer-form";
 
 export const Route = createFileRoute("/_authenticated/closer")({
@@ -21,5 +21,15 @@ export const Route = createFileRoute("/_authenticated/closer")({
       { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
-  component: CloserForm,
+  component: CloserFormRoute,
 });
+
+/**
+ * Admin lands on the same form, but the fields are for looking at, not
+ * filling in — `requireRole` admits admin alongside closer/manager/validator
+ * so they can check the field layout without logging in as a closer.
+ */
+function CloserFormRoute() {
+  const { profile } = useAuth();
+  return <CloserForm readOnly={profile?.role === "admin"} />;
+}

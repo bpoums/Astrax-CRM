@@ -252,8 +252,13 @@ function ManagerPage() {
         )
         .in("status", OPEN_STATUSES)
         // Validator submissions are theirs to work, not the manager's to route.
-        // Rows predating the column are null and stay in the queue.
-        .or("submitted_by_role.is.null,submitted_by_role.neq.validator")
+        // Rows predating the column are null and stay in the queue. A lead CX
+        // sent back with return_lead_for_validation keeps submitted_by_role
+        // ('validator' is lineage, never cleared on reopen) but does need to
+        // reach this queue, so reopened_from_cx_at admits it regardless.
+        .or(
+          "submitted_by_role.is.null,submitted_by_role.neq.validator,reopened_from_cx_at.not.is.null",
+        )
         .is("archived_at", null)
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -264,6 +269,25 @@ function ManagerPage() {
   // One query for the whole queue rather than one per row — the view only
   // holds leads that have been declined at least once.
   const declinedMap = useDeclinedCarrierMap();
+
+  /**
+   * Just the count, so it can sit on the "Pending Imports" tab trigger itself
+   * — Radix leaves an inactive tab's content unmounted, so `PendingImports`
+   * never queries anything until that tab is actually opened. Sharing
+   * `PENDING_IMPORTS_KEY` as the prefix means the realtime invalidation two
+   * blocks down (which already retires that whole key group on any batch
+   * insert) refreshes this for free, with nothing new to wire up.
+   */
+  const pendingImportBatches = useQuery({
+    queryKey: [...PENDING_IMPORTS_KEY, "count"],
+    queryFn: async () => {
+      const { count, error } = await supabase
+        .from("pending_import_batches")
+        .select("*", { count: "exact", head: true });
+      if (error) throw error;
+      return count ?? 0;
+    },
+  });
 
   const validators = useQuery({
     queryKey: ["validators"],
@@ -377,6 +401,18 @@ function ManagerPage() {
     () => allRows.filter((row) => (row.source ?? "live") === TAB_SOURCE[queueTab]),
     [allRows, queueTab],
   );
+  // Per tab, over the WHOLE set rather than the active filter — so a reader
+  // can see how many manual leads are open without clicking over to that
+  // tab first.
+  const tabCounts = useMemo(() => {
+    const counts = {} as Record<QueueTab, number>;
+    for (const tab of QUEUE_TABS) {
+      counts[tab.id] = allRows.filter(
+        (row) => (row.source ?? "live") === TAB_SOURCE[tab.id],
+      ).length;
+    }
+    return counts;
+  }, [allRows]);
   const selected = rows.find((row) => row.id === openId) ?? null;
   const selectedFlags = selected ? dataFlags(selected.data_flags) : [];
   /**
@@ -461,7 +497,9 @@ function ManagerPage() {
             {/* Deliberately not part of Operations: these leads are not in the
                 queue yet and cannot be assigned or disposed until a batch is
                 accepted. */}
-            <TabsTrigger value="imports">Pending Imports</TabsTrigger>
+            <TabsTrigger value="imports">
+              Pending Imports ({pendingImportBatches.data ?? "…"})
+            </TabsTrigger>
             {/* Not part of Operations: these leads are all disposed and
                 accepted, so none of the queue's actions apply to them. */}
             <TabsTrigger value="draft-dates">By Draft Date</TabsTrigger>
@@ -486,11 +524,11 @@ function ManagerPage() {
               <section className="panel">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex flex-wrap items-center gap-3">
-                    <h2 className="panel-title">Open submissions ({rows.length})</h2>
+                    <h2 className="panel-title">Open submissions</h2>
                     <TabsList>
                       {QUEUE_TABS.map((entry) => (
                         <TabsTrigger key={entry.id} value={entry.id}>
-                          {entry.label}
+                          {entry.label} ({tabCounts[entry.id]})
                         </TabsTrigger>
                       ))}
                     </TabsList>

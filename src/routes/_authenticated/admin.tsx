@@ -1,5 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import { requireRole } from "@/lib/auth";
+import { supabase } from "@/integrations/supabase/client";
 import { AppHeader } from "@/components/ops";
 import { ReportingStats, SubmissionsExplorer } from "@/components/reporting";
 import { CustomersPipeline } from "@/components/customers-pipeline";
@@ -15,7 +17,9 @@ import { CarrierAdmin } from "@/components/carrier-admin";
 import { DraftDateDesk } from "@/components/draft-date-desk";
 import { CenterAdmin } from "@/components/center-admin";
 import { CarrierDeclineReport } from "@/components/carrier-declines";
-import { ParkedLeads } from "@/components/parked-leads";
+import { ParkedLeads, PARKED_LEADS_KEY } from "@/components/parked-leads";
+import { Exports } from "@/components/exports";
+import { SalesBreakdown } from "@/components/sales-breakdown";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const TABS = [
@@ -28,6 +32,8 @@ const TABS = [
   // The same screen the manager gets, mounted here because an admin sees
   // everything a manager does.
   { id: "draft-dates", label: "By Draft Date" },
+  { id: "exports", label: "Exports" },
+  { id: "sales-breakdown", label: "Sales Breakdown" },
   { id: "users", label: "Users" },
   { id: "uploads", label: "Uploads" },
   // { id: "imports", label: "Imports" },
@@ -85,6 +91,26 @@ function AdminPage() {
   const { tab } = Route.useSearch();
   const navigate = Route.useNavigate();
 
+  /**
+   * Just the count, so it can sit on the "Parked Leads" tab trigger itself —
+   * Radix leaves an inactive tab's content unmounted, so `ParkedLeads` never
+   * queries anything until that tab is actually opened. Shares
+   * `PARKED_LEADS_KEY` as the prefix, so `move_to_validation`'s existing
+   * invalidation of that key (in `parked-leads.tsx`) refreshes this for free.
+   */
+  const parkedCount = useQuery({
+    queryKey: [...PARKED_LEADS_KEY, "count"],
+    queryFn: async () => {
+      const { count, error } = await supabase
+        .from("submissions")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "parked")
+        .is("archived_at", null);
+      if (error) throw error;
+      return count ?? 0;
+    },
+  });
+
   return (
     <main className="min-h-screen bg-background text-foreground">
       <div className="mx-auto flex max-w-[1500px] flex-col gap-4 px-4 py-4 lg:px-8 lg:py-5">
@@ -92,12 +118,23 @@ function AdminPage() {
           title="Admin"
           subtitle="Admin"
           actions={
-            /* Not a read-only copy of the queue — /manager already admits
-               admins, so this lands on the real screen with assign, dispose
-               and archive all live. */
-            <Link to="/manager" className="chip inline-block">
-              Manager View
-            </Link>
+            <>
+              {/* Not a read-only copy of the queue — /manager already admits
+                  admins, so this lands on the real screen with assign, dispose
+                  and archive all live. */}
+              <Link to="/manager" className="chip inline-block">
+                Manager View
+              </Link>
+              {/* Unlike Manager View, these two render read-only for admin —
+                  a way to check field layout and order without logging in as
+                  a closer or validator. See the `readOnly` prop on each form. */}
+              <Link to="/closer" className="chip inline-block">
+                Closer Form
+              </Link>
+              <Link to="/validator-form" className="chip inline-block">
+                Validator Form
+              </Link>
+            </>
           }
         />
 
@@ -111,7 +148,9 @@ function AdminPage() {
           <TabsList className="w-fit">
             {TABS.map((entry) => (
               <TabsTrigger key={entry.id} value={entry.id}>
-                {entry.label}
+                {entry.id === "parked"
+                  ? `${entry.label} (${parkedCount.data ?? "…"})`
+                  : entry.label}
               </TabsTrigger>
             ))}
           </TabsList>
@@ -143,6 +182,14 @@ function AdminPage() {
 
           <TabsContent value="draft-dates" className="flex flex-col gap-4">
             <DraftDateDesk />
+          </TabsContent>
+
+          <TabsContent value="exports" className="flex flex-col gap-4">
+            <Exports />
+          </TabsContent>
+
+          <TabsContent value="sales-breakdown" className="flex flex-col gap-4">
+            <SalesBreakdown />
           </TabsContent>
 
           <TabsContent value="users" className="flex flex-col gap-4">

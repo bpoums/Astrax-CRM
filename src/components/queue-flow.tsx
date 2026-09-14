@@ -123,7 +123,7 @@ export function QueueFlow({
             was missed: this strip is current state and the window does not
             touch it. */}
         <span className="text-[0.66rem] tabular-nums text-muted-foreground">
-          {loading ? "Loading…" : `${total} in flight · always live, not filtered by period`}
+          {loading ? "Loading…" : `${total} in flight `}
         </span>
       </div>
 

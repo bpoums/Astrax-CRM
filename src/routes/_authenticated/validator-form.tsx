@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { requireRole } from "@/lib/auth";
+import { requireRole, useAuth } from "@/lib/auth";
 import { ValidatorForm } from "@/components/validator-form";
 
 export const Route = createFileRoute("/_authenticated/validator-form")({
@@ -21,5 +21,14 @@ export const Route = createFileRoute("/_authenticated/validator-form")({
       { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
-  component: ValidatorForm,
+  component: ValidatorFormRoute,
 });
+
+/**
+ * Admin lands on the same form, but read-only — a way to check the field
+ * layout and carrier sequence without logging in as a validator.
+ */
+function ValidatorFormRoute() {
+  const { profile } = useAuth();
+  return <ValidatorForm readOnly={profile?.role === "admin"} />;
+}

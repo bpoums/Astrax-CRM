@@ -135,7 +135,7 @@ function emptyForm(): Record<string, string> {
   };
 }
 
-export function CloserForm() {
+export function CloserForm({ readOnly = false }: { readOnly?: boolean } = {}) {
   const { profile, signOut } = useAuth();
   // The one source of carrier names. Active only, in the admin's order.
   const carriers = useCarriers(true);
@@ -176,6 +176,9 @@ export function CloserForm() {
    * reset and the messaging are identical, so they live here once.
    */
   async function submitWith(mode: "queue" | "park") {
+    // Belt and suspenders: the controls are already hidden/disabled in
+    // read-only mode, but nothing here should ever reach the network.
+    if (readOnly) return;
     // Chip groups are buttons, so the browser never validates them for us.
     const missing = ALL_FIELDS.find((field) => field.required && !values[field.label]?.trim());
     if (missing) {
@@ -222,7 +225,11 @@ export function CloserForm() {
             </h1>
           </div>
           <div className="flex items-center gap-3">
-            {message ? (
+            {readOnly ? (
+              <span className="text-xs font-medium text-muted-foreground">
+                Preview only — viewing field layout as admin
+              </span>
+            ) : message ? (
               <span
                 className={
                   status === "error"
@@ -237,23 +244,27 @@ export function CloserForm() {
                 {/* All fields sync directly to Google Sheets */}
               </span>
             )}
-            <button type="submit" className="btn-submit" disabled={status === "sending"}>
-              {status === "sending" ? "Submitting…" : "Submit entry"}
-            </button>
-            {/* A chip, not a second amber button: this is the alternative
-                path, and the form keeps one emphasis. `type="button"` so it
-                never triggers the form's own submit. */}
-            <button
-              type="button"
-              className="chip"
-              disabled={status === "sending"}
-              onClick={() => void submitWith("park")}
-            >
-              External Transfer
-            </button>
-            <Link to="/forwarded-leads" className="chip inline-block">
-              Forwarded Leads
-            </Link>
+            {readOnly ? null : (
+              <>
+                <button type="submit" className="btn-submit" disabled={status === "sending"}>
+                  {status === "sending" ? "Submitting…" : "Submit entry"}
+                </button>
+                {/* A chip, not a second amber button: this is the alternative
+                    path, and the form keeps one emphasis. `type="button"` so it
+                    never triggers the form's own submit. */}
+                <button
+                  type="button"
+                  className="chip"
+                  disabled={status === "sending"}
+                  onClick={() => void submitWith("park")}
+                >
+                  External Transfer
+                </button>
+                <Link to="/forwarded-leads" className="chip inline-block">
+                  Forwarded Leads
+                </Link>
+              </>
+            )}
             {profile && profile.role !== "closer" ? (
               <Link to={roleHome[profile.role]} className="chip inline-block">
                 Back to queue
@@ -265,28 +276,30 @@ export function CloserForm() {
           </div>
         </header>
 
-        <div className="grid flex-1 gap-3 lg:min-h-0 lg:grid-cols-12 lg:gap-4">
-          {SECTIONS.map((section) => (
-            <section key={section.title} className="panel lg:col-span-4">
-              <h2 className="panel-title">{section.title}</h2>
-              <div className="grid grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-2">
-                {section.fields.map((field) => (
-                  <FieldControl
-                    key={field.label}
-                    field={field}
-                    value={values[field.label] ?? ""}
-                    values={values}
-                    carriers={carriers.data ?? []}
-                    carriersLoading={carriers.isLoading}
-                    carriersError={carriers.isError ? (carriers.error as Error).message : null}
-                    onChange={(v) => set(field.label, v)}
-                    onCommit={(v) => commit(field.label, v)}
-                  />
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
+        <fieldset disabled={readOnly} className="contents">
+          <div className="grid flex-1 gap-3 lg:min-h-0 lg:grid-cols-12 lg:gap-4">
+            {SECTIONS.map((section) => (
+              <section key={section.title} className="panel lg:col-span-4">
+                <h2 className="panel-title">{section.title}</h2>
+                <div className="grid grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-2">
+                  {section.fields.map((field) => (
+                    <FieldControl
+                      key={field.label}
+                      field={field}
+                      value={values[field.label] ?? ""}
+                      values={values}
+                      carriers={carriers.data ?? []}
+                      carriersLoading={carriers.isLoading}
+                      carriersError={carriers.isError ? (carriers.error as Error).message : null}
+                      onChange={(v) => set(field.label, v)}
+                      onCommit={(v) => commit(field.label, v)}
+                    />
+                  ))}
+                </div>
+              </section>
+            ))}
+          </div>
+        </fieldset>
       </form>
     </main>
   );

@@ -154,8 +154,17 @@
   }
 }
 
-@layer utilities {
-  .no-scrollbar::-webkit-scrollbar {
+/**
+ * Declared via `@utility`, not a plain `@layer utilities` class, so it is a
+ * real Tailwind utility Tailwind can combine with a variant — used as
+ * `[&>div]:no-scrollbar` where the element that needs it is one `Table`
+ * wraps in a div of its own rather than the element carrying the class.
+ */
+@utility no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+
+  &::-webkit-scrollbar {
     display: none;
   }
 }

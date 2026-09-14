@@ -64,6 +64,24 @@ export function carrierSearchClauses(term: string) {
   return CARRIER_KEYS.map((key) => `payload->>${key}.ilike.*${term}*`);
 }
 
+/** The customer's own name, as a single `or` clause. */
+export function customerNameSearchClause(term: string) {
+  return `payload->>Full Name.ilike.*${term}*`;
+}
+
+/**
+ * The payload keys that can hold a draft date. A validator submission carries
+ * two — the draft itself and the future one taken alongside it — so a filter
+ * for "this draft date" has to check both or it would silently miss half of
+ * that form's leads.
+ */
+export const DRAFT_DATE_KEYS = ["Draft Date", "Future Draft Date"] as const;
+
+/** Exact match — both forms store this as the date input's own YYYY-MM-DD. */
+export function draftDateSearchClauses(isoDate: string) {
+  return DRAFT_DATE_KEYS.map((key) => `payload->>${key}.eq.${isoDate}`);
+}
+
 /**
  * The profiles whose name — or whose centre — matches the term.
  *

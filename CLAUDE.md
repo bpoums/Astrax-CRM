@@ -1,7 +1,98 @@
-# UMS BPO Ops Console
+# ASTRAX CRM
 
 TanStack Start + React 19 + Tailwind v4 + shadcn/ui, Supabase backend.
 Internal call-center tool. Dense, information-first UI — not marketing.
+
+This file stays terse by design — the day-to-day rules. For the full
+picture (every table/RPC/view/policy verified directly against the live
+database, per-feature workflow docs, and load-bearing architectural
+decisions), see `docs/architecture.md`, `docs/database.md`,
+`docs/authentication.md`, `docs/multi-tenancy.md`, `docs/features/*.md`,
+and `docs/decisions/*.md` — last audited 2026-09-10. Where this file and
+`docs/` disagree, `docs/` is the more recently verified one; both are kept
+in sync when either changes.
+
+## Feature workflow — follow this for every new feature or change
+
+**Before writing any code:**
+
+1. Read the relevant existing code, not just its docs.
+2. Read the relevant `docs/features/*.md` file(s) for current behavior,
+   known limitations, and prior decisions in that area.
+3. Verify the relevant schema, RLS policies, RPCs, and migrations against
+   the **live** database (see the MCP rule below) — never assume
+   `docs/database.md`, `CLAUDE.md`, or the checked-in migrations are
+   current; they can drift, and this repo has already caught them drifting
+   once.
+4. Enter Plan Mode and produce an implementation plan.
+5. Wait for explicit approval before making any change. Do not start
+   implementing on the strength of a plan that hasn't been approved.
+
+**While implementing:**
+
+- Follow the approved plan; if reality forces a deviation, surface it and
+  get it re-approved rather than silently diverging.
+- Reuse existing patterns and components — check `docs/features/*.md` and
+  the components it names before writing a new one from scratch.
+- Add no new dependency unless the task genuinely needs it.
+- Touch only what the task requires — do not fix, refactor, or restyle
+  unrelated code along the way.
+- Any database change goes through a new Supabase migration file — never
+  a one-off change applied only to the live project with nothing checked
+  in.
+- Every new access path follows the existing model: RLS scopes reads, a
+  `SECURITY DEFINER` RPC gates writes and re-checks the caller's role
+  itself. Don't add a client-reachable direct-write RLS policy as a
+  shortcut — see `docs/decisions/0001-rls-as-the-only-boundary.md` and
+  `0002-payload-writes-via-rpc.md` for why that pattern was deliberately
+  narrowed to one table.
+
+**After implementing:**
+
+1. Verify the change actually works (typecheck/lint/tests as applicable;
+   exercise the feature where practical).
+2. Review the git diff yourself before calling the work done — confirm it
+   touches only what the plan said it would.
+3. Update the matching `docs/features/*.md` file to describe the new
+   current behavior.
+4. Update `docs/database.md` if any table/RLS/RPC/view/migration changed.
+5. Add an entry to `CHANGELOG.md`.
+6. Add or update a `docs/decisions/*.md` record **only** if a meaningful
+   architectural decision was actually made — not for routine feature work.
+7. Report back exactly what changed: code, database (including the
+   migration file), and documentation — not a summary that omits one of
+   the three.
+
+## Documentation hierarchy — what each file is for
+
+- `CLAUDE.md` — permanent project rules and working instructions (this file).
+- `docs/features/*.md` — current behavior of individual features.
+- `docs/database.md` — current database architecture.
+- `docs/architecture.md`, `docs/authentication.md`, `docs/multi-tenancy.md`
+  — current system-level architecture.
+- `CHANGELOG.md` — chronological record of implemented changes.
+- `docs/decisions/*.md` — important architectural decisions (ADRs), added
+  sparingly.
+- `docs/TODO.md` — known bugs, gaps, and future work (not yet created as of
+  2026-09-10; create it the first time there's something to put in it,
+  rather than leaving findings scattered only inside feature docs' "Known
+  limitations" sections).
+- Git commits — the exact implementation history.
+- Supabase migrations — the exact database change history.
+
+Docs describe **actual current behavior**, not intent. If a doc conflicts
+with the code or the live database, investigate and correct the doc — never
+assume the doc is right just because it's already written down.
+
+## Verifying the database — always live, never assumed
+
+For any question about current schema, RLS policies, RPCs, views, triggers,
+or cron jobs: check the **live** Supabase database directly (the connected
+Supabase MCP tools, when available) rather than trusting
+`docs/database.md`, this file, or `supabase/migrations/` on their own.
+`supabase/migrations/` is known to be behind the live schema — that gap is
+exactly what the 2026-09-10 audit found, and there is nothing structural
+stopping it from happening again between audits.
 
 ## Environment & deployment
 
@@ -16,7 +107,12 @@ Internal call-center tool. Dense, information-first UI — not marketing.
   a date it considers to be in the future — which bites when deploying after
   ~7pm PKT.
 - Live at <https://bpoums-closerform.umsvalidation.workers.dev>
-- Supabase project ref `ozbpmrmndkemvvnlnudb`.
+- Supabase project ref `ozbpmrmndkemvvnlnudb`. **`supabase/config.toml`'s
+  `project_id` (`pqvnfqwtojdaxwewbaal`) does not match this** — that file
+  appears stale/disconnected from the live project. `npm run types` hardcodes
+  the correct ref directly in its script command, so it is unaffected; be
+  careful with any other `supabase` CLI command that would otherwise read
+  `config.toml`.
 
 ### The app address lives in THREE places
 
@@ -33,10 +129,20 @@ consume it:
 
 `supabase/migrations` is NOT the source of truth; the live schema is ahead of it.
 
-Enums:
-`app_role` (admin|manager|closing_manager|closer|validator|data_uploader|cxm|cxa),
-`sub_status` (pending_manager|assigned|in_review|returned_timeout|closed),
+Enums (verified directly against the live database 2026-09-10 — full detail
+in `docs/database.md`):
+`app_role` (admin|manager|closing_manager|**general_manager**|closer|validator|data_uploader|cxm|cxa) — nine values; `general_manager` was previously missing from this list,
+`sub_status` (pending_manager|assigned|in_review|returned_timeout|closed|**pending_import_approval**|**parked**) — seven values; the last two support the import-approval gate and the External Transfer/parked-lead flow and were previously missing from this list,
 `disposition_t` (accepted|declined|**pending**)
+
+Tables not listed below but present live and documented in
+`docs/database.md`: `carriers`, `centers`, `carrier_declines`,
+`cx_status_options`, `cx_lead_status`, `cx_status_history`, `cx_tags`,
+`submission_tags`, `payload_edits`, `settings_audit`. `submissions` itself
+also carries `cx_assigned_to`, `cx_assigned_at`, `center_id`, `center_name`,
+`draft_date`, `future_draft_date`, `ssn_normalized`, `final_carrier_id`,
+`agent_name`, `policy_number`, `reopened_from_cx_at` — none of which were in
+this file's column list below until this audit.
 
 - `profiles(id -> auth.users, full_name, role, active, staff_id, created_at)`
   — trigger auto-creates on signup, role `closer`
@@ -80,6 +186,11 @@ is what disambiguates it — keep that form.
 
 ## All writes go through RPCs. Never insert/update these tables from the client.
 
+This list covers the ones a screen you're likely to touch will call. It is
+**not exhaustive** — roughly 30 more exist (CX lifecycle, spreadsheet-import
+approval, carriers/settings admin, validator-completed fields, purge jobs).
+Full list with role gates in `docs/database.md`.
+
 - `submit_form(p_payload jsonb)`
 - `assign_to_validator(p_sub uuid, p_validator uuid)`
 - `claim_submission(p_sub uuid)`
@@ -102,13 +213,21 @@ Imported leads are written by the `ingest-sheet-lead` edge function, not by the
 browser. It is invoked with `{ import_id, leads: [{ source_ref, payload, flags,
 payment }] }` in batches of 50 (its own ceiling is 200).
 
-Two exceptions, both RLS-restricted:
+**Corrected 2026-09-10**: this used to document a second direct-write
+exception for `submissions.payload` — verified against the live RLS policies
+and it no longer exists (if it ever did). `submissions` has **zero** RLS
+write policies of any kind; every mutation on it, `payload` included, goes
+through a named RPC. The one real exception is:
 
-- an admin may `update` `profiles.role` directly;
-- a manager or admin may `update` `submissions.payload` directly, which is how
-  the data-flag correction flow fixes a bad imported value. It writes the
-  payload first and calls `clear_data_flag` only if that write succeeded — see
-  `src/components/data-flags.tsx`.
+- an admin may `update` `profiles` directly (not just `role` — the live
+  policy is `FOR ALL`, which is also how the Users tab's activate/deactivate
+  and center/org-label edits work).
+
+The data-flag correction flow (`src/components/data-flags.tsx`) writes the
+value through `update_payload_field(p_sub, p_field, p_value)` (payload) or
+`update_payment_field` (payment fields), and calls `clear_data_flag` only
+after that write succeeds — same order, same RPC-only path, just not a
+direct table write. See `docs/decisions/0002-payload-writes-via-rpc.md`.
 
 Reads go through `supabase.from(...)` and RLS scopes them per role.
 
@@ -122,7 +241,7 @@ Reads go through `supabase.from(...)` and RLS scopes them per role.
   queue — they are not end states.
 - **Validator-submitted forms** (`submitted_by_role = 'validator'`) auto-close as
   accepted and are never assignable. Keep them out of the manager queue.
-- **The 10-minute review window is enforced server-side in three places**: the RLS
+- **The 20-minute review window is enforced server-side in three places**: the RLS
   read policy, `dispose_submission`, and the pg_cron sweep. All three read
   `review_window()`, which is driven by `app_config`. Never enforce it
   client-side. Client countdowns are display only — when one hits zero, close the
@@ -162,19 +281,31 @@ any state -> archived (archived_at) -> out of every queue until unarchived
 
 ## Roles
 
-Eight of them, and RLS is what actually separates them — the client-side guard
+Nine of them, and RLS is what actually separates them — the client-side guard
 in `requireRole()` only keeps someone off a screen that would show them nothing.
 
-- **admin** — everything. User management, settings, the audit trail.
+- **admin** — everything. User management, settings, the audit trail (the
+  Audit tab is currently commented out in `admin.tsx` — see
+  `docs/features/payments-security.md`).
 - **manager** — the validation queue. Assigns to validators, disposes, archives.
-- **closing_manager** — every closer-originated lead at any stage. Edits the
-  payload, and every edit is recorded. Reads the CX statuses but cannot set them.
-- **closer** — submits the form. Sees nothing else.
+- **closing_manager** — every closer-originated lead **in their own center**
+  (`profiles.center_id` scoped). Edits the payload, and every edit is
+  recorded. Reads the CX statuses but cannot set them.
+- **general_manager** — the same screen as `closing_manager`
+  (`/closing`, `ClosingDesk`), but across **every** center and both
+  closer- and validator-originated leads — the scope difference is entirely
+  server-side (see `docs/multi-tenancy.md`). Also the only role besides admin
+  that can release a parked lead (`move_to_validation`).
+- **closer** — submits the form. Sees nothing else, plus their own
+  Forwarded Leads (sensitive fields stripped server-side).
 - **validator** — only the leads assigned to them, and only inside the review
   window. Disposes them.
 - **data_uploader** — `/upload` and nothing else, and only the leads they
   imported themselves.
 - **cxm** / **cxa** — approved leads only. They set the four CX statuses.
+  Three of the four CX-pipeline tabs (Transfer, Chargeback, Analytics) are
+  placeholders — only Customers Pipeline is built. See
+  `docs/features/cx-lifecycle.md`.
 
 `my_role()` reads `select role from profiles where id = auth.uid() and active`,
 so **an inactive profile resolves to no role at all**. Deactivation therefore
@@ -242,8 +373,13 @@ written to be read (`payment_summary` says "not authorized", `card_details` says
 - `src/routes/_authenticated/validator.tsx` — own queue, "Are you ready?" confirm
   -> `claim_submission`, detail sheet with countdown, Submit/Decline/Pending,
   Hold, and "Can't take this" (reject).
-- `src/routes/_authenticated/admin.tsx` — thin: `AppHeader` + `ReportingDashboard`
-  + `UserAdmin`.
+- `src/routes/_authenticated/admin.tsx` — **not thin anymore.** Tabs:
+  Overview, Submissions, Parked Leads, Customer Pipeline (read-only), By
+  Draft Date, **Exports** (added 2026-09-10 — filter/select accepted leads,
+  download CSV/Excel, see `docs/features/lead-export.md`), Users, Uploads,
+  Settings. Also mounts the read-only admin previews of the closer and
+  validator forms via nav links. Two tabs (Imports, Audit) exist in code but
+  are commented out.
 - `src/components/reporting.tsx` — `ReportingDashboard`, **shared by the admin
   page and the manager's Reporting tab** so the two never drift. Stat cards,
   per-validator table, Closer/Validator submission tabs, archived toggle,
@@ -350,6 +486,17 @@ overrides the amber/navy identity with grey.
   `format` (`prettier --write .`), `types` (regenerates the Supabase types),
   `test` (`vitest run`, the normalisation engine).
   There is no `typecheck` script — run `npx tsc --noEmit`.
+- **`npm test` currently fails 1 of 140 tests**, found during the
+  2026-09-10 audit and not yet fixed:
+  `src/lib/normalize/review-columns.test.ts` — "does not lose the card
+  columns when the only card number is cleared." Root cause: the closer
+  form's own `"Card Number"` field and `canonical-fields.ts`'s hand-written
+  `CARD_FIELDS` both produce a catalog entry keyed `card_number`, and
+  `buildLead()`/`setLeadField()` resolve that duplicate key two different
+  ways (`Map` vs `Array.find`, so last-write-wins vs first-match). See
+  `docs/decisions/0003-deterministic-import-normalization.md`. This is
+  pre-existing, not introduced by this audit, and fixing it is an
+  application-code change outside this pass's scope.
 
 ### Generated types are a rule, not a note
 

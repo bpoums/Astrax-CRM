@@ -1,8 +1,10 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import { requireRole, useAuth } from "@/lib/auth";
+import { supabase } from "@/integrations/supabase/client";
 import { AppHeader } from "@/components/ops";
 import { ClosingDesk } from "@/components/closing-desk";
-import { ParkedLeads } from "@/components/parked-leads";
+import { ParkedLeads, PARKED_LEADS_KEY } from "@/components/parked-leads";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 /**
@@ -74,6 +76,30 @@ function ClosingPage() {
   // an empty tab whose trigger is not even on screen.
   const active: ClosingTab = canMoveParked ? tab : DESK_TAB;
 
+  /**
+   * Just the count, so it can sit on the "Parked Leads" tab trigger itself —
+   * Radix leaves an inactive tab's content unmounted, so `ParkedLeads` never
+   * queries anything until that tab is actually opened, and a general
+   * manager currently has no way to know anything is waiting there without
+   * clicking in. Disabled entirely for a closing manager, who never sees
+   * this tab anyway. Shares `PARKED_LEADS_KEY` as the prefix, so
+   * `move_to_validation`'s existing invalidation of that key (in
+   * `parked-leads.tsx`) refreshes this for free.
+   */
+  const parkedCount = useQuery({
+    queryKey: [...PARKED_LEADS_KEY, "count"],
+    enabled: canMoveParked,
+    queryFn: async () => {
+      const { count, error } = await supabase
+        .from("submissions")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "parked")
+        .is("archived_at", null);
+      if (error) throw error;
+      return count ?? 0;
+    },
+  });
+
   return (
     <main className="min-h-screen bg-background text-foreground">
       <div className="mx-auto flex max-w-[1500px] flex-col gap-4 px-4 py-4 lg:px-8 lg:py-5">
@@ -89,7 +115,7 @@ function ClosingPage() {
           >
             <TabsList className="w-fit">
               <TabsTrigger value={DESK_TAB}>Closing Desk</TabsTrigger>
-              <TabsTrigger value={PARKED_TAB}>Parked Leads</TabsTrigger>
+              <TabsTrigger value={PARKED_TAB}>Parked Leads ({parkedCount.data ?? "…"})</TabsTrigger>
             </TabsList>
 
             <TabsContent value={DESK_TAB} className="flex flex-col gap-4">

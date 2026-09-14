@@ -111,7 +111,7 @@ const PERIODS = [
   { id: "all", label: "All time", days: null, heading: "All time" },
 ] as const;
 
-type PeriodId = (typeof PERIODS)[number]["id"];
+type PeriodId = (typeof PERIODS)[number]["id"] | "custom";
 
 /**
  * All time by default, deliberately.
@@ -123,6 +123,7 @@ type PeriodId = (typeof PERIODS)[number]["id"];
 const DEFAULT_PERIOD: PeriodId = "all";
 
 const SUBMISSIONS_KEY = ["reporting", "submissions"];
+const SUBMISSION_COUNTS_KEY = ["reporting", "submission-counts"];
 const TOTALS_KEY = ["reporting", "totals"];
 const VALIDATOR_STATS_KEY = ["reporting", "validator-stats"];
 const CENTER_TOTALS_KEY = ["reporting", "center-totals"];
@@ -192,8 +193,16 @@ function leadSearchClauses(term: string, profileIds: string[]) {
  * One cache entry per tab, page, term and archived state, so paging back and
  * forth is instant and two tabs never share a page number.
  */
-function explorerKey(tab: LeadTab, page: number, term: string, archived: boolean, carrier: string) {
-  return [...SUBMISSIONS_KEY, tab, page, term, archived, carrier] as const;
+function explorerKey(
+  tab: LeadTab,
+  page: number,
+  term: string,
+  archived: boolean,
+  carrier: string,
+  dateFrom: string,
+  dateTo: string,
+) {
+  return [...SUBMISSIONS_KEY, tab, page, term, archived, carrier, dateFrom, dateTo] as const;
 }
 
 /**
@@ -207,20 +216,44 @@ export function ReportingStats({
 }) {
   const queryClient = useQueryClient();
   const [periodId, setPeriodId] = useState<PeriodId>(DEFAULT_PERIOD);
+  // A specific day, or a from/to range — kept apart from the PERIODS chips
+  // because it needs two text inputs rather than one click. Left in place
+  // (not cleared) when a fixed period is picked instead — inert rather than
+  // gone, via the `isCustom &&` guards below, so re-opening "Custom" later
+  // remembers the last range rather than asking for it again.
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
+  const isCustom = periodId === "custom";
   const period = PERIODS.find((entry) => entry.id === periodId) ?? PERIODS[3];
-  const days = period.days;
+  const days = isCustom ? null : period.days;
+  // Until a from-date is actually chosen, "Custom" behaves like "All time"
+  // rather than sending a half-filled range.
+  const startKey = isCustom && customFrom ? customFrom : null;
+  const endKey = isCustom && customFrom ? customTo || customFrom : null;
   /**
    * All time omits the argument rather than passing null.
    *
    * `p_days` has a SQL default, so the generated type is `p_days?: number` —
    * and under exactOptionalPropertyTypes an explicit null is rejected. Omitting
    * the key lets the default apply, which is the same "no filter" the functions
-   * read a null as.
+   * read a null as. Same reasoning for `p_start_date`/`p_end_date`.
    */
-  const range = days === null ? {} : { p_days: days };
+  const range = startKey
+    ? { p_start_date: startKey, p_end_date: endKey ?? startKey }
+    : days === null
+      ? {}
+      : { p_days: days };
+  // What every heading below reads, instead of the fixed PERIODS label.
+  const heading = startKey
+    ? endKey && endKey !== startKey
+      ? `${startKey} – ${endKey}`
+      : startKey
+    : isCustom
+      ? "Custom range — pick a date"
+      : period.heading;
 
   const validatorStats = useQuery({
-    queryKey: [...VALIDATOR_STATS_KEY, days],
+    queryKey: [...VALIDATOR_STATS_KEY, days, startKey, endKey],
     queryFn: async () => {
       // Ordered again here as well as in the function body: PostgREST makes no
       // promise about preserving a function's own ORDER BY, and this table is
@@ -247,7 +280,7 @@ export function ReportingStats({
    * picker.
    */
   const centerTotals = useQuery({
-    queryKey: [...CENTER_TOTALS_KEY, days],
+    queryKey: [...CENTER_TOTALS_KEY, days, startKey, endKey],
     queryFn: async () => {
       const { data, error } = await supabase
         .rpc("submission_totals_by_center_range", range)
@@ -259,7 +292,7 @@ export function ReportingStats({
   });
 
   const totals = useQuery({
-    queryKey: [...TOTALS_KEY, days],
+    queryKey: [...TOTALS_KEY, days, startKey, endKey],
     queryFn: async () => {
       const { data, error } = await supabase.rpc("submission_totals_range", range).maybeSingle();
       if (error) throw error;
@@ -383,7 +416,7 @@ export function ReportingStats({
           chips, because a filter that silently leaves one panel out is worse
           than no filter. */}
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           {PERIODS.map((entry) => (
             <button
               key={entry.id}
@@ -397,6 +430,45 @@ export function ReportingStats({
               {entry.label}
             </button>
           ))}
+          <button
+            type="button"
+            onClick={() => setPeriodId("custom")}
+            aria-pressed={isCustom}
+            className={`chip px-2.5 py-0.5 text-[0.66rem] ${isCustom ? "chip-active" : ""}`}
+          >
+            Custom
+          </button>
+          {isCustom ? (
+            <>
+              <input
+                type="date"
+                value={customFrom}
+                onChange={(event) => setCustomFrom(event.target.value)}
+                aria-label="From date"
+                className="field-input h-6 w-32 py-0 text-[0.66rem]"
+              />
+              {/* Left blank, this filters exactly the one day above. */}
+              <input
+                type="date"
+                value={customTo}
+                onChange={(event) => setCustomTo(event.target.value)}
+                aria-label="To date (optional — leave blank for a single day)"
+                className="field-input h-6 w-32 py-0 text-[0.66rem]"
+              />
+              {customFrom || customTo ? (
+                <button
+                  type="button"
+                  className="chip px-2.5 py-0.5 text-[0.66rem]"
+                  onClick={() => {
+                    setCustomFrom("");
+                    setCustomTo("");
+                  }}
+                >
+                  Clear dates
+                </button>
+              ) : null}
+            </>
+          ) : null}
         </div>
         <span className="text-[0.66rem] text-muted-foreground">
           Applies to the totals below. The queue above is always live.
@@ -408,7 +480,7 @@ export function ReportingStats({
           Eight of them as 3xl cards gave a number nobody can act on the same
           weight as the queue that needs working today. */}
       <section className="panel">
-        <h2 className="panel-title">{period.heading}</h2>
+        <h2 className="panel-title">{heading}</h2>
         <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 lg:grid-cols-6">
           <Total label="Closer" value={totalsRow?.closer_submissions} />
           {/* Uploaded leads that a manager has accepted. The view counts
@@ -445,7 +517,7 @@ export function ReportingStats({
         <section className="panel">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <h2 className="panel-title">Leads by Center ({perCenter.length})</h2>
-            <span className="text-[0.66rem] text-muted-foreground">{period.heading}</span>
+            <span className="text-[0.66rem] text-muted-foreground">{heading}</span>
           </div>
           <ul className="flex flex-col gap-2.5">
             {perCenter.map((center) => (
@@ -482,7 +554,7 @@ export function ReportingStats({
               {/* Scoped on when the validator ACTED, not on when the lead
                   arrived — a lead submitted last month and disposed today is
                   today's work. See validator_stats_range. */}
-              <span className="text-[0.66rem] text-muted-foreground">{period.heading}</span>
+              <span className="text-[0.66rem] text-muted-foreground">{heading}</span>
             </div>
             <Table>
               <TableHeader>
@@ -563,6 +635,11 @@ export function SubmissionsExplorer() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [leadTab, setLeadTab] = useState<LeadTab>("closer");
   const [showArchived, setShowArchived] = useState(false);
+  // A specific day, or a from/to range. Left blank, nothing is filtered by
+  // date at all — the same "unset means no filter" convention the carrier
+  // box and the Overview tab's custom range both already use.
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   // A page number each. The three tabs are separate lists of separate lengths;
   // sharing one would land the reader on an empty page four when they switch.
   const [closerPage, setCloserPage] = useState(0);
@@ -574,13 +651,14 @@ export function SubmissionsExplorer() {
   // would end the group early exactly as it would in the free-text search.
   const carrierTerm = sanitizeTerm(carrierSearch);
   const carrierFiltered = carrierTerm.length > 0;
+  const dateFiltered = dateFrom.length > 0 || dateTo.length > 0;
 
   // Any of these changes what page 1 even means, so all three go back to the start.
   useEffect(() => {
     setCloserPage(0);
     setValidatorPage(0);
     setOfflinePage(0);
-  }, [term, carrierTerm, showArchived, leadTab]);
+  }, [term, carrierTerm, showArchived, leadTab, dateFrom, dateTo]);
 
   /**
    * One page of one sub-tab.
@@ -594,7 +672,7 @@ export function SubmissionsExplorer() {
    */
   function submissionsQuery(tab: LeadTab, page: number) {
     return {
-      queryKey: explorerKey(tab, page, term, showArchived, carrierTerm),
+      queryKey: explorerKey(tab, page, term, showArchived, carrierTerm, dateFrom, dateTo),
       enabled: leadTab === tab,
       queryFn: async () => {
         // Resolved first so a person match can join the same `or` as the
@@ -602,6 +680,18 @@ export function SubmissionsExplorer() {
         // columns, whereas an embedded profiles filter could not be or-ed
         // with one.
         const profileIds = term ? await matchingProfileIds(term) : [];
+
+        // The same Pacific-calendar-day RPC the Overview tab's custom range
+        // uses — reused rather than reimplemented, so a "today" here and a
+        // "today" there can never disagree about where midnight falls.
+        let dateWindow: { since: string | null; until: string | null } | null = null;
+        if (dateFrom) {
+          const { data, error } = await supabase
+            .rpc("reporting_window", { p_start_date: dateFrom, p_end_date: dateTo || dateFrom })
+            .single();
+          if (error) throw error;
+          dateWindow = data;
+        }
 
         let query = supabase
           .from("submissions")
@@ -647,6 +737,12 @@ export function SubmissionsExplorer() {
         // fetched and would report nothing for a lead on page four.
         if (carrierTerm) query = query.or(carrierSearchClauses(carrierTerm).join(","));
 
+        // A fourth, independent AND: narrows whatever the filters above
+        // already matched rather than competing with them, same as every
+        // other filter in this query.
+        if (dateWindow?.since) query = query.gte("created_at", dateWindow.since);
+        if (dateWindow?.until) query = query.lt("created_at", dateWindow.until);
+
         const from = page * LEAD_PAGE_SIZE;
         const { data, error, count } = await query
           .order("created_at", { ascending: false })
@@ -660,6 +756,58 @@ export function SubmissionsExplorer() {
   const closerQuery = useQuery(submissionsQuery("closer", closerPage));
   const validatorQuery = useQuery(submissionsQuery("validator", validatorPage));
   const offlineQuery = useQuery(submissionsQuery("offline", offlinePage));
+
+  /**
+   * All three tabs' counts, so a reader sees where the leads are without
+   * clicking through each one. Head-count only (`head: true`) — no rows,
+   * so this runs for every tab at once without the cost the paginated
+   * fetch above deliberately avoids by only running the active tab's.
+   * Mirrors the same filter composition `submissionsQuery` uses, so a
+   * chip's number always matches what that tab would show if opened.
+   */
+  const submissionCounts = useQuery({
+    queryKey: [...SUBMISSION_COUNTS_KEY, term, showArchived, carrierTerm, dateFrom, dateTo],
+    queryFn: async () => {
+      const profileIds = term ? await matchingProfileIds(term) : [];
+
+      let dateWindow: { since: string | null; until: string | null } | null = null;
+      if (dateFrom) {
+        const { data, error } = await supabase
+          .rpc("reporting_window", { p_start_date: dateFrom, p_end_date: dateTo || dateFrom })
+          .single();
+        if (error) throw error;
+        dateWindow = data;
+      }
+
+      async function countFor(tab: LeadTab) {
+        let query = supabase.from("submissions").select("id", { count: "exact", head: true });
+        if (tab === "validator") {
+          query = query.eq("submitted_by_role", "validator");
+        } else if (tab === "offline") {
+          query = query.eq("source", "sheet").neq("status", "pending_import_approval");
+        } else {
+          query = query
+            .eq("source", "live")
+            .or("submitted_by_role.is.null,submitted_by_role.neq.validator");
+        }
+        query = showArchived ? query.not("archived_at", "is", null) : query.is("archived_at", null);
+        if (term) query = query.or(leadSearchClauses(term, profileIds).join(","));
+        if (carrierTerm) query = query.or(carrierSearchClauses(carrierTerm).join(","));
+        if (dateWindow?.since) query = query.gte("created_at", dateWindow.since);
+        if (dateWindow?.until) query = query.lt("created_at", dateWindow.until);
+        const { count, error } = await query;
+        if (error) throw error;
+        return count ?? 0;
+      }
+
+      const [closer, validator, offline] = await Promise.all([
+        countFor("closer"),
+        countFor("validator"),
+        countFor("offline"),
+      ]);
+      return { closer, validator, offline } satisfies Record<LeadTab, number>;
+    },
+  });
 
   const unarchive = useMutation({
     mutationFn: async (id: string) => {
@@ -717,7 +865,6 @@ export function SubmissionsExplorer() {
   // The exact count for the whole result, not the size of this page — the
   // header answers "how many are there", which paging must not change.
   const visibleCount = active.data?.total ?? 0;
-  const activeLabel = LEAD_TABS.find((tab) => tab.id === leadTab)?.label ?? "";
 
   // Only ever a row on the page in front of the reader, which is the only row
   // they can have clicked.
@@ -731,8 +878,18 @@ export function SubmissionsExplorer() {
    * arrives, but putting them in the dependency list would tear down and
    * resubscribe the channel on every keystroke.
    */
-  const activeKeyRef = useRef(explorerKey(leadTab, activePage, term, showArchived, carrierTerm));
-  activeKeyRef.current = explorerKey(leadTab, activePage, term, showArchived, carrierTerm);
+  const activeKeyRef = useRef(
+    explorerKey(leadTab, activePage, term, showArchived, carrierTerm, dateFrom, dateTo),
+  );
+  activeKeyRef.current = explorerKey(
+    leadTab,
+    activePage,
+    term,
+    showArchived,
+    carrierTerm,
+    dateFrom,
+    dateTo,
+  );
 
   useEffect(() => {
     const channel = supabase
@@ -741,6 +898,9 @@ export function SubmissionsExplorer() {
         // Just the page being looked at. Retiring every cached page would send
         // the browser back for pages nobody is reading.
         queryClient.invalidateQueries({ queryKey: activeKeyRef.current });
+        // The three chip counts are cheap and shared by every tab, so they
+        // always refresh rather than only the active one.
+        queryClient.invalidateQueries({ queryKey: SUBMISSION_COUNTS_KEY });
       })
       .subscribe();
     return () => {
@@ -755,9 +915,7 @@ export function SubmissionsExplorer() {
     <>
       <section className="panel">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="panel-title">
-            {activeLabel} ({visibleCount})
-          </h2>
+          <h2 className="panel-title">Submissions</h2>
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -797,6 +955,37 @@ export function SubmissionsExplorer() {
                 Clear carrier
               </button>
             ) : null}
+            {/* Two more boxes rather than a third word in the search field:
+                a date range is its own kind of filter, and this narrows
+                whatever the search/carrier boxes already matched — same
+                composition as every other filter here. Leaving "To" blank
+                filters exactly the one day in "From". */}
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(event) => setDateFrom(event.target.value)}
+              aria-label="From date"
+              className="field-input w-36"
+            />
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(event) => setDateTo(event.target.value)}
+              aria-label="To date (optional — leave blank for a single day)"
+              className="field-input w-36"
+            />
+            {dateFiltered ? (
+              <button
+                type="button"
+                className="chip px-2.5 py-0.5 text-[0.66rem]"
+                onClick={() => {
+                  setDateFrom("");
+                  setDateTo("");
+                }}
+              >
+                Clear dates
+              </button>
+            ) : null}
           </div>
         </div>
 
@@ -811,7 +1000,7 @@ export function SubmissionsExplorer() {
                 leadTab === tab.id ? "chip-active" : ""
               }`}
             >
-              {tab.label}
+              {tab.label} ({submissionCounts.data?.[tab.id] ?? "…"})
             </button>
           ))}
         </div>

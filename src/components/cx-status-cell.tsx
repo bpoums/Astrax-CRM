@@ -5,7 +5,6 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   STATUS_TONE_CLASS,
   readStatusTone,
-  reopensLead,
   shortCategory,
   type CxCategory,
   type CxLeadStatus,
@@ -255,21 +254,11 @@ export function CxStatusCell({
         p_reason: vars.reason,
       } as unknown as SetStatusArgs;
 
-      const { data, error } = await supabase.rpc("set_cx_status", args);
+      const { error } = await supabase.rpc("set_cx_status", args);
       if (error) throw error;
-      // The RPC reports whether this status took the lead out of the pipeline
-      // entirely — see set_cx_status. Read defensively: it returns jsonb.
-      const result = (data ?? {}) as Record<string, unknown>;
-      return { reopened: result["reopened"] === true };
     },
-    onSuccess: (result) => {
-      // Said plainly, because the row is about to disappear from the table
-      // underneath the person who changed it.
-      toast.success(
-        result.reopened
-          ? "Policy closed — lead returned to the manager's queue for reassignment"
-          : "Status updated",
-      );
+    onSuccess: () => {
+      toast.success("Status updated");
       close();
       onSaved();
     },
@@ -287,14 +276,6 @@ export function CxStatusCell({
   }
 
   const isSet = !!code && !!label;
-
-  /**
-   * Saving this choice does more than record a status — it takes the lead out
-   * of the CX queue entirely and puts it back in front of a manager. There is
-   * no undo from this side, so the reason step says so plainly rather than
-   * letting it happen behind an ordinary Save.
-   */
-  const willReopen = picked ? reopensLead(category, picked.option?.code) : false;
 
   // No trigger at all when read-only: an admin should not find a dropdown that
   // refuses them, and the RPC would refuse them anyway.
@@ -407,10 +388,7 @@ export function CxStatusCell({
                 autoComplete="off"
                 autoFocus
                 onKeyDown={(event) => {
-                  // Enter is a shortcut for an ordinary status change only.
-                  // Something this consequential should cost a deliberate
-                  // click on a button that says what it does.
-                  if (event.key === "Enter" && !save.isPending && !willReopen) {
+                  if (event.key === "Enter" && !save.isPending) {
                     event.preventDefault();
                     save.mutate({
                       optionId: picked.option?.id ?? null,
@@ -421,25 +399,10 @@ export function CxStatusCell({
               />
             </div>
 
-            {willReopen ? (
-              <p className="rounded border border-destructive/50 bg-destructive/10 px-2 py-1.5 text-[0.66rem] leading-snug text-destructive">
-                This closes the policy. The lead leaves your queue and goes back to the manager to
-                be assigned to a validator again. You will not be able to update its statuses
-                afterwards, and this cannot be undone here.
-              </p>
-            ) : null}
-
             <div className="flex items-center gap-2">
-              {/* Named for the consequence, not the mechanic, and red rather
-                  than amber — the reader should not be able to confuse it with
-                  the ordinary Save on every other status. */}
               <button
                 type="button"
-                className={
-                  willReopen
-                    ? "chip justify-center border-destructive bg-destructive/10 text-destructive"
-                    : "btn-submit"
-                }
+                className="btn-submit"
                 disabled={save.isPending}
                 onClick={() =>
                   save.mutate({
@@ -448,7 +411,7 @@ export function CxStatusCell({
                   })
                 }
               >
-                {save.isPending ? "Saving…" : willReopen ? "Close policy & return lead" : "Save"}
+                {save.isPending ? "Saving…" : "Save"}
               </button>
               <button
                 type="button"
@@ -464,6 +427,119 @@ export function CxStatusCell({
             </div>
           </div>
         )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/**
+ * `return_lead_for_validation` takes the lead out of the customer pipeline
+ * and hands it back to the manager for another validation pass — independent
+ * of what any of the four CX statuses are set to. A separate, deliberate
+ * action from setting a status, which is why it lives here as its own button
+ * rather than as a consequence of `CxStatusCell`'s Save.
+ */
+type ReturnForValidationArgs = {
+  p_sub: string;
+  p_reason?: string;
+};
+
+export function ReturnForValidationButton({
+  submissionId,
+  readOnly = false,
+  onReturned,
+}: {
+  submissionId: string;
+  /** Admin views the pipeline but does not work it, same as the status cells. */
+  readOnly?: boolean;
+  onReturned: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+
+  function close() {
+    setOpen(false);
+    setReason("");
+  }
+
+  const returnLead = useMutation({
+    mutationFn: async () => {
+      const args = {
+        p_sub: submissionId,
+        p_reason: reason.trim(),
+      } as unknown as ReturnForValidationArgs;
+      const { error } = await supabase.rpc("return_lead_for_validation", args);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      // Said plainly, because the row is about to disappear from the table
+      // underneath the person who clicked it.
+      toast.success("Lead returned to the manager's queue for reassignment");
+      close();
+      onReturned();
+    },
+    // The RPC raises its own messages ("not authorized",
+    // "lead is not in the customer pipeline").
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  // No trigger at all when read-only: an admin should not find a button that
+  // refuses them, and the RPC would refuse them anyway.
+  if (readOnly) return null;
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        if (next) setOpen(true);
+        else close();
+      }}
+    >
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="chip justify-center border-destructive text-destructive hover:bg-destructive/10"
+        >
+          Return For Validation
+        </button>
+      </PopoverTrigger>
+
+      <PopoverContent align="end" className="w-64 p-2">
+        <div className="flex flex-col gap-2">
+          <p className="rounded border border-destructive/50 bg-destructive/10 px-2 py-1.5 text-[0.66rem] leading-snug text-destructive">
+            This lead leaves the customer pipeline and goes back to the manager to be assigned to a
+            validator again. This cannot be undone here.
+          </p>
+
+          <div className="flex flex-col gap-1">
+            <label htmlFor={`return-reason-${submissionId}`} className="field-label">
+              Reason (optional)
+            </label>
+            <input
+              id={`return-reason-${submissionId}`}
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              className="field-input"
+              maxLength={500}
+              autoComplete="off"
+              autoFocus
+            />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="chip justify-center border-destructive bg-destructive/10 text-destructive"
+              disabled={returnLead.isPending}
+              onClick={() => returnLead.mutate()}
+            >
+              {returnLead.isPending ? "Returning…" : "Return For Validation"}
+            </button>
+            <button type="button" className="chip" disabled={returnLead.isPending} onClick={close}>
+              Cancel
+            </button>
+          </div>
+        </div>
       </PopoverContent>
     </Popover>
   );

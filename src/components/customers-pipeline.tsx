@@ -12,7 +12,7 @@ import {
   type UploaderRef,
 } from "@/components/ops";
 import { formatCalendarDate, formatDate } from "@/lib/format-date";
-import { CxStatusCell } from "@/components/cx-status-cell";
+import { CxStatusCell, ReturnForValidationButton } from "@/components/cx-status-cell";
 import { CxLifecycleHistory } from "@/components/cx-lifecycle-history";
 import { ValidationTimeline } from "@/components/validation-timeline";
 import {
@@ -379,6 +379,9 @@ export function CustomersPipeline({
                 </TableHead>
               ))}
               {showUpdatedBy ? <TableHead className="w-24">Updated</TableHead> : null}
+              {/* Admin views the pipeline but does not work it — this is the
+                  CXA/CXM's action, not something to show where it can't be used. */}
+              {readOnly ? null : <TableHead className="w-40">Actions</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -462,12 +465,23 @@ export function CustomersPipeline({
                     )}
                   </TableCell>
                 ) : null}
+                {/* The action is the interactive part of the row, so it must
+                    not open the detail sheet underneath it. Admin's read-only
+                    mount has no column for it at all — see the header above. */}
+                {readOnly ? null : (
+                  <TableCell onClick={(event) => event.stopPropagation()}>
+                    <ReturnForValidationButton
+                      submissionId={row.submission_id}
+                      onReturned={onStatusSaved}
+                    />
+                  </TableCell>
+                )}
               </TableRow>
             ))}
             {rows.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={showUpdatedBy ? 10 : 9}
+                  colSpan={showUpdatedBy ? (readOnly ? 10 : 11) : readOnly ? 9 : 10}
                   className="text-center text-muted-foreground"
                 >
                   {pipeline.isLoading

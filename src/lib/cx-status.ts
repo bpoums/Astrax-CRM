@@ -72,27 +72,6 @@ export const STATUS_TONE_CLASS: Record<StatusTone, string> = {
   destructive: "border-transparent bg-destructive text-destructive-foreground",
 };
 
-/**
- * The policy outcomes that take a lead OUT of the customer pipeline.
- *
- * `set_cx_status` returns the lead to the manager's queue when one of these is
- * set — the policy did not stand, so there is no customer to service and the
- * lead goes back to be placed again. Spelled here so the confirmation the CXA
- * sees and the rule the database enforces cannot drift apart; the database is
- * still the one that acts on it.
- *
- * LAPSED is deliberately absent: a lapsed policy existed and may be reinstated,
- * which is a different thing from one that never took.
- */
-export const POLICY_REOPEN_CODES = ["DECLINED", "WITHDRAWN", "CANCELLED"] as const;
-
-/** Would saving this status send the lead back to the manager's queue? */
-export function reopensLead(category: CxCategory, code: string | null | undefined) {
-  return (
-    category === "policy" && !!code && (POLICY_REOPEN_CODES as readonly string[]).includes(code)
-  );
-}
-
 export function isCxCategory(value: unknown): value is CxCategory {
   return typeof value === "string" && (CX_CATEGORIES as readonly string[]).includes(value);
 }

@@ -211,6 +211,32 @@ export function UserAdmin() {
     onError: (error: Error) => toast.error(error.message),
   });
 
+  /**
+   * Same `admin manages profiles` policy as the mutations above — there is no
+   * separate activate/deactivate RPC, just this column. `guard_last_admin` is
+   * the only thing standing between this button and locking everyone out, so
+   * its error ("cannot deactivate or demote the last active admin") is shown
+   * verbatim rather than a generic failure toast.
+   */
+  const changeActive = useMutation({
+    mutationFn: async (vars: { id: string; active: boolean }) => {
+      const { error } = await supabase
+        .from("profiles")
+        .update({ active: vars.active })
+        .eq("id", vars.id);
+      if (error) throw error;
+    },
+    onSuccess: (_data, vars) => {
+      toast.success(vars.active ? "User reactivated" : "User deactivated");
+      queryClient.invalidateQueries({ queryKey: PROFILES_KEY });
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState<AppRole | "all">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
+
   if (profile?.role !== "admin") return null;
 
   function handleInvite(event: FormEvent<HTMLFormElement>) {
@@ -233,7 +259,20 @@ export function UserAdmin() {
     });
   }
 
-  const rows = users.data ?? [];
+  const allRows = users.data ?? [];
+  const query = search.trim().toLowerCase();
+  const rows = allRows.filter((user) => {
+    if (roleFilter !== "all" && user.role !== roleFilter) return false;
+    if (statusFilter === "active" && !user.active) return false;
+    if (statusFilter === "inactive" && user.active) return false;
+    if (!query) return true;
+    return (
+      (user.full_name ?? "").toLowerCase().includes(query) ||
+      (user.staff_id ?? "").toLowerCase().includes(query) ||
+      (user.org_name ?? "").toLowerCase().includes(query)
+    );
+  });
+  const filtersActive = roleFilter !== "all" || statusFilter !== "all" || query !== "";
 
   return (
     <>
@@ -349,75 +388,142 @@ export function UserAdmin() {
       </section>
 
       <section className="panel">
-        <h2 className="panel-title">Users ({rows.length})</h2>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Staff ID</TableHead>
-              <TableHead className="w-44">Center</TableHead>
-              {/* Free text, and a different thing from the centre beside it:
-                  this is the label put on leads the account uploads. */}
-              <TableHead className="w-52">Upload Source</TableHead>
-              <TableHead>Active</TableHead>
-              <TableHead className="w-44">Role</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.map((user) => (
-              <TableRow key={user.id}>
-                <TableCell className="font-medium">{user.full_name ?? user.id}</TableCell>
-                <TableCell className="text-muted-foreground">{user.staff_id ?? "—"}</TableCell>
-                <TableCell>
-                  <CenterCell
-                    user={user}
-                    centers={centers.data ?? []}
-                    disabled={changeCenter.isPending}
-                    onChange={(center_id) => changeCenter.mutate({ id: user.id, center_id })}
-                  />
-                </TableCell>
-                <TableCell>
-                  <OrgCell
-                    id={user.id}
-                    value={user.org_name}
-                    disabled={changeOrg.isPending}
-                    onSave={(org_name) => changeOrg.mutate({ id: user.id, org_name })}
-                  />
-                </TableCell>
-                <TableCell className={user.active ? "text-muted-foreground" : "text-destructive"}>
-                  {user.active ? "Yes" : "No"}
-                </TableCell>
-                <TableCell>
-                  <Select
-                    value={user.role}
-                    disabled={changeRole.isPending}
-                    onValueChange={(value) =>
-                      changeRole.mutate({ id: user.id, role: value as AppRole })
-                    }
-                  >
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {ROLES.map((option) => (
-                        <SelectItem key={option} value={option}>
-                          {ROLE_LABEL[option]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </TableCell>
-              </TableRow>
+        <h2 className="panel-title">
+          Users ({filtersActive ? `${rows.length} of ${allRows.length}` : allRows.length})
+        </h2>
+
+        <div className="flex flex-wrap items-center gap-2 border-b border-border pb-3">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search name, staff ID, center…"
+            aria-label="Search users"
+            className="field-input h-8 w-56 text-xs"
+            autoComplete="off"
+          />
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              type="button"
+              onClick={() => setRoleFilter("all")}
+              aria-pressed={roleFilter === "all"}
+              className={roleFilter === "all" ? "chip chip-active" : "chip"}
+            >
+              All roles
+            </button>
+            {ROLES.map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => setRoleFilter(option)}
+                aria-pressed={roleFilter === option}
+                className={roleFilter === option ? "chip chip-active" : "chip"}
+              >
+                {ROLE_LABEL[option]}
+              </button>
             ))}
-            {rows.length === 0 ? (
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {(["all", "active", "inactive"] as const).map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => setStatusFilter(option)}
+                aria-pressed={statusFilter === option}
+                className={statusFilter === option ? "chip chip-active" : "chip"}
+              >
+                {option === "all" ? "All statuses" : option === "active" ? "Active" : "Inactive"}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Capped rather than left to grow the whole page — the header stays
+            pinned so a long, filtered-down list still reads column names.
+            `Table` wraps itself in its own scrolling div, so the height cap and
+            hidden scrollbar have to land on THAT div (via the child selector)
+            or the sticky header sticks to a container that never scrolls. */}
+        <div className="[&>div]:no-scrollbar [&>div]:max-h-[65vh] [&>div]:overflow-y-auto">
+          <Table>
+            <TableHeader className="sticky top-0 z-10">
               <TableRow>
-                <TableCell colSpan={6} className="text-center text-muted-foreground">
-                  {users.isLoading ? "Loading…" : "No users yet."}
-                </TableCell>
+                <TableHead>Name</TableHead>
+                <TableHead>Staff ID</TableHead>
+                <TableHead className="w-44">Center</TableHead>
+                {/* Free text, and a different thing from the centre beside it:
+                    this is the label put on leads the account uploads. */}
+                <TableHead className="w-52">Upload Source</TableHead>
+                <TableHead className="w-32">Active</TableHead>
+                <TableHead className="w-44">Role</TableHead>
               </TableRow>
-            ) : null}
-          </TableBody>
-        </Table>
+            </TableHeader>
+            <TableBody>
+              {rows.map((user) => (
+                <TableRow key={user.id}>
+                  <TableCell className="font-medium">{user.full_name ?? user.id}</TableCell>
+                  <TableCell className="text-muted-foreground">{user.staff_id ?? "—"}</TableCell>
+                  <TableCell>
+                    <CenterCell
+                      user={user}
+                      centers={centers.data ?? []}
+                      disabled={changeCenter.isPending}
+                      onChange={(center_id) => changeCenter.mutate({ id: user.id, center_id })}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <OrgCell
+                      id={user.id}
+                      value={user.org_name}
+                      disabled={changeOrg.isPending}
+                      onSave={(org_name) => changeOrg.mutate({ id: user.id, org_name })}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <button
+                      type="button"
+                      className="chip"
+                      disabled={changeActive.isPending}
+                      onClick={() => changeActive.mutate({ id: user.id, active: !user.active })}
+                    >
+                      {user.active ? "Deactivate" : "Reactivate"}
+                    </button>
+                  </TableCell>
+                  <TableCell>
+                    <Select
+                      value={user.role}
+                      disabled={changeRole.isPending}
+                      onValueChange={(value) =>
+                        changeRole.mutate({ id: user.id, role: value as AppRole })
+                      }
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ROLES.map((option) => (
+                          <SelectItem key={option} value={option}>
+                            {ROLE_LABEL[option]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {rows.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center text-muted-foreground">
+                    {users.isLoading
+                      ? "Loading…"
+                      : filtersActive
+                        ? "No users match."
+                        : "No users yet."}
+                  </TableCell>
+                </TableRow>
+              ) : null}
+            </TableBody>
+          </Table>
+        </div>
       </section>
     </>
   );

@@ -1,0 +1,397 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-09T00:00:00.000Z",
+  "title": "Design System: ASTRAX",
+  "extensions": {
+    "colorMeta": {
+      "amber": {
+        "role": "primary",
+        "displayName": "Amber",
+        "canonical": "oklch(0.8 0.145 80)",
+        "tonalRamp": [
+          "oklch(0.20 0.045 80)",
+          "oklch(0.31 0.070 80)",
+          "oklch(0.42 0.095 80)",
+          "oklch(0.53 0.115 80)",
+          "oklch(0.64 0.132 80)",
+          "oklch(0.75 0.145 80)",
+          "oklch(0.86 0.120 80)",
+          "oklch(0.95 0.060 80)"
+        ]
+      },
+      "amber-deep": {
+        "role": "primary",
+        "displayName": "Amber Deep",
+        "canonical": "oklch(0.78 0.15 78)",
+        "tonalRamp": [
+          "oklch(0.20 0.047 78)",
+          "oklch(0.31 0.073 78)",
+          "oklch(0.42 0.098 78)",
+          "oklch(0.53 0.119 78)",
+          "oklch(0.64 0.137 78)",
+          "oklch(0.75 0.150 78)",
+          "oklch(0.86 0.124 78)",
+          "oklch(0.95 0.062 78)"
+        ]
+      },
+      "navy": {
+        "role": "neutral",
+        "displayName": "Navy",
+        "canonical": "oklch(0.19 0.03 255)",
+        "tonalRamp": [
+          "oklch(0.15 0.030 255)",
+          "oklch(0.26 0.030 255)",
+          "oklch(0.37 0.028 255)",
+          "oklch(0.48 0.026 255)",
+          "oklch(0.59 0.024 255)",
+          "oklch(0.70 0.020 255)",
+          "oklch(0.82 0.014 255)",
+          "oklch(0.95 0.007 255)"
+        ]
+      },
+      "card": {
+        "role": "neutral",
+        "displayName": "Card",
+        "canonical": "oklch(0.235 0.031 256)",
+        "tonalRamp": [
+          "oklch(0.15 0.031 256)",
+          "oklch(0.26 0.031 256)",
+          "oklch(0.37 0.029 256)",
+          "oklch(0.48 0.027 256)",
+          "oklch(0.59 0.024 256)",
+          "oklch(0.70 0.020 256)",
+          "oklch(0.82 0.014 256)",
+          "oklch(0.95 0.007 256)"
+        ]
+      },
+      "raised": {
+        "role": "neutral",
+        "displayName": "Raised",
+        "canonical": "oklch(0.29 0.033 257)",
+        "tonalRamp": [
+          "oklch(0.15 0.033 257)",
+          "oklch(0.26 0.033 257)",
+          "oklch(0.37 0.031 257)",
+          "oklch(0.48 0.028 257)",
+          "oklch(0.59 0.025 257)",
+          "oklch(0.70 0.021 257)",
+          "oklch(0.82 0.015 257)",
+          "oklch(0.95 0.007 257)"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Muted",
+        "canonical": "oklch(0.28 0.03 257)",
+        "tonalRamp": [
+          "oklch(0.15 0.030 257)",
+          "oklch(0.26 0.030 257)",
+          "oklch(0.37 0.028 257)",
+          "oklch(0.48 0.026 257)",
+          "oklch(0.59 0.023 257)",
+          "oklch(0.70 0.019 257)",
+          "oklch(0.82 0.014 257)",
+          "oklch(0.95 0.007 257)"
+        ]
+      },
+      "foreground": {
+        "role": "neutral",
+        "displayName": "Foreground",
+        "canonical": "oklch(0.96 0.006 250)",
+        "tonalRamp": [
+          "oklch(0.15 0.006 250)",
+          "oklch(0.26 0.006 250)",
+          "oklch(0.37 0.006 250)",
+          "oklch(0.48 0.006 250)",
+          "oklch(0.59 0.006 250)",
+          "oklch(0.72 0.006 250)",
+          "oklch(0.85 0.006 250)",
+          "oklch(0.96 0.006 250)"
+        ]
+      },
+      "muted-foreground": {
+        "role": "neutral",
+        "displayName": "Muted Foreground",
+        "canonical": "oklch(0.72 0.02 255)",
+        "tonalRamp": [
+          "oklch(0.15 0.020 255)",
+          "oklch(0.26 0.020 255)",
+          "oklch(0.37 0.020 255)",
+          "oklch(0.48 0.020 255)",
+          "oklch(0.59 0.020 255)",
+          "oklch(0.72 0.020 255)",
+          "oklch(0.85 0.016 255)",
+          "oklch(0.95 0.010 255)"
+        ]
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "Border",
+        "canonical": "oklch(0.33 0.028 257)",
+        "tonalRamp": [
+          "oklch(0.15 0.028 257)",
+          "oklch(0.26 0.028 257)",
+          "oklch(0.37 0.026 257)",
+          "oklch(0.48 0.024 257)",
+          "oklch(0.59 0.021 257)",
+          "oklch(0.70 0.018 257)",
+          "oklch(0.82 0.013 257)",
+          "oklch(0.95 0.006 257)"
+        ]
+      },
+      "input": {
+        "role": "neutral",
+        "displayName": "Input",
+        "canonical": "oklch(0.3 0.03 257)",
+        "tonalRamp": [
+          "oklch(0.15 0.030 257)",
+          "oklch(0.26 0.030 257)",
+          "oklch(0.37 0.028 257)",
+          "oklch(0.48 0.026 257)",
+          "oklch(0.59 0.023 257)",
+          "oklch(0.70 0.019 257)",
+          "oklch(0.82 0.014 257)",
+          "oklch(0.95 0.007 257)"
+        ]
+      },
+      "red": {
+        "role": "secondary",
+        "displayName": "Red",
+        "canonical": "oklch(0.68 0.19 24)",
+        "tonalRamp": [
+          "oklch(0.20 0.070 24)",
+          "oklch(0.31 0.105 24)",
+          "oklch(0.42 0.140 24)",
+          "oklch(0.53 0.168 24)",
+          "oklch(0.64 0.186 24)",
+          "oklch(0.75 0.170 24)",
+          "oklch(0.86 0.120 24)",
+          "oklch(0.95 0.055 24)"
+        ]
+      },
+      "green": {
+        "role": "tertiary",
+        "displayName": "Green",
+        "canonical": "#059669",
+        "tonalRamp": [
+          "oklch(0.20 0.055 163)",
+          "oklch(0.31 0.080 163)",
+          "oklch(0.42 0.104 163)",
+          "oklch(0.53 0.122 163)",
+          "oklch(0.64 0.132 163)",
+          "oklch(0.75 0.125 163)",
+          "oklch(0.86 0.095 163)",
+          "oklch(0.95 0.045 163)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Page titles in the app header. One per screen."
+      },
+      "display": {
+        "displayName": "Display",
+        "purpose": "Standalone figures — stage counts, lifetime totals. Numerals, not prose."
+      },
+      "title": {
+        "displayName": "Panel Title",
+        "purpose": "Every section heading. Extreme 0.22em tracking is what makes 0.7rem read as a heading."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Table cells, form values, descriptions. 0.82rem inside inputs, 0.75rem in tables."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Field labels and table headers. Low 0.04em tracking so they sit beside data without competing."
+      }
+    },
+    "shadows": [
+      {
+        "name": "action-glow",
+        "value": "0 8px 24px -12px color-mix(in oklab, oklch(0.8 0.145 80) 80%, transparent)",
+        "purpose": "Under the primary action only. Amber-tinted and offset downward so the button reads as lit rather than outlined."
+      },
+      {
+        "name": "focus-ring",
+        "value": "0 0 0 3px color-mix(in oklab, oklch(0.8 0.145 80) 25%, transparent)",
+        "purpose": "On a focused input, paired with a border shift to the ring colour. Never removed without an equally visible replacement."
+      }
+    ],
+    "motion": [
+      {
+        "name": "state",
+        "value": "0.15s ease",
+        "purpose": "Every control state change — chip hover, input focus, button lift. The system's default and near-universal duration."
+      },
+      {
+        "name": "measure",
+        "value": "0.3s ease",
+        "purpose": "Proportional bars and queue-flow segments resizing as data updates. Paired with motion-reduce:transition-none."
+      }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "lg", "value": "1024px" },
+      { "name": "xl", "value": "1280px" },
+      { "name": "container", "value": "1500px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one action that disposes a lead or submits a form. One per view.",
+      "html": "<button class=\"ds-btn-submit\">Submit entry</button>",
+      "css": ".ds-btn-submit { font-family: 'DM Sans', ui-sans-serif, system-ui, sans-serif; border: none; border-radius: 999px; background: oklch(0.8 0.145 80); color: oklch(0.21 0.04 258); padding: 0.5rem 1.4rem; font-size: 0.82rem; font-weight: 600; letter-spacing: 0.02em; cursor: pointer; box-shadow: 0 8px 24px -12px color-mix(in oklab, oklch(0.8 0.145 80) 80%, transparent); transition: transform 0.15s ease, filter 0.15s ease; } .ds-btn-submit:hover { filter: brightness(1.06); transform: translateY(-1px); } .ds-btn-submit:focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in oklab, oklch(0.8 0.145 80) 45%, transparent); } .ds-btn-submit:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }"
+    },
+    {
+      "name": "Chip",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "Pill toggle for filters, radio-style choices and secondary actions.",
+      "html": "<button class=\"ds-chip\">7 days</button>",
+      "css": ".ds-chip { font-family: 'DM Sans', ui-sans-serif, system-ui, sans-serif; border-radius: 999px; border: 1px solid oklch(0.3 0.03 257); background: color-mix(in oklab, oklch(0.19 0.03 255) 70%, black 6%); padding: 0.3rem 0.62rem; font-size: 0.72rem; font-weight: 500; color: oklch(0.72 0.02 255); cursor: pointer; transition: all 0.15s ease; } .ds-chip:hover { border-color: oklch(0.8 0.145 80); color: oklch(0.96 0.006 250); } .ds-chip:focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in oklab, oklch(0.8 0.145 80) 25%, transparent); }"
+    },
+    {
+      "name": "Chip (active)",
+      "kind": "chip",
+      "refersTo": "chip-active",
+      "description": "A selected filter or choice. Same amber fill as the primary button, which is what makes it read as on.",
+      "html": "<button class=\"ds-chip-active\" aria-pressed=\"true\">All time</button>",
+      "css": ".ds-chip-active { font-family: 'DM Sans', ui-sans-serif, system-ui, sans-serif; border-radius: 999px; border: 1px solid oklch(0.8 0.145 80); background: oklch(0.8 0.145 80); color: oklch(0.21 0.04 258); padding: 0.3rem 0.62rem; font-size: 0.72rem; font-weight: 600; cursor: pointer; transition: all 0.15s ease; } .ds-chip-active:hover { filter: brightness(1.06); }"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Every text, search and date input. Label always visible above it; placeholder-only fields are not used.",
+      "html": "<label class=\"ds-field\"><span class=\"ds-field-label\">Policy Number</span><input class=\"ds-field-input\" value=\"TA-4471902\" /></label>",
+      "css": ".ds-field { display: flex; flex-direction: column; gap: 0.25rem; font-family: 'DM Sans', ui-sans-serif, system-ui, sans-serif; } .ds-field-label { font-size: 0.66rem; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; color: oklch(0.72 0.02 255); } .ds-field-input { width: 100%; border-radius: calc(0.55rem - 2px); border: 1px solid oklch(0.3 0.03 257); background: color-mix(in oklab, oklch(0.19 0.03 255) 70%, black 6%); padding: 0.4rem 0.55rem; font-size: 0.82rem; font-family: inherit; color: oklch(0.96 0.006 250); outline: none; transition: border-color 0.15s ease, box-shadow 0.15s ease; } .ds-field-input:focus { border-color: oklch(0.8 0.145 80); box-shadow: 0 0 0 3px color-mix(in oklab, oklch(0.8 0.145 80) 25%, transparent); }"
+    },
+    {
+      "name": "Panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "Every section container. A hairline and a barely-there gradient, no shadow at rest.",
+      "html": "<section class=\"ds-panel\"><h2 class=\"ds-panel-title\">Where leads are right now</h2><p class=\"ds-panel-body\">80 in flight</p></section>",
+      "css": ".ds-panel { border-radius: calc(0.55rem + 4px); border: 1px solid oklch(0.33 0.028 257); background: linear-gradient(160deg, color-mix(in oklab, oklch(0.235 0.031 256) 96%, white 4%), oklch(0.235 0.031 256)); padding: 0.85rem 1rem 1rem; display: flex; flex-direction: column; gap: 0.6rem; } .ds-panel-title { margin: 0; font-family: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif; font-size: 0.7rem; font-weight: 600; letter-spacing: 0.22em; text-transform: uppercase; color: oklch(0.72 0.02 255); } .ds-panel-body { margin: 0; font-family: 'DM Sans', ui-sans-serif, system-ui, sans-serif; font-size: 0.75rem; color: oklch(0.96 0.006 250); }"
+    },
+    {
+      "name": "Table Header",
+      "kind": "custom",
+      "refersTo": "table-header",
+      "description": "A recessed band, set once in components/ui/table.tsx and inherited by every table. Headers never truncate.",
+      "html": "<table class=\"ds-table\"><thead><tr><th>Center</th><th>Customer</th><th class=\"ds-num\">Leads</th></tr></thead><tbody><tr><td>UMS BPO</td><td>Mia Michele Taylor</td><td class=\"ds-num\">12</td></tr><tr><td>DESCOM</td><td>Julia Hayes</td><td class=\"ds-num\">3</td></tr></tbody></table>",
+      "css": ".ds-table { width: 100%; border-collapse: collapse; font-family: 'DM Sans', ui-sans-serif, system-ui, sans-serif; font-size: 0.75rem; color: oklch(0.96 0.006 250); } .ds-table thead { background: color-mix(in oklab, oklch(0.235 0.031 256) 92%, black 8%); } .ds-table th { text-align: left; padding: 0.5rem 0.75rem; font-size: 0.66rem; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; color: oklch(0.72 0.02 255); white-space: nowrap; border-bottom: 2px solid oklch(0.33 0.028 257); } .ds-table td { padding: 0.5rem 0.75rem; border-bottom: 1px solid oklch(0.33 0.028 257); } .ds-table tbody tr:last-child td { border-bottom: 0; } .ds-table .ds-num { text-align: right; font-variant-numeric: tabular-nums; }"
+    },
+    {
+      "name": "Outcome Badge",
+      "kind": "custom",
+      "refersTo": "badge-accepted",
+      "description": "The red/amber/green outcome scale. Green is the system's one hardcoded colour, and it is deliberate.",
+      "html": "<span class=\"ds-badge ds-badge-accepted\">Submitted</span> <span class=\"ds-badge ds-badge-declined\">Declined</span> <span class=\"ds-badge ds-badge-hold\">On Hold</span>",
+      "css": ".ds-badge { display: inline-flex; align-items: center; font-family: 'DM Sans', ui-sans-serif, system-ui, sans-serif; border: 1px solid transparent; border-radius: calc(0.55rem - 2px); padding: 0.125rem 0.625rem; font-size: 0.75rem; font-weight: 600; } .ds-badge-accepted { background: #059669; color: #ffffff; } .ds-badge-declined { background: oklch(0.68 0.19 24); color: oklch(0.98 0.005 250); } .ds-badge-hold { background: color-mix(in oklab, oklch(0.8 0.145 80) 10%, transparent); border-color: color-mix(in oklab, oklch(0.8 0.145 80) 70%, transparent); color: oklch(0.8 0.145 80); }"
+    },
+    {
+      "name": "Queue Flow strip",
+      "kind": "custom",
+      "refersTo": "panel",
+      "description": "Signature component. Open work as one proportional bar, so the bottleneck reads as a shape rather than five separate numbers.",
+      "html": "<section class=\"ds-panel ds-flow\"><div class=\"ds-flow-head\"><h2 class=\"ds-panel-title\">Where leads are right now</h2><span class=\"ds-flow-total\">84 in flight</span></div><div class=\"ds-flow-track\"><i style=\"flex-grow:80;background:color-mix(in oklab, oklch(0.72 0.02 255) 45%, transparent)\"></i><i style=\"flex-grow:1;background:color-mix(in oklab, oklch(0.96 0.006 250) 80%, transparent)\"></i><i style=\"flex-grow:3;background:oklch(0.68 0.19 24)\"></i></div><ul class=\"ds-flow-legend\"><li><span class=\"ds-dot\" style=\"background:color-mix(in oklab, oklch(0.72 0.02 255) 45%, transparent)\"></span><span class=\"ds-field-label\">Unassigned</span><b>80</b><em>oldest 15d ago</em></li><li><span class=\"ds-dot\" style=\"background:oklch(0.68 0.19 24)\"></span><span class=\"ds-field-label\">Returned</span><b>3</b><em>oldest 15d ago</em></li></ul></section>",
+      "css": ".ds-flow { gap: 0.75rem; } .ds-flow-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; } .ds-flow-total { font-family: 'DM Sans', ui-sans-serif, system-ui, sans-serif; font-size: 0.66rem; font-variant-numeric: tabular-nums; color: oklch(0.72 0.02 255); } .ds-flow-track { display: flex; gap: 2px; height: 8px; width: 100%; border-radius: 999px; overflow: hidden; background: color-mix(in oklab, oklch(0.33 0.028 257) 60%, transparent); } .ds-flow-track i { min-width: 3px; border-radius: 999px; transition: flex-grow 0.3s ease; } .ds-flow-legend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; list-style: none; margin: 0; padding: 0; } .ds-flow-legend li { display: flex; flex-direction: column; gap: 0.125rem; font-family: 'DM Sans', ui-sans-serif, system-ui, sans-serif; } .ds-flow-legend .ds-dot { width: 6px; height: 6px; border-radius: 999px; display: inline-block; margin-right: 0.375rem; } .ds-flow-legend .ds-field-label { font-size: 0.66rem; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; color: oklch(0.72 0.02 255); } .ds-flow-legend b { font-family: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif; font-size: 1.5rem; font-weight: 600; font-variant-numeric: tabular-nums; color: oklch(0.96 0.006 250); } .ds-flow-legend em { font-style: normal; font-size: 0.62rem; color: oklch(0.72 0.02 255); }"
+    },
+    {
+      "name": "Metric Bar",
+      "kind": "custom",
+      "refersTo": "panel",
+      "description": "Signature component. A neutral proportional bar under a count, wherever several counts are compared. Carries magnitude only; the chip beside it carries meaning.",
+      "html": "<ul class=\"ds-metrics\"><li><span class=\"ds-metric-row\"><span class=\"ds-metric-name\">UMS BPO</span><span class=\"ds-metric-value\">168</span></span><span class=\"ds-metric-track\"><i style=\"width:100%\"></i></span></li><li><span class=\"ds-metric-row\"><span class=\"ds-metric-name\">DESCOM</span><span class=\"ds-metric-value\">25</span></span><span class=\"ds-metric-track\"><i style=\"width:15%\"></i></span></li></ul>",
+      "css": ".ds-metrics { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.625rem; font-family: 'DM Sans', ui-sans-serif, system-ui, sans-serif; } .ds-metrics li { display: flex; flex-direction: column; gap: 0.25rem; } .ds-metric-row { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; } .ds-metric-name { font-size: 0.75rem; font-weight: 500; color: oklch(0.96 0.006 250); } .ds-metric-value { font-size: 0.75rem; font-variant-numeric: tabular-nums; color: oklch(0.72 0.02 255); } .ds-metric-track { height: 4px; width: 100%; border-radius: 999px; overflow: hidden; background: color-mix(in oklab, oklch(0.33 0.028 257) 60%, transparent); } .ds-metric-track i { display: block; height: 100%; border-radius: 999px; background: color-mix(in oklab, oklch(0.72 0.02 255) 50%, transparent); transition: width 0.3s ease; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Night Desk",
+    "overview": "ASTRAX is worked from Pakistan while America is awake. That single fact is the whole design: a warm amber light pooled on a dark desk, the rest of the building quiet, one person concentrating on a queue for hours at a stretch. The ground is a deep blue-leaning navy rather than a neutral charcoal, because a slightly warm amber sitting on a slightly cool ground is what a lamp looks like at night — and because eight hours of grey-on-grey is punishing in a way that a tinted ground is not.\n\nThe console is dense on purpose. It shows queues of leads, and an operator's job is to scan them, not to admire them. Type is small, gaps are tight, tables are wide, and numbers are tabular so columns line up down the page. Confirmed: no role works on a phone or a tablet, so nothing here is compromised to survive a narrow viewport.\n\nColour is almost entirely absent, which is what makes the little of it that exists carry meaning. Grey is waiting, amber is happening, red went wrong, green is money in. Because the palette is so quiet, an operator learns to trust that a coloured mark is telling them something rather than decorating something — and the moment colour is spent on decoration, that trust is gone and every screen gets a little harder to read.",
+    "keyCharacteristics": [
+      "Deep navy ground with a single warm amber accent, used sparingly",
+      "Dense by default: small type, tight gaps, wide tables, tabular numerals",
+      "Desktop-only; density is never traded away for small screens",
+      "Depth from tone and hairlines first, shadow where a surface genuinely floats",
+      "Controls that feel pressable: warmth, lift, visible response",
+      "Colour is semantic — grey waits, amber works, red fails, green pays"
+    ],
+    "rules": [
+      {
+        "name": "The One Amber Rule",
+        "body": "Amber is the only accent in the system, and a view gets one emphasis. If two things on a screen are amber, one of them is wrong — decide which is the action and mute the other.",
+        "section": "colors"
+      },
+      {
+        "name": "The Semantic Colour Rule",
+        "body": "Colour states a fact, never a mood. Grey is waiting, amber is being worked, red went wrong, green paid. A mark that is coloured for interest rather than for meaning is a bug.",
+        "section": "colors"
+      },
+      {
+        "name": "The Emerald Exception",
+        "body": "#059669 is the single hardcoded colour in the codebase, and it is deliberate. Leave it, or promote it to a real token — but do not quietly \"fix\" it back to amber, and do not add a second exception beside it.",
+        "section": "colors"
+      },
+      {
+        "name": "The Root-Is-Dark Rule",
+        "body": ":root is the dark theme. The .dark block in styles.css is an unused generic grey palette from the original scaffold and does not match this identity. Never put class=\"dark\" on any element or wrapper.",
+        "section": "colors"
+      },
+      {
+        "name": "The Display-For-Headings Rule",
+        "body": "Space Grotesk is for headings and standalone numerals. Body copy inherits DM Sans automatically and should never be given .font-display.",
+        "section": "typography"
+      },
+      {
+        "name": "The Tabular Numeral Rule",
+        "body": "Any number that appears in a column, a countdown, a duration, or beside another number gets tabular-nums. Proportional figures make a column of counts jitter as it updates, which is exactly where the eye is trying to hold still.",
+        "section": "typography"
+      },
+      {
+        "name": "The Two-Tracking Rule",
+        "body": "Uppercase in this system means one of two things: 0.22em is a section heading, 0.04em is a data label. Never invent a third.",
+        "section": "typography"
+      },
+      {
+        "name": "The Dense-By-Default Rule",
+        "body": "This is a console someone works all day, not a landing page. Reach for gap-2/gap-3 and small type first; generous padding has to be argued for.",
+        "section": "layout"
+      },
+      {
+        "name": "The Truncation Rule",
+        "body": "When a table runs out of room, the data ellipsises and keeps its full value in a title or a tooltip. A header never truncates, because a reader who cannot identify a column cannot use the row.",
+        "section": "layout"
+      },
+      {
+        "name": "The Tone-First Rule",
+        "body": "Separate surfaces with tone and a hairline before reaching for a shadow. If two adjacent surfaces both need shadows to be told apart, the tonal step between them is wrong.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do compose from the existing utilities — .panel, .panel-title, .field-label, .field-input, .chip, .btn-submit, .table-head-band — before writing new CSS.",
+      "Do give every number that shares a column with another number tabular-nums.",
+      "Do put separation in a 1px border hairline and a tonal step first.",
+      "Do let a wide table scroll inside its panel with an explicit min-w, rather than squeezing its columns.",
+      "Do write four distinct empty states — loading, error, filtered-empty, genuinely empty — wherever a list can be empty.",
+      "Do state a colour's meaning in words as well as in hue. Every coloured badge, segment and dot in this system also says what it is.",
+      "Do keep one amber emphasis per view."
+    ],
+    "donts": [
+      "Don't write a hex or rgb() value. Every colour is a semantic token, and #059669 is the one sanctioned exception that already exists.",
+      "Don't add a dark class to any element. :root is already the dark theme and the .dark block is a generic grey palette that would override this identity.",
+      "Don't introduce a third font, or apply .font-display to body copy.",
+      "Don't use red for emphasis or urgency. Red means something failed.",
+      "Don't distinguish two things by two opacities of the same colour — use a luminance step, a different hue, or a different shape.",
+      "Don't trade density for a phone layout. No role works on one, and the wide tables are a decision rather than an oversight.",
+      "Don't style a table header per table. It is set once in components/ui/table.tsx and inherited everywhere."
+    ]
+  }
+}

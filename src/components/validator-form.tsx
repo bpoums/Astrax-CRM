@@ -84,6 +84,7 @@ const SECTIONS: Section[] = [
         type: "radio",
         span: "sm:col-span-2",
         options: ["Level", "Graded", "MOD", "G.I"],
+        required: true,
       },
       { label: "Coverage Amount", type: "number", required: true },
       { label: "Premium", type: "text", required: true },
@@ -126,7 +127,7 @@ function emptyForm(): Record<string, string> {
   return Object.fromEntries(ALL_FIELDS.map((field) => [field.label, ""]));
 }
 
-export function ValidatorForm() {
+export function ValidatorForm({ readOnly = false }: { readOnly?: boolean } = {}) {
   const { profile, signOut } = useAuth();
   // The one source of carrier names, active only and in the admin's order.
   const carriers = useCarriers(true);
@@ -159,6 +160,10 @@ export function ValidatorForm() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    // Belt and suspenders: the controls are already hidden/disabled in
+    // read-only mode, but nothing here should ever reach the network.
+    if (readOnly) return;
 
     // Chip groups are buttons, so the browser never validates them for us.
     if (!agency) {
@@ -207,7 +212,11 @@ export function ValidatorForm() {
             <BrandLogo className="h-10 w-auto max-w-none shrink-0" />
           </div>
           <div className="flex items-center gap-3">
-            {message ? (
+            {readOnly ? (
+              <span className="text-xs font-medium text-muted-foreground">
+                Preview only — viewing field layout as admin
+              </span>
+            ) : message ? (
               <span
                 className={
                   status === "error"
@@ -218,9 +227,11 @@ export function ValidatorForm() {
                 {message}
               </span>
             ) : null}
-            <button type="submit" className="btn-submit" disabled={status === "sending"}>
-              {status === "sending" ? "Submitting…" : "Submit entry"}
-            </button>
+            {readOnly ? null : (
+              <button type="submit" className="btn-submit" disabled={status === "sending"}>
+                {status === "sending" ? "Submitting…" : "Submit entry"}
+              </button>
+            )}
             {profile && profile.role !== "closer" ? (
               <Link to={roleHome[profile.role]} className="chip inline-block">
                 Back to queue
@@ -232,63 +243,65 @@ export function ValidatorForm() {
           </div>
         </header>
 
-        {/* A field like any other now, not a step that swaps the form. */}
-        <div className="flex flex-wrap items-center gap-2 border-b border-border pb-3">
-          <span className="field-label">
-            Carrier<span className="text-accent"> *</span>
-          </span>
-          {(carriers.data ?? []).map((carrier) => (
-            <button
-              key={carrier.id}
-              type="button"
-              /* The NAME, not the id: this string becomes the Sheet tab. */
-              onClick={() => setAgency(carrier.name)}
-              aria-pressed={agency === carrier.name}
-              className={agency === carrier.name ? "chip chip-active" : "chip"}
-            >
-              {carrier.name}
-            </button>
-          ))}
-          {carriers.isError ? (
-            <span className="text-xs font-medium text-destructive">
-              {(carriers.error as Error).message}
+        <fieldset disabled={readOnly} className="contents">
+          {/* A field like any other now, not a step that swaps the form. */}
+          <div className="flex flex-wrap items-center gap-2 border-b border-border pb-3">
+            <span className="field-label">
+              Carrier<span className="text-accent"> *</span>
             </span>
-          ) : carriers.isLoading ? (
-            <span className="text-xs text-muted-foreground">Loading carriers…</span>
-          ) : (carriers.data ?? []).length === 0 ? (
-            <span className="text-xs text-muted-foreground">
-              No carriers set up — ask an admin to add them in Settings.
-            </span>
-          ) : null}
-        </div>
+            {(carriers.data ?? []).map((carrier) => (
+              <button
+                key={carrier.id}
+                type="button"
+                /* The NAME, not the id: this string becomes the Sheet tab. */
+                onClick={() => setAgency(carrier.name)}
+                aria-pressed={agency === carrier.name}
+                className={agency === carrier.name ? "chip chip-active" : "chip"}
+              >
+                {carrier.name}
+              </button>
+            ))}
+            {carriers.isError ? (
+              <span className="text-xs font-medium text-destructive">
+                {(carriers.error as Error).message}
+              </span>
+            ) : carriers.isLoading ? (
+              <span className="text-xs text-muted-foreground">Loading carriers…</span>
+            ) : (carriers.data ?? []).length === 0 ? (
+              <span className="text-xs text-muted-foreground">
+                No carriers set up — ask an admin to add them in Settings.
+              </span>
+            ) : null}
+          </div>
 
-        {/* Three columns on a wide screen, the same shape as the closer form.
-            `.panel` already scrolls itself with the scrollbar hidden, so a
-            column with more fields than fit — Customer, at fifteen — scrolls
-            inside its own card rather than growing the page and being clipped
-            by the one-screen main. `lg:min-h-0` is what lets a grid item
-            shrink below its content; without it the panel refuses to and the
-            overflow has nowhere to go. Below lg the columns stack and the page
-            scrolls normally. */}
-        <div className="grid flex-1 gap-3 lg:min-h-0 lg:grid-cols-12 lg:gap-4">
-          {SECTIONS.map((section) => (
-            <section key={section.title} className="panel lg:col-span-4 lg:min-h-0">
-              <h2 className="panel-title">{section.title}</h2>
-              <div className="grid grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-2">
-                {section.fields.map((field) => (
-                  <FieldControl
-                    key={field.label}
-                    field={field}
-                    value={values[field.label] ?? ""}
-                    values={values}
-                    onChange={(v) => set(field.label, v)}
-                    onCommit={(v) => commit(field.label, v)}
-                  />
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
+          {/* Three columns on a wide screen, the same shape as the closer form.
+              `.panel` already scrolls itself with the scrollbar hidden, so a
+              column with more fields than fit — Customer, at fifteen — scrolls
+              inside its own card rather than growing the page and being clipped
+              by the one-screen main. `lg:min-h-0` is what lets a grid item
+              shrink below its content; without it the panel refuses to and the
+              overflow has nowhere to go. Below lg the columns stack and the page
+              scrolls normally. */}
+          <div className="grid flex-1 gap-3 lg:min-h-0 lg:grid-cols-12 lg:gap-4">
+            {SECTIONS.map((section) => (
+              <section key={section.title} className="panel lg:col-span-4 lg:min-h-0">
+                <h2 className="panel-title">{section.title}</h2>
+                <div className="grid grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-2">
+                  {section.fields.map((field) => (
+                    <FieldControl
+                      key={field.label}
+                      field={field}
+                      value={values[field.label] ?? ""}
+                      values={values}
+                      onChange={(v) => set(field.label, v)}
+                      onCommit={(v) => commit(field.label, v)}
+                    />
+                  ))}
+                </div>
+              </section>
+            ))}
+          </div>
+        </fieldset>
       </form>
     </main>
   );
