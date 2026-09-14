@@ -317,14 +317,17 @@ export function UserAdmin() {
               className="field-input"
             />
           </div>
-          {/* A data uploader gets the real Center dropdown below instead —
-              this free-text box used to be the only way to record where their
-              leads came from, but nothing reads it for display anymore
-              (the Source badge for an uploaded lead now reads "Manual", same
-              as a validator's, and the real center is stamped from the
-              dropdown's choice). Left in place for every other role, where
-              it remains optional and unread by anything. */}
-          {role !== "data_uploader" ? (
+          {/* A data uploader and a validator both get the real Center
+              dropdown below instead. For a data uploader this free-text box
+              used to be the only way to record where their leads came from,
+              but nothing reads it for display anymore (the Source badge for
+              an uploaded lead now reads "Manual", same as a validator's, and
+              the real center is stamped from the dropdown's choice). For a
+              validator it would just be a second, unrelated place to type
+              the same fact the dropdown already asks for. Left in place for
+              every other role, where it remains optional and unread by
+              anything. */}
+          {role !== "data_uploader" && role !== "validator" ? (
             <div className="flex flex-col gap-1">
               <label htmlFor="invite-org" className="field-label">
                 Center / Organisation
@@ -342,9 +345,9 @@ export function UserAdmin() {
               </span>
             </div>
           ) : null}
-          {/* Only for the roles it means anything to — a validator's centre is
-              read by nothing, and an optional field that changes no behaviour
-              is one more box to get wrong. */}
+          {/* Only for the roles that ask for one — see CENTER_ROLES for why
+              each is in the list, validator included even though nothing
+              reads it functionally: it's tracked as roster information. */}
           {centerNeeded ? (
             <div className="flex flex-col gap-1">
               <label htmlFor="invite-center" className="field-label">

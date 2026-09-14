@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-09-15 — Validators get a real Center field in Users, not a dash
+
+An admin had set every validator's `center_id` to UMS BPO directly (already
+correct live), but the Users tab still showed a plain "—" for every
+validator's Center cell, because `CENTER_ROLES` in `src/lib/centers.ts` only
+listed `closer`, `closing_manager`, and `data_uploader` — the roles a center
+is actually read for server-side. Added `validator` to that list: it's
+tracked as roster information only (nothing server-side reads it, unlike
+`closing_manager`'s queue-scoping use), but is now visible and editable in
+the Users table and required (with the same real dropdown data_uploader
+already used, in place of the old free-text "Center / Organisation" box)
+when inviting a new validator.
+
 ## 2026-09-14 — Manager Operations gets a dedicated "CXA Returned" tab
 
 A lead sent back from the Customers Pipeline via "Return For Validation"

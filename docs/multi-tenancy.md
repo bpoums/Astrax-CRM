@@ -19,14 +19,19 @@ Two columns carry the link, and they mean different things:
 
 - **`profiles.center_id`** — which center a *person* belongs to. Only read by
   the `submissions` RLS policy, and only for the `closing_manager` branch (see
-  below). Set by an admin directly (`profiles` is the one table with a
-  client-reachable direct write policy — see
-  [decisions/0001](decisions/0001-rls-as-the-only-boundary.md)). Required
+  below) — every other role in `CENTER_ROLES` stores it for display/roster
+  purposes only, read by nothing server-side. Set by an admin directly
+  (`profiles` is the one table with a client-reachable direct write policy —
+  see [decisions/0001](decisions/0001-rls-as-the-only-boundary.md)). Required
   (`center_id NOT NULL` is not enforced at the DB level, but `centerRequired()`
-  in `src/lib/centers.ts` demands one at invite time) for exactly two roles:
-  `closer` and `closing_manager`. A `closing_manager` with no `center_id` set
-  sees **nothing at all** — the closing desk says so explicitly rather than
-  showing the generic "no leads yet" empty state.
+  in `src/lib/centers.ts` demands one at invite time) for `closer`,
+  `closing_manager`, `data_uploader`, and `validator`. A `closing_manager`
+  with no `center_id` set sees **nothing at all** — the closing desk says so
+  explicitly rather than showing the generic "no leads yet" empty state. A
+  `validator` or `data_uploader` with no `center_id` set is unaffected
+  functionally; it's just a blank roster field (`validator` added to
+  `CENTER_ROLES` 2026-09-15 — see
+  [features/user-management.md](features/user-management.md)).
 - **`submissions.center_id` / `submissions.center_name`** — the center a
   *lead* was taken in, stamped once at `submit_form()` time from the
   submitting closer's own `profiles.center_id`/center name at that moment.

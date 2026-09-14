@@ -42,9 +42,14 @@ table (now with a filter bar and a capped, sticky-header scroll region).
   `guard_last_admin()` refuses to deactivate the last active admin, and its
   raised message is shown verbatim via the same `toast.error(error.message)`
   pattern the other mutations already use.
-- **A center picker only renders for roles a center means something for**
-  (`closer`, `closing_manager`) — everyone else's center cell is a plain
-  dash, because nothing reads a center for any other role.
+- **A center picker only renders for roles in `CENTER_ROLES`**
+  (`src/lib/centers.ts`: `closer`, `closing_manager`, `data_uploader`,
+  `validator`) — everyone else's center cell is a plain dash. Being in the
+  list only means the admin screens ask for and show it; it's functionally
+  read only for `closer` (stamped on submit) and `closing_manager` (scopes
+  their whole queue, see [multi-tenancy.md](../multi-tenancy.md)).
+  `data_uploader`'s is stamped on every lead it imports. `validator`'s (added
+  2026-09-15) is roster information only — nothing server-side reads it.
 - **The users table is filtered client-side** (name/staff-id/center text
   search, role chips, active/inactive chips) over the whole fetched list —
   acceptable at the current scale (56 profiles); would need a server-side
