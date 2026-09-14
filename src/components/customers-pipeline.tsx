@@ -67,7 +67,7 @@ const PAGE_SIZE = 25;
  * submission files the carrier under "Agency", so searching only "Carrier Name"
  * matched none of them — the same split that used to leave the column blank.
  */
-const SEARCH_KEYS = ["Full Name", ...CARRIER_KEYS, "Phone Number"];
+const SEARCH_KEYS = ["Full Name", ...CARRIER_KEYS, "Phone Number", SSN_FIELD];
 
 const SELECT_COLUMNS = [
   "submission_id",
@@ -339,7 +339,7 @@ export function CustomersPipeline({
             type="search"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search customer, carrier, phone…"
+            placeholder="Search customer, carrier, phone, SSN…"
             className="field-input flex-1"
             aria-label="Search the customers pipeline"
           />
