@@ -353,14 +353,13 @@ export type UploaderRef = { full_name: string | null; org_name?: string | null }
 export function sourceLabel(row: {
   source?: LeadSource | null;
   submitted_by_role?: string | null;
-  uploader?: UploaderRef;
 }) {
+  // Neither a validator's own submission nor an uploaded lead was typed into
+  // the closer form — both read "Manual" for the same reason. Who actually
+  // did it is a separate question, answered by `closerName()`, not this.
   if (row.submitted_by_role === "validator") return "Manual";
   if (row.source !== "sheet") return "Live";
-  const org = row.uploader?.org_name?.trim();
-  if (org) return org;
-  const name = row.uploader?.full_name?.trim();
-  return name || "Manual";
+  return "Manual";
 }
 
 /**

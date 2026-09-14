@@ -39,11 +39,13 @@ export function centersKey(activeOnly: boolean) {
  * The roles a centre actually means something for.
  *
  * A closer's centre is what gets stamped on the leads they submit; a closing
- * manager's is what their whole queue is scoped to. Nothing reads it for any
- * other role, so those are the two the admin screens ask for — stated once
- * here so the invite form and the user table cannot disagree about it.
+ * manager's is what their whole queue is scoped to; a data uploader's is
+ * what gets stamped on every lead they import (`ingest_sheet_lead`), the
+ * same way a closer's is on submit. Nothing reads it for any other role, so
+ * these are the ones the admin screens ask for — stated once here so the
+ * invite form and the user table cannot disagree about it.
  */
-const CENTER_ROLES: AppRole[] = ["closer", "closing_manager"];
+const CENTER_ROLES: AppRole[] = ["closer", "closing_manager", "data_uploader"];
 
 export function centerRequired(role: AppRole) {
   return CENTER_ROLES.includes(role);

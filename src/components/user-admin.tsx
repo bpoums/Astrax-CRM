@@ -277,22 +277,31 @@ export function UserAdmin() {
               className="field-input"
             />
           </div>
-          <div className="flex flex-col gap-1">
-            <label htmlFor="invite-org" className="field-label">
-              Center / Organisation
-            </label>
-            <input
-              id="invite-org"
-              type="text"
-              value={orgName}
-              onChange={(e) => setOrgName(e.target.value)}
-              className="field-input"
-              autoComplete="off"
-            />
-            <span className="text-[0.62rem] text-muted-foreground">
-              Optional. Shown as the source of any leads this account uploads.
-            </span>
-          </div>
+          {/* A data uploader gets the real Center dropdown below instead —
+              this free-text box used to be the only way to record where their
+              leads came from, but nothing reads it for display anymore
+              (the Source badge for an uploaded lead now reads "Manual", same
+              as a validator's, and the real center is stamped from the
+              dropdown's choice). Left in place for every other role, where
+              it remains optional and unread by anything. */}
+          {role !== "data_uploader" ? (
+            <div className="flex flex-col gap-1">
+              <label htmlFor="invite-org" className="field-label">
+                Center / Organisation
+              </label>
+              <input
+                id="invite-org"
+                type="text"
+                value={orgName}
+                onChange={(e) => setOrgName(e.target.value)}
+                className="field-input"
+                autoComplete="off"
+              />
+              <span className="text-[0.62rem] text-muted-foreground">
+                Optional. Recorded on the profile.
+              </span>
+            </div>
+          ) : null}
           {/* Only for the roles it means anything to — a validator's centre is
               read by nothing, and an optional field that changes no behaviour
               is one more box to get wrong. */}
@@ -320,7 +329,9 @@ export function UserAdmin() {
                     ? "No active centers — add one under Settings first."
                     : role === "closing_manager"
                       ? "The closing desk shows this center's leads and no others."
-                      : "Stamped on every lead this closer submits."}
+                      : role === "data_uploader"
+                        ? "Stamped on every lead this uploader imports."
+                        : "Stamped on every lead this closer submits."}
               </span>
             </div>
           ) : null}
