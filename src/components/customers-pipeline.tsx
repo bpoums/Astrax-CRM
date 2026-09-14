@@ -599,12 +599,6 @@ export function CustomersPipeline({
                   </div>
                 </div>
 
-                <PayloadTable payload={selected.payload} />
-
-                {/* Both stories now live in the dedicated history dialog —
-                    squeezed inline here, a lead with real history made this
-                    sheet scroll a long way in a column too narrow to read
-                    comfortably. */}
                 <button
                   type="button"
                   className="chip w-full justify-center gap-1.5"
@@ -613,6 +607,21 @@ export function CustomersPipeline({
                   <History className="h-3.5 w-3.5" aria-hidden />
                   View History
                 </button>
+
+                <PayloadTable payload={selected.payload} />
+
+                {/* Both stories now live in the dedicated history dialog —
+                    squeezed inline here, a lead with real history made this
+                    sheet scroll a long way in a column too narrow to read
+                    comfortably. */}
+                {/* <button
+                  type="button"
+                  className="chip w-full justify-center gap-1.5"
+                  onClick={() => setHistoryOpen(true)}
+                >
+                  <History className="h-3.5 w-3.5" aria-hidden />
+                  View History
+                </button> */}
               </div>
             </>
           ) : null}
