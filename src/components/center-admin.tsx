@@ -1,8 +1,15 @@
-import { useState, type FormEvent } from "react";
+import { useState, type CSSProperties, type FormEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { CENTERS_KEY, useCenters, type Center } from "@/lib/centers";
+import {
+  CENTER_COLORS,
+  CENTERS_KEY,
+  useCenters,
+  type Center,
+  type CenterColor,
+} from "@/lib/centers";
+import { CENTER_COLOR_HEX, CenterBadge } from "@/components/ops";
 import {
   Table,
   TableBody,
@@ -43,8 +50,10 @@ export function CenterAdmin() {
   const centers = useCenters(false);
 
   const [name, setName] = useState("");
+  const [color, setColor] = useState<CenterColor>("slate");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  const [draftColor, setDraftColor] = useState<CenterColor>("slate");
 
   const rows = centers.data ?? [];
 
@@ -55,13 +64,14 @@ export function CenterAdmin() {
   }
 
   const create = useMutation({
-    mutationFn: async (values: { name: string; sort_order: number }) => {
+    mutationFn: async (values: { name: string; sort_order: number; color: CenterColor }) => {
       const { error } = await supabase.from("centers").insert(values);
       if (error) throw error;
     },
     onSuccess: () => {
       toast.success("Center added");
       setName("");
+      setColor("slate");
       refresh();
     },
     // A duplicate name surfaces here as the unique-constraint message.
@@ -69,7 +79,10 @@ export function CenterAdmin() {
   });
 
   const update = useMutation({
-    mutationFn: async (vars: { id: string; values: { name?: string; active?: boolean } }) => {
+    mutationFn: async (vars: {
+      id: string;
+      values: { name?: string; active?: boolean; color?: CenterColor };
+    }) => {
       const { error } = await supabase.from("centers").update(vars.values).eq("id", vars.id);
       if (error) throw error;
     },
@@ -111,7 +124,7 @@ export function CenterAdmin() {
     event.preventDefault();
     const trimmed = name.trim();
     if (!trimmed) return;
-    create.mutate({ name: trimmed, sort_order: nextSortOrder(rows) });
+    create.mutate({ name: trimmed, sort_order: nextSortOrder(rows), color });
   }
 
   function move(index: number, direction: -1 | 1) {
@@ -132,8 +145,8 @@ export function CenterAdmin() {
       return;
     }
     update.mutate(
-      { id, values: { name: trimmed } },
-      { onSuccess: () => toast.success("Center renamed") },
+      { id, values: { name: trimmed, color: draftColor } },
+      { onSuccess: () => toast.success("Center updated") },
     );
   }
 
@@ -146,7 +159,7 @@ export function CenterAdmin() {
         </span>
       </div>
 
-      <form onSubmit={handleCreate} className="flex flex-wrap items-end gap-3">
+      <form onSubmit={handleCreate} className="flex flex-wrap items-end gap-4">
         <div className="flex min-w-0 flex-1 flex-col gap-1 sm:max-w-xs">
           <label htmlFor="center-name" className="field-label">
             Center name<span className="text-accent"> *</span>
@@ -159,6 +172,14 @@ export function CenterAdmin() {
             placeholder="UMS BPO"
             required
           />
+        </div>
+        <div className="flex flex-col gap-1">
+          <span className="field-label">Badge color</span>
+          <ColorSwatches value={color} onChange={setColor} />
+        </div>
+        <div className="flex flex-col gap-1">
+          <span className="field-label">Preview</span>
+          <CenterBadge name={name.trim() || "Center name"} color={color} />
         </div>
         <button type="submit" className="btn-submit" disabled={busy || !name.trim()}>
           {create.isPending ? "Adding…" : "Add center"}
@@ -188,20 +209,23 @@ export function CenterAdmin() {
               editingId === center.id ? (
                 <TableRow key={center.id}>
                   <TableCell>
-                    <input
-                      value={draft}
-                      onChange={(event) => setDraft(event.target.value)}
-                      className="field-input"
-                      aria-label="Center name"
-                      autoFocus
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          event.preventDefault();
-                          saveEdit(center.id);
-                        }
-                        if (event.key === "Escape") setEditingId(null);
-                      }}
-                    />
+                    <div className="flex flex-col gap-1.5">
+                      <input
+                        value={draft}
+                        onChange={(event) => setDraft(event.target.value)}
+                        className="field-input"
+                        aria-label="Center name"
+                        autoFocus
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            saveEdit(center.id);
+                          }
+                          if (event.key === "Escape") setEditingId(null);
+                        }}
+                      />
+                      <ColorSwatches value={draftColor} onChange={setDraftColor} />
+                    </div>
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">
                     {center.sort_order}
@@ -232,8 +256,8 @@ export function CenterAdmin() {
                 </TableRow>
               ) : (
                 <TableRow key={center.id}>
-                  <TableCell className={center.active ? "font-medium" : "text-muted-foreground"}>
-                    {center.name}
+                  <TableCell className={center.active ? undefined : "opacity-50"}>
+                    <CenterBadge name={center.name} color={center.color} />
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">
                     {center.sort_order}
@@ -270,9 +294,10 @@ export function CenterAdmin() {
                         onClick={() => {
                           setEditingId(center.id);
                           setDraft(center.name);
+                          setDraftColor(center.color);
                         }}
                       >
-                        Rename
+                        Edit
                       </button>
                       <button
                         type="button"
@@ -313,6 +338,41 @@ export function CenterAdmin() {
         </Table>
       )}
     </section>
+  );
+}
+
+/**
+ * The six fixed swatches, not a free color picker — see `CENTER_COLORS`
+ * (`src/lib/centers.ts`) for why the set is closed.
+ */
+function ColorSwatches({
+  value,
+  onChange,
+}: {
+  value: CenterColor;
+  onChange: (color: CenterColor) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1.5">
+      {CENTER_COLORS.map((option) => (
+        <button
+          key={option}
+          type="button"
+          aria-label={option}
+          aria-pressed={value === option}
+          onClick={() => onChange(option)}
+          className={`h-6 w-6 rounded-full transition-shadow ${
+            value === option ? "ring-2 ring-offset-2 ring-offset-background" : ""
+          }`}
+          style={{
+            backgroundColor: CENTER_COLOR_HEX[option],
+            ...(value === option
+              ? ({ "--tw-ring-color": CENTER_COLOR_HEX[option] } as CSSProperties)
+              : {}),
+          }}
+        />
+      ))}
+    </div>
   );
 }
 

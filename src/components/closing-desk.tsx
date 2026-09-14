@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
+  CenterBadge,
   DISPOSITIONS,
   DispositionBadge,
   QueueStatusBadge,
@@ -38,7 +39,7 @@ import {
   type CxLeadStatus,
 } from "@/lib/cx-status";
 import { useDeclinedCarrierMap } from "@/lib/carriers";
-import { useCenters } from "@/lib/centers";
+import { useCenterColorById, useCenters } from "@/lib/centers";
 import { useAuth } from "@/lib/auth";
 import {
   LEAD_PAGE_SIZE,
@@ -124,8 +125,12 @@ const BASE_SELECT = [
   "policy_number",
   // The stamped name, not a join — see `centers.ts`. Constant down the column
   // for a closing manager, who is scoped to one centre; the useful part of the
-  // row for a general manager, whose rows span all of them.
+  // row for a general manager, whose rows span all of them. center_id rides
+  // alongside it only to look up the center's current badge color — the
+  // color is live/current, unlike the name, which stays a point-in-time
+  // snapshot even if the center is later renamed.
   "center_name",
+  "center_id",
   "closer_id",
   // Not shown as columns of their own — they are what isOnHold() reads to tell
   // a held lead from a merely assigned one.
@@ -152,6 +157,7 @@ type ClosingRow = {
   agent_name: string | null;
   policy_number: string | null;
   center_name: string | null;
+  center_id: string | null;
   closer_id: string | null;
   claimed_at: string | null;
   assigned_at: string | null;
@@ -241,6 +247,7 @@ export function ClosingDesk() {
   // whole: leads already stamped with one are still on this desk, and a filter
   // that cannot name them could not find them.
   const centers = useCenters(false);
+  const centerColorById = useCenterColorById();
 
   const term = sanitizeTerm(search);
   const cxKey = CX_CATEGORIES.map((category) => cxFilters[category]).join("|");
@@ -480,11 +487,11 @@ export function ClosingDesk() {
                   className="cursor-pointer align-top"
                   onClick={() => setOpenId(row.id)}
                 >
-                  <TableCell
-                    className="truncate text-muted-foreground"
-                    title={row.center_name ?? undefined}
-                  >
-                    {row.center_name ?? "—"}
+                  <TableCell className="truncate" title={row.center_name ?? undefined}>
+                    <CenterBadge
+                      name={row.center_name}
+                      color={row.center_id ? centerColorById.get(row.center_id) : null}
+                    />
                   </TableCell>
                   <TableCell className="font-medium">
                     <Tooltip>

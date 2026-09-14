@@ -232,6 +232,7 @@ export type Database = {
       centers: {
         Row: {
           active: boolean
+          color: string
           created_at: string
           id: string
           name: string
@@ -239,6 +240,7 @@ export type Database = {
         }
         Insert: {
           active?: boolean
+          color?: string
           created_at?: string
           id?: string
           name: string
@@ -246,6 +248,7 @@ export type Database = {
         }
         Update: {
           active?: boolean
+          color?: string
           created_at?: string
           id?: string
           name?: string
@@ -857,6 +860,65 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "validator_stats"
             referencedColumns: ["validator_id"]
+          },
+        ]
+      }
+      sheet_sync_attempts: {
+        Row: {
+          attempt_number: number
+          created_at: string
+          id: number
+          request_id: number | null
+          resolved_at: string | null
+          resolved_status: string | null
+          submission_id: string
+        }
+        Insert: {
+          attempt_number?: number
+          created_at?: string
+          id?: number
+          request_id?: number | null
+          resolved_at?: string | null
+          resolved_status?: string | null
+          submission_id: string
+        }
+        Update: {
+          attempt_number?: number
+          created_at?: string
+          id?: number
+          request_id?: number | null
+          resolved_at?: string | null
+          resolved_status?: string | null
+          submission_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sheet_sync_attempts_submission_id_fkey"
+            columns: ["submission_id"]
+            isOneToOne: false
+            referencedRelation: "closer_lead_alerts"
+            referencedColumns: ["submission_id"]
+          },
+          {
+            foreignKeyName: "sheet_sync_attempts_submission_id_fkey"
+            columns: ["submission_id"]
+            isOneToOne: false
+            referencedRelation: "cx_pipeline"
+            referencedColumns: ["submission_id"]
+          },
+          {
+            foreignKeyName: "sheet_sync_attempts_submission_id_fkey"
+            columns: ["submission_id"]
+            isOneToOne: false
+            referencedRelation: "cx_untouched"
+            referencedColumns: ["submission_id"]
+          },
+          {
+            foreignKeyName: "sheet_sync_attempts_submission_id_fkey"
+            columns: ["submission_id"]
+            isOneToOne: false
+            referencedRelation: "submissions"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -1910,6 +1972,14 @@ export type Database = {
         Returns: undefined
       }
       reporting_retention_status: { Args: never; Returns: Json }
+      reporting_since: { Args: { p_days: number }; Returns: string }
+      reporting_window: {
+        Args: { p_days?: number; p_end_date?: string; p_start_date?: string }
+        Returns: {
+          since: string
+          until: string
+        }[]
+      }
       resolve_carrier: {
         Args: { p_input: string }
         Returns: {
@@ -1923,6 +1993,54 @@ export type Database = {
         SetofOptions: {
           from: "*"
           to: "carriers"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      retry_failed_sheet_syncs: { Args: never; Returns: number }
+      return_lead_for_validation: {
+        Args: { p_reason?: string; p_sub: string }
+        Returns: {
+          agent_name: string | null
+          archived_at: string | null
+          archived_by: string | null
+          assigned_at: string | null
+          assigned_to: string | null
+          center_id: string | null
+          center_name: string | null
+          claimed_at: string | null
+          closer_id: string | null
+          created_at: string
+          cx_assigned_at: string | null
+          cx_assigned_to: string | null
+          data_flags: Json
+          disposed_at: string | null
+          disposed_by: string | null
+          disposition: Database["public"]["Enums"]["disposition_t"] | null
+          draft_date: string | null
+          final_carrier_id: string | null
+          future_draft_date: string | null
+          hold_count: number
+          id: string
+          import_id: string | null
+          last_held_at: string | null
+          last_rejected_by: string | null
+          last_timeout_by: string | null
+          payload: Json
+          policy_number: string | null
+          rejection_count: number
+          reopened_from_cx_at: string | null
+          source: string
+          source_ref: string | null
+          ssn_normalized: string | null
+          status: Database["public"]["Enums"]["sub_status"]
+          submitted_by_role: Database["public"]["Enums"]["app_role"] | null
+          timeout_count: number
+          uploaded_by: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "submissions"
           isOneToOne: true
           isSetofReturn: false
         }
@@ -2013,8 +2131,86 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      submission_totals_by_center_range: {
+        Args: { p_days?: number; p_end_date?: string; p_start_date?: string }
+        Returns: {
+          approved: number
+          awaiting_manager: number
+          center_id: string
+          center_name: string
+          declined: number
+          pending: number
+          sort_order: number
+          total_submissions: number
+        }[]
+      }
+      submission_totals_range: {
+        Args: { p_days?: number; p_end_date?: string; p_start_date?: string }
+        Returns: {
+          approved: number
+          awaiting_manager: number
+          closer_submissions: number
+          declined: number
+          in_review: number
+          offline_submissions: number
+          pending: number
+          rejections: number
+          timeouts: number
+          validator_submissions: number
+        }[]
+      }
       submit_form: {
         Args: { p_payload: Json }
+        Returns: {
+          agent_name: string | null
+          archived_at: string | null
+          archived_by: string | null
+          assigned_at: string | null
+          assigned_to: string | null
+          center_id: string | null
+          center_name: string | null
+          claimed_at: string | null
+          closer_id: string | null
+          created_at: string
+          cx_assigned_at: string | null
+          cx_assigned_to: string | null
+          data_flags: Json
+          disposed_at: string | null
+          disposed_by: string | null
+          disposition: Database["public"]["Enums"]["disposition_t"] | null
+          draft_date: string | null
+          final_carrier_id: string | null
+          future_draft_date: string | null
+          hold_count: number
+          id: string
+          import_id: string | null
+          last_held_at: string | null
+          last_rejected_by: string | null
+          last_timeout_by: string | null
+          payload: Json
+          policy_number: string | null
+          rejection_count: number
+          reopened_from_cx_at: string | null
+          source: string
+          source_ref: string | null
+          ssn_normalized: string | null
+          status: Database["public"]["Enums"]["sub_status"]
+          submitted_by_role: Database["public"]["Enums"]["app_role"] | null
+          timeout_count: number
+          uploaded_by: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "submissions"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      submit_form_internal: {
+        Args: {
+          p_payload: Json
+          p_status: Database["public"]["Enums"]["sub_status"]
+        }
         Returns: {
           agent_name: string | null
           archived_at: string | null
@@ -2107,6 +2303,7 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      sync_submission_to_sheet: { Args: { p_sub: string }; Returns: number }
       unarchive_submission: {
         Args: { p_sub: string }
         Returns: {
@@ -2161,6 +2358,21 @@ export type Database = {
       update_payment_field: {
         Args: { p_field: string; p_sub: string; p_value: string }
         Returns: Json
+      }
+      validator_stats_range: {
+        Args: { p_days?: number; p_end_date?: string; p_start_date?: string }
+        Returns: {
+          approved: number
+          assigned: number
+          declined: number
+          holds: number
+          pending: number
+          rejected: number
+          staff_id: string
+          timed_out: number
+          validator_id: string
+          validator_name: string
+        }[]
       }
     }
     Enums: {

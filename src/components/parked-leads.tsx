@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import {
+  CenterBadge,
   closerName,
   customerName,
   OriginBadge,
@@ -11,6 +12,7 @@ import {
   useNow,
   type LeadSource,
 } from "@/components/ops";
+import { useCenterColorById } from "@/lib/centers";
 import { formatDate } from "@/lib/format-date";
 import { PaginationBar } from "@/components/pagination-bar";
 import { LEAD_PAGE_SIZE, matchingProfileIds, payloadSearchClauses } from "@/lib/lead-search";
@@ -52,6 +54,7 @@ const SELECT = [
   "created_at",
   "source",
   "center_name",
+  "center_id",
   "closer_id",
   // Null on an uploaded lead, which has no closer at all — rendered as a dash
   // rather than left to print "undefined".
@@ -65,6 +68,7 @@ type ParkedRow = {
   created_at: string;
   source: LeadSource;
   center_name: string | null;
+  center_id: string | null;
   closer_id: string | null;
   closer: { full_name: string | null } | null;
   uploader: { full_name: string | null; org_name?: string | null } | null;
@@ -72,6 +76,7 @@ type ParkedRow = {
 
 export function ParkedLeads() {
   const queryClient = useQueryClient();
+  const centerColorById = useCenterColorById();
   const now = useNow(30_000);
   const [page, setPage] = useState(0);
   const [search, setSearch] = useState("");
@@ -163,8 +168,11 @@ export function ParkedLeads() {
         <TableBody>
           {rows.map((row) => (
             <TableRow key={row.id}>
-              <TableCell className="truncate text-muted-foreground">
-                {row.center_name ?? "—"}
+              <TableCell className="truncate">
+                <CenterBadge
+                  name={row.center_name}
+                  color={row.center_id ? centerColorById.get(row.center_id) : null}
+                />
               </TableCell>
               <TableCell className="font-medium">{customerName(row.payload)}</TableCell>
               <TableCell className="truncate text-muted-foreground">{closerName(row)}</TableCell>

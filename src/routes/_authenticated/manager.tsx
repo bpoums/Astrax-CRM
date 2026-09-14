@@ -7,6 +7,7 @@ import { ReportingDashboard } from "@/components/reporting";
 import { requireRole, useAuth } from "@/lib/auth";
 import {
   AppHeader,
+  CenterBadge,
   DispositionBadge,
   FlagBadge,
   QueueStatusBadge,
@@ -25,6 +26,7 @@ import {
   type LeadSource,
   type SubmissionRow,
 } from "@/components/ops";
+import { useCenterColorById } from "@/lib/centers";
 import { formatDate } from "@/lib/format-date";
 import { PaymentPanel } from "@/components/payment-panel";
 import { DataFlagList } from "@/components/data-flags";
@@ -369,6 +371,8 @@ function ManagerPage() {
     onError: (error: Error) => toast.error(error.message),
   });
 
+  const centerColorById = useCenterColorById();
+
   const allRows = useMemo(() => submissions.data ?? [], [submissions.data]);
   // One query still feeds both queues — the statuses they draw from are
   // identical, so a second request would only duplicate the realtime work.
@@ -586,8 +590,11 @@ function ManagerPage() {
                           {/* The stamped name, not a join: a lead keeps the
                               centre it was taken in even after that centre is
                               renamed or the closer is moved to another one. */}
-                          <TableCell className="text-muted-foreground">
-                            {row.center_name ?? "—"}
+                          <TableCell>
+                            <CenterBadge
+                              name={row.center_name}
+                              color={row.center_id ? centerColorById.get(row.center_id) : null}
+                            />
                           </TableCell>
                           <TableCell className="font-medium">{customerName(row.payload)}</TableCell>
                           <TableCell className="text-muted-foreground">{closerName(row)}</TableCell>
@@ -663,8 +670,11 @@ function ManagerPage() {
                               />
                             ) : null}
                           </TableCell>
-                          <TableCell className="text-muted-foreground">
-                            {row.center_name ?? "—"}
+                          <TableCell>
+                            <CenterBadge
+                              name={row.center_name}
+                              color={row.center_id ? centerColorById.get(row.center_id) : null}
+                            />
                           </TableCell>
                           <TableCell className="font-medium">{customerName(row.payload)}</TableCell>
                           <TableCell className="text-muted-foreground">

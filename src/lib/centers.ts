@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { AppRole } from "@/lib/auth";
@@ -22,11 +23,23 @@ import type { AppRole } from "@/lib/auth";
  *   submitted.
  */
 
+/**
+ * A fixed, pre-approved palette rather than a free color picker — picked at
+ * center-creation time, deliberately clear of amber (the app's one accent)
+ * and of the red/emerald already reserved for destructive/positive outcomes.
+ * A `check` constraint on `centers.color` enforces the same six values in
+ * the database; kept here as the one place both agree with.
+ */
+export const CENTER_COLORS = ["slate", "teal", "violet", "clay", "sky", "sage"] as const;
+
+export type CenterColor = (typeof CENTER_COLORS)[number];
+
 export type Center = {
   id: string;
   name: string;
   active: boolean;
   sort_order: number;
+  color: CenterColor;
 };
 
 export const CENTERS_KEY = ["centers"] as const;
@@ -56,7 +69,7 @@ export function useCenters(activeOnly = true, enabled = true) {
     queryKey: centersKey(activeOnly),
     enabled,
     queryFn: async () => {
-      const query = supabase.from("centers").select("id, name, active, sort_order");
+      const query = supabase.from("centers").select("id, name, active, sort_order, color");
       const scoped = activeOnly ? query.eq("active", true) : query;
       // Name breaks the tie, so two centres sharing a sort_order still come
       // back in a stable order rather than shuffling between renders.
@@ -67,4 +80,21 @@ export function useCenters(activeOnly = true, enabled = true) {
       return (data ?? []) as Center[];
     },
   });
+}
+
+/**
+ * `center_id -> color`, for a `CenterBadge` reading a lead's stamped
+ * `center_id`/`center_name` rather than the picker's own live list. Pulls
+ * every center, active or not — a lead taken under a since-deactivated
+ * center still deserves its real color, not a "not found" fallback.
+ * `useCenters` is a cached query, so calling this from several components on
+ * one screen costs one fetch, not one per caller.
+ */
+export function useCenterColorById() {
+  const centers = useCenters(false);
+  return useMemo(() => {
+    const map = new Map<string, CenterColor>();
+    for (const center of centers.data ?? []) map.set(center.id, center.color);
+    return map;
+  }, [centers.data]);
 }

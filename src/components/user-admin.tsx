@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { ROLE_LABEL, useAuth, type AppRole } from "@/lib/auth";
 import { centerRequired, useCenters, type Center } from "@/lib/centers";
+import { CENTER_COLOR_HEX } from "@/components/ops";
 import { readFunctionError } from "@/lib/function-error";
 import {
   Table,
@@ -317,7 +318,14 @@ export function UserAdmin() {
                 <SelectContent>
                   {activeCenters.map((center) => (
                     <SelectItem key={center.id} value={center.id}>
-                      {center.name}
+                      <span className="inline-flex items-center gap-1.5">
+                        <span
+                          aria-hidden
+                          className="h-2 w-2 shrink-0 rounded-full"
+                          style={{ backgroundColor: CENTER_COLOR_HEX[center.color] }}
+                        />
+                        {center.name}
+                      </span>
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -482,8 +490,15 @@ function CenterCell({
           <SelectItem value={NO_CENTER}>Not set</SelectItem>
           {options.map((center) => (
             <SelectItem key={center.id} value={center.id}>
-              {center.name}
-              {center.active ? "" : " (inactive)"}
+              <span className="inline-flex items-center gap-1.5">
+                <span
+                  aria-hidden
+                  className="h-2 w-2 shrink-0 rounded-full"
+                  style={{ backgroundColor: CENTER_COLOR_HEX[center.color] }}
+                />
+                {center.name}
+                {center.active ? "" : " (inactive)"}
+              </span>
             </SelectItem>
           ))}
         </SelectContent>

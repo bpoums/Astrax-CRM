@@ -2,12 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
+  CenterBadge,
   carrierName,
   customerName,
   type Disposition,
   type LeadSource,
   type SubStatus,
 } from "@/components/ops";
+import { useCenterColorById } from "@/lib/centers";
 import { CxLeadStatusValue } from "@/components/cx-status-cell";
 import { CxLifecycleHistory } from "@/components/cx-lifecycle-history";
 import { ValidationTimeline } from "@/components/validation-timeline";
@@ -81,6 +83,7 @@ const SELECT = [
   "source",
   "draft_date",
   "center_name",
+  "center_id",
   "closer_id",
   // Null on an uploaded lead, which has no closer at all — rendered as a dash
   // rather than left to print "undefined".
@@ -97,6 +100,7 @@ type DraftRow = {
   source: LeadSource;
   draft_date: string | null;
   center_name: string | null;
+  center_id: string | null;
   closer_id: string | null;
   closer: { full_name: string | null } | null;
   /** Null until the CX team touches the lead at all. */
@@ -104,6 +108,7 @@ type DraftRow = {
 };
 
 export function DraftDateDesk() {
+  const centerColorById = useCenterColorById();
   const [draftDate, setDraftDate] = useState("");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
@@ -267,8 +272,11 @@ export function DraftDateDesk() {
                       <TableCell className="truncate text-muted-foreground" title={carrier}>
                         {carrier}
                       </TableCell>
-                      <TableCell className="truncate text-muted-foreground">
-                        {row.center_name ?? "—"}
+                      <TableCell className="truncate">
+                        <CenterBadge
+                          name={row.center_name}
+                          color={row.center_id ? centerColorById.get(row.center_id) : null}
+                        />
                       </TableCell>
                       {/* An uploaded lead has no closer — dash, never a blank. */}
                       <TableCell className="truncate text-muted-foreground">

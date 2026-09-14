@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { BrandLogo } from "@/components/brand-logo";
 import { carrierSummary } from "@/lib/carriers";
+import type { CenterColor } from "@/lib/centers";
 import { useAuth } from "@/lib/auth";
 
 /**
@@ -378,6 +379,52 @@ export function OriginBadge({
   return (
     <Badge variant="outline" className="max-w-[10rem] border-border text-muted-foreground">
       <span className="truncate">{sourceLabel(row)}</span>
+    </Badge>
+  );
+}
+
+/**
+ * The six pre-approved center colors, as hex — the one other deliberate set
+ * of hardcoded colors in the app, alongside `DispositionBadge`'s emerald.
+ * Kept deliberately clear of amber (the app's one accent) and of the
+ * destructive/emerald tones above, so a center badge never reads as a status.
+ * The six names themselves are the single source of truth in
+ * `src/lib/centers.ts`'s `CENTER_COLORS` (and the database's own `check`
+ * constraint); this is only their rendering.
+ */
+export const CENTER_COLOR_HEX: Record<CenterColor, string> = {
+  slate: "#7a96de",
+  teal: "#42c4af",
+  violet: "#9a74e0",
+  clay: "#c98450",
+  sky: "#50afe0",
+  sage: "#8cbe64",
+};
+
+/**
+ * A center's name, tinted by its picked color. Falls back to plain muted
+ * text rather than guessing a color when the lead's stamped `center_name`
+ * doesn't resolve to a live center (an older row, or one whose center_id was
+ * never set) — see `centers.ts`'s note that `center_name` is a point-in-time
+ * snapshot, not a join.
+ */
+export function CenterBadge({
+  name,
+  color,
+}: {
+  name: string | null;
+  color?: CenterColor | null | undefined;
+}) {
+  if (!name) return <span className="text-muted-foreground">—</span>;
+  if (!color) return <span className="text-muted-foreground">{name}</span>;
+  const hex = CENTER_COLOR_HEX[color];
+  return (
+    <Badge
+      variant="outline"
+      className="max-w-[10rem] border-transparent"
+      style={{ backgroundColor: `${hex}26`, color: hex }}
+    >
+      <span className="truncate">{name}</span>
     </Badge>
   );
 }
