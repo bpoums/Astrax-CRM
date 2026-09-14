@@ -7,9 +7,9 @@ import { ReportingDashboard } from "@/components/reporting";
 import { requireRole, useAuth } from "@/lib/auth";
 import {
   AppHeader,
+  CenterBadge,
   DispositionBadge,
   FlagBadge,
-  OriginBadge,
   QueueStatusBadge,
   StatusBadge,
   closerName,
@@ -26,6 +26,7 @@ import {
   type LeadSource,
   type SubmissionRow,
 } from "@/components/ops";
+import { useCenterColorById } from "@/lib/centers";
 import { formatDate } from "@/lib/format-date";
 import { PaymentPanel } from "@/components/payment-panel";
 import { DataFlagList } from "@/components/data-flags";
@@ -394,6 +395,8 @@ function ManagerPage() {
     onError: (error: Error) => toast.error(error.message),
   });
 
+  const centerColorById = useCenterColorById();
+
   const allRows = useMemo(() => submissions.data ?? [], [submissions.data]);
   // One query still feeds both queues — the statuses they draw from are
   // identical, so a second request would only duplicate the realtime work.
@@ -625,8 +628,11 @@ function ManagerPage() {
                           {/* The stamped name, not a join: a lead keeps the
                               centre it was taken in even after that centre is
                               renamed or the closer is moved to another one. */}
-                          <TableCell className="text-muted-foreground">
-                            {row.center_name ?? "—"}
+                          <TableCell>
+                            <CenterBadge
+                              name={row.center_name}
+                              color={row.center_id ? centerColorById.get(row.center_id) : null}
+                            />
                           </TableCell>
                           <TableCell className="font-medium">{customerName(row.payload)}</TableCell>
                           <TableCell className="text-muted-foreground">{closerName(row)}</TableCell>
@@ -655,9 +661,14 @@ function ManagerPage() {
                   </Table>
                 </TabsContent>
 
-                {/* No Closer column here — an imported lead has none. Source
-                    names the centre that supplied it instead, and the date is
-                    absolute because the column is named for one. */}
+                {/* No Closer column here — an imported lead has none. Center
+                    names the centre that supplied it instead (the stamped
+                    name, not a join — see the live tab's own Center column
+                    above), and the date is absolute because the column is
+                    named for one. Source used to sit here, but every row on
+                    this tab already reads "Manual" (see `sourceLabel()`), so
+                    a Source column said nothing a reader didn't already know
+                    from being on this tab at all. */}
                 <TabsContent value="manual" className="m-0">
                   <Table>
                     <TableHeader>
@@ -674,7 +685,7 @@ function ManagerPage() {
                             }
                           />
                         </TableHead>
-                        <TableHead>Source</TableHead>
+                        <TableHead>Center</TableHead>
                         <TableHead>Customer</TableHead>
                         <TableHead>Uploaded On</TableHead>
                         <TableHead>Status</TableHead>
@@ -698,7 +709,10 @@ function ManagerPage() {
                             ) : null}
                           </TableCell>
                           <TableCell>
-                            <OriginBadge row={row} />
+                            <CenterBadge
+                              name={row.center_name}
+                              color={row.center_id ? centerColorById.get(row.center_id) : null}
+                            />
                           </TableCell>
                           <TableCell className="font-medium">{customerName(row.payload)}</TableCell>
                           <TableCell className="text-muted-foreground">

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import {
+  CenterBadge,
   DispositionBadge,
   OriginBadge,
   QueueStatusBadge,
@@ -23,7 +24,8 @@ import {
   type SubStatus,
   type SubmissionRow,
 } from "@/components/ops";
-import { formatDate } from "@/lib/format-date";
+import { useCenterColorById } from "@/lib/centers";
+import { formatDate, formatEventTime } from "@/lib/format-date";
 import { DataFlagList } from "@/components/data-flags";
 import { LeadPayload } from "@/components/lead-editor";
 import { PayloadEditHistory, payloadHistoryKey } from "@/components/payload-history";
@@ -217,6 +219,7 @@ export function ReportingStats({
   showValidatorSubmissions?: boolean;
 }) {
   const queryClient = useQueryClient();
+  const centerColorById = useCenterColorById();
   const [periodId, setPeriodId] = useState<PeriodId>(DEFAULT_PERIOD);
   // A specific day, or a from/to range — kept apart from the PERIODS chips
   // because it needs two text inputs rather than one click. Left in place
@@ -525,9 +528,10 @@ export function ReportingStats({
             {perCenter.map((center) => (
               <li key={center.center_id ?? center.center_name} className="flex flex-col gap-1">
                 <div className="flex items-baseline justify-between gap-3">
-                  <span className="min-w-0 truncate text-xs font-medium">
-                    {center.center_name ?? "—"}
-                  </span>
+                  <CenterBadge
+                    name={center.center_name}
+                    color={center.center_id ? centerColorById.get(center.center_id) : null}
+                  />
                   <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
                     {center.total_submissions ?? 0}
                   </span>
@@ -632,6 +636,7 @@ export function SubmissionsExplorer() {
   const queryClient = useQueryClient();
   const { profile } = useAuth();
   const now = useNow();
+  const centerColorById = useCenterColorById();
   const [search, setSearch] = useState("");
   const [carrierSearch, setCarrierSearch] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
@@ -1033,7 +1038,12 @@ export function SubmissionsExplorer() {
                   {/* The stamped name, not a join: a lead keeps the centre it
                       was taken in even after that centre is renamed or the
                       closer is moved to another one. */}
-                  <TableCell className="text-muted-foreground">{row.center_name ?? "—"}</TableCell>
+                  <TableCell>
+                    <CenterBadge
+                      name={row.center_name}
+                      color={row.center_id ? centerColorById.get(row.center_id) : null}
+                    />
+                  </TableCell>
                   <TableCell className="font-medium">{customerName(row.payload)}</TableCell>
                   {/* Free text as the operator typed it — see carrierName(). */}
                   {/* <TableCell className="text-muted-foreground">
@@ -1121,6 +1131,7 @@ export function SubmissionsExplorer() {
             <TableHeader>
               <TableRow>
                 <TableHead>Source</TableHead>
+                <TableHead>Center</TableHead>
                 <TableHead>Customer</TableHead>
                 <TableHead>Carrier Name</TableHead>
                 <TableHead>Validator</TableHead>
@@ -1133,11 +1144,16 @@ export function SubmissionsExplorer() {
             <TableBody>
               {filteredOffline.map((row) => (
                 <TableRow key={row.id} className="cursor-pointer" onClick={() => setOpenId(row.id)}>
-                  {/* Every row here is manual, so the badge earns its place by
-                      naming WHICH centre supplied the lead — org_name, or the
-                      uploader's own name where the account has none. */}
                   <TableCell>
                     <OriginBadge row={row} />
+                  </TableCell>
+                  {/* The stamped name, not a join — see the Closer tab's own
+                      Center column above for why. */}
+                  <TableCell>
+                    <CenterBadge
+                      name={row.center_name}
+                      color={row.center_id ? centerColorById.get(row.center_id) : null}
+                    />
                   </TableCell>
                   <TableCell className="font-medium">{customerName(row.payload)}</TableCell>
                   <TableCell className="text-muted-foreground">
@@ -1169,7 +1185,7 @@ export function SubmissionsExplorer() {
               {filteredOffline.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={showArchived ? 8 : 7}
+                    colSpan={showArchived ? 9 : 8}
                     className="text-center text-muted-foreground"
                   >
                     {offlineQuery.isLoading ? "Loading…" : "No submissions match that search."}

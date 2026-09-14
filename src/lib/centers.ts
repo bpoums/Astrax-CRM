@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { AppRole } from "@/lib/auth";
@@ -22,11 +23,23 @@ import type { AppRole } from "@/lib/auth";
  *   submitted.
  */
 
+/**
+ * A fixed, pre-approved palette rather than a free color picker — picked at
+ * center-creation time, deliberately clear of amber (the app's one accent)
+ * and of the red/emerald already reserved for destructive/positive outcomes.
+ * A `check` constraint on `centers.color` enforces the same six values in
+ * the database; kept here as the one place both agree with.
+ */
+export const CENTER_COLORS = ["slate", "teal", "violet", "clay", "sky", "sage"] as const;
+
+export type CenterColor = (typeof CENTER_COLORS)[number];
+
 export type Center = {
   id: string;
   name: string;
   active: boolean;
   sort_order: number;
+  color: CenterColor;
 };
 
 export const CENTERS_KEY = ["centers"] as const;
@@ -39,11 +52,13 @@ export function centersKey(activeOnly: boolean) {
  * The roles a centre actually means something for.
  *
  * A closer's centre is what gets stamped on the leads they submit; a closing
- * manager's is what their whole queue is scoped to. Nothing reads it for any
- * other role, so those are the two the admin screens ask for — stated once
- * here so the invite form and the user table cannot disagree about it.
+ * manager's is what their whole queue is scoped to; a data uploader's is
+ * what gets stamped on every lead they import (`ingest_sheet_lead`), the
+ * same way a closer's is on submit. Nothing reads it for any other role, so
+ * these are the ones the admin screens ask for — stated once here so the
+ * invite form and the user table cannot disagree about it.
  */
-const CENTER_ROLES: AppRole[] = ["closer", "closing_manager"];
+const CENTER_ROLES: AppRole[] = ["closer", "closing_manager", "data_uploader"];
 
 export function centerRequired(role: AppRole) {
   return CENTER_ROLES.includes(role);
@@ -54,7 +69,7 @@ export function useCenters(activeOnly = true, enabled = true) {
     queryKey: centersKey(activeOnly),
     enabled,
     queryFn: async () => {
-      const query = supabase.from("centers").select("id, name, active, sort_order");
+      const query = supabase.from("centers").select("id, name, active, sort_order, color");
       const scoped = activeOnly ? query.eq("active", true) : query;
       // Name breaks the tie, so two centres sharing a sort_order still come
       // back in a stable order rather than shuffling between renders.
@@ -65,4 +80,21 @@ export function useCenters(activeOnly = true, enabled = true) {
       return (data ?? []) as Center[];
     },
   });
+}
+
+/**
+ * `center_id -> color`, for a `CenterBadge` reading a lead's stamped
+ * `center_id`/`center_name` rather than the picker's own live list. Pulls
+ * every center, active or not — a lead taken under a since-deactivated
+ * center still deserves its real color, not a "not found" fallback.
+ * `useCenters` is a cached query, so calling this from several components on
+ * one screen costs one fetch, not one per caller.
+ */
+export function useCenterColorById() {
+  const centers = useCenters(false);
+  return useMemo(() => {
+    const map = new Map<string, CenterColor>();
+    for (const center of centers.data ?? []) map.set(center.id, center.color);
+    return map;
+  }, [centers.data]);
 }

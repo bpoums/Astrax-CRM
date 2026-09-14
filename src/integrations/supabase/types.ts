@@ -232,6 +232,7 @@ export type Database = {
       centers: {
         Row: {
           active: boolean
+          color: string
           created_at: string
           id: string
           name: string
@@ -239,6 +240,7 @@ export type Database = {
         }
         Insert: {
           active?: boolean
+          color?: string
           created_at?: string
           id?: string
           name: string
@@ -246,6 +248,7 @@ export type Database = {
         }
         Update: {
           active?: boolean
+          color?: string
           created_at?: string
           id?: string
           name?: string
