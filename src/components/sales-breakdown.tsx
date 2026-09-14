@@ -396,7 +396,7 @@ export function SalesBreakdown() {
         </div>
 
         <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 lg:grid-cols-5">
-          <StatCard label="Total Approved" value={breakdown.total} />
+          <StatCard label="Total Submitted" value={breakdown.total} />
           {PLAN_TYPE_COLUMNS.map((bucket) => (
             <StatCard key={bucket} label={bucket} value={breakdown.totals[bucket]} />
           ))}
