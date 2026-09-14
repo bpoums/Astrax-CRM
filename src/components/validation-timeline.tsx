@@ -73,7 +73,14 @@ export function ValidationTimeline({
         .eq("submission_id", submissionId!)
         .order("created_at", { ascending: true });
       if (error) throw error;
-      return (data ?? []) as unknown as TimelineEventRow[];
+      // `cx_status_changed` is a bare marker `set_cx_status` also writes here
+      // — the actual detail (from/to status, reason) lives in
+      // `cx_status_history` and is what `CxLifecycleHistory` renders. Kept in
+      // `form_events` for other tooling, but showing it here too would just
+      // duplicate a story this panel doesn't tell, as a near-empty row.
+      return ((data ?? []) as unknown as TimelineEventRow[]).filter(
+        (event) => event.event_type !== "cx_status_changed",
+      );
     },
   });
 
