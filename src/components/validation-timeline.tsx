@@ -1,32 +1,23 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { formatEventTime } from "@/lib/format-date";
-import { ClampedText } from "@/components/free-text";
 import { formatOffset } from "@/components/ops";
-import { presentEvent } from "@/lib/event-labels";
-import { groupIntoPasses } from "@/lib/validation-passes";
+import { presentEvent, humanizeEventType, type EventTone } from "@/lib/event-labels";
+import { groupIntoPasses, type ValidationPass } from "@/lib/validation-passes";
 import {
-  TimelineChurn,
-  TimelineEmpty,
-  TimelineGroup,
-  TimelineList,
-  TimelineRow,
-  TimelineSection,
+  CardRow,
+  EventCard,
+  HistoryEmpty,
+  HistorySection,
+  connectCards,
 } from "@/components/timeline";
 
 /**
- * A lead's `form_events` trail, told as the hand-offs it actually was.
- *
- * The events are grouped into PASSES — one validator's tenure, from the
- * assignment to the outcome — because that is the unit the floor talks in, and
- * because a flat list buries the two events that matter under the ten that do
- * not. See `validation-passes.ts` for the grouping and `event-labels.ts` for
- * the wording; this file only draws them.
- *
- * Time is measured two ways on purpose. Events outside a pass keep their wall
- * clock, since they are what a reader dates the lead by. Events inside one show
- * the gap since the assignment, because "held six times in eight minutes" is
- * the fact, and the reader should not have to subtract timestamps to find it.
+ * A lead's `form_events` trail, told as the hand-offs it actually was — one
+ * card per standalone event or per validator PASS (assignment to outcome),
+ * running left to right rather than down a growing vertical list. See
+ * `validation-passes.ts` for the grouping and `event-labels.ts` for the
+ * wording; this file only builds the cards.
  *
  * `form_events` is readable by managers and admins. Anyone else gets an empty
  * list rather than an error, which is why the empty state says "No events
@@ -50,16 +41,55 @@ function actorName(event: TimelineEventRow) {
   return event.actor?.full_name ?? "system";
 }
 
+/**
+ * One pass's card content, folding its churn and outcome into card fields.
+ *
+ * The outcome line carries the offset from the assignment ("Rejected ·
+ * +7m 12s"), not just a timestamp — "held six times in eight minutes" is the
+ * fact worth reading, and a reader should not have to subtract two
+ * timestamps themselves to find it.
+ */
+function summarizePass(pass: ValidationPass<TimelineEventRow>, stamp: (iso: string) => string) {
+  let attempts = 0;
+  let holds = 0;
+  let hasChurn = false;
+  let outcome: { text: string; tone: EventTone } | null = null;
+  const extra: string[] = [];
+  const since = pass.assigned?.created_at;
+
+  for (const item of pass.items) {
+    if (item.kind === "churn") {
+      hasChurn = true;
+      attempts += item.attempts;
+      holds += item.holds;
+      continue;
+    }
+    const isOutcome = ["disposed", "timeout", "rejected"].includes(item.event.event_type);
+    const shown = presentEvent(item.event);
+    if (isOutcome) {
+      const offset = since ? formatOffset(since, item.event.created_at) : "";
+      outcome = { text: offset ? `${shown.text} · ${offset}` : shown.text, tone: shown.tone };
+    } else {
+      extra.push(shown.text);
+    }
+  }
+
+  return {
+    openedActor: pass.assigned ? actorName(pass.assigned) : "Unassigned",
+    openedTime: pass.assigned ? stamp(pass.assigned.created_at) : null,
+    churn: hasChurn ? { attempts, holds } : null,
+    outcome,
+    extra,
+  };
+}
+
 export function ValidationTimeline({
   submissionId,
   /** Reporting shows seconds: its events can land inside the same minute. */
   seconds = false,
-  /** The larger, more breathing-room variant `LeadHistoryDialog` asks for. */
-  comfortable = false,
 }: {
   submissionId: string | null;
   seconds?: boolean;
-  comfortable?: boolean;
 }) {
   const timeline = useQuery({
     queryKey: validationTimelineKey(submissionId),
@@ -79,89 +109,64 @@ export function ValidationTimeline({
 
   const events = timeline.data ?? [];
   const segments = groupIntoPasses(events);
-  const passes = segments.filter((segment) => segment.kind === "pass").length;
-
+  const passCount = segments.filter((segment) => segment.kind === "pass").length;
   const stamp = (iso: string) => formatEventTime(iso, seconds ? { seconds: true } : undefined);
 
-  /** One row, wherever it sits. `since` switches the clock to an offset. */
-  const row = (event: TimelineEventRow, since?: string) => {
-    const shown = presentEvent(event);
-    return (
-      <TimelineRow
-        key={event.id}
-        tone={shown.tone}
-        actor={actorName(event)}
-        time={since ? formatOffset(since, event.created_at) : stamp(event.created_at)}
-        comfortable={comfortable}
-        note={
-          shown.note ? (
-            <ClampedText
-              text={shown.note}
-              heading={shown.text}
-              meta={`${actorName(event)} · ${stamp(event.created_at)}`}
-            />
-          ) : null
-        }
-      >
-        {shown.text}
-      </TimelineRow>
-    );
-  };
+  const cards = segments.map((segment) => {
+    if (segment.kind === "event") {
+      const shown = presentEvent(segment.event);
+      return {
+        key: `event-${segment.event.id}`,
+        node: (
+          <EventCard
+            badge={{ label: humanizeEventType(segment.event.event_type), tone: shown.tone }}
+            heading={actorName(segment.event)}
+            time={stamp(segment.event.created_at)}
+            lines={[shown.text]}
+          />
+        ),
+      };
+    }
+
+    const { pass } = segment;
+    const summary = summarizePass(pass, stamp);
+    const lines: string[] = [];
+    if (summary.churn) {
+      lines.push(
+        `${summary.churn.attempts} attempt${summary.churn.attempts === 1 ? "" : "s"}, ${summary.churn.holds} hold${summary.churn.holds === 1 ? "" : "s"}`,
+      );
+    }
+    lines.push(...summary.extra);
+
+    return {
+      key: `pass-${pass.number}`,
+      node: (
+        <EventCard
+          badge={{ label: `Pass ${pass.number}`, tone: "accent" }}
+          heading={summary.openedActor}
+          time={summary.openedTime}
+          lines={lines}
+          outcome={summary.outcome ?? undefined}
+          highlight={summary.outcome?.tone === "positive"}
+        />
+      ),
+    };
+  });
 
   return (
-    <TimelineSection
+    <HistorySection
       title="Validation"
       summary={
         events.length === 0
           ? undefined
-          : `${passes === 1 ? "1 pass" : `${passes} passes`} · ${events.length} events`
+          : `${passCount === 1 ? "1 pass" : `${passCount} passes`} · ${events.length} events`
       }
     >
       {events.length === 0 ? (
-        <TimelineEmpty>{timeline.isLoading ? "Loading…" : "No events visible."}</TimelineEmpty>
+        <HistoryEmpty>{timeline.isLoading ? "Loading…" : "No events visible."}</HistoryEmpty>
       ) : (
-        <TimelineList comfortable={comfortable}>
-          {segments.map((segment) => {
-            if (segment.kind === "event") return row(segment.event);
-
-            const { pass } = segment;
-            const opened = pass.assigned;
-            // Every event in the pass is measured from the assignment that
-            // opened it, so the offsets read as one continuous clock.
-            const since = opened?.created_at;
-
-            return (
-              <TimelineGroup
-                key={`pass-${pass.number}-${opened?.id ?? "none"}`}
-                heading={`Pass ${pass.number}`}
-                meta={
-                  opened ? `assigned by ${actorName(opened)} · ${stamp(opened.created_at)}` : null
-                }
-                comfortable={comfortable}
-              >
-                {pass.items.map((item) => {
-                  if (item.kind === "event") return row(item.event, since);
-
-                  const first = item.events[0];
-                  const last = item.events[item.events.length - 1];
-                  return (
-                    <TimelineChurn
-                      key={`churn-${first?.id ?? pass.number}`}
-                      summary={`${item.attempts} attempts, ${item.holds} ${
-                        item.holds === 1 ? "hold" : "holds"
-                      }`}
-                      time={since && last ? formatOffset(since, last.created_at) : null}
-                      comfortable={comfortable}
-                    >
-                      {item.events.map((event) => row(event, since))}
-                    </TimelineChurn>
-                  );
-                })}
-              </TimelineGroup>
-            );
-          })}
-        </TimelineList>
+        <CardRow>{connectCards(cards)}</CardRow>
       )}
-    </TimelineSection>
+    </HistorySection>
   );
 }
