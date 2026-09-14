@@ -92,13 +92,6 @@ export type Database = {
             foreignKeyName: "card_access_log_submission_id_fkey"
             columns: ["submission_id"]
             isOneToOne: false
-            referencedRelation: "closer_lead_alerts"
-            referencedColumns: ["submission_id"]
-          },
-          {
-            foreignKeyName: "card_access_log_submission_id_fkey"
-            columns: ["submission_id"]
-            isOneToOne: false
             referencedRelation: "cx_pipeline"
             referencedColumns: ["submission_id"]
           },
@@ -171,13 +164,6 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "validator_stats"
             referencedColumns: ["validator_id"]
-          },
-          {
-            foreignKeyName: "carrier_declines_submission_id_fkey"
-            columns: ["submission_id"]
-            isOneToOne: false
-            referencedRelation: "closer_lead_alerts"
-            referencedColumns: ["submission_id"]
           },
           {
             foreignKeyName: "carrier_declines_submission_id_fkey"
@@ -329,13 +315,6 @@ export type Database = {
             foreignKeyName: "cx_lead_status_submission_id_fkey"
             columns: ["submission_id"]
             isOneToOne: true
-            referencedRelation: "closer_lead_alerts"
-            referencedColumns: ["submission_id"]
-          },
-          {
-            foreignKeyName: "cx_lead_status_submission_id_fkey"
-            columns: ["submission_id"]
-            isOneToOne: true
             referencedRelation: "cx_pipeline"
             referencedColumns: ["submission_id"]
           },
@@ -414,13 +393,6 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "validator_stats"
             referencedColumns: ["validator_id"]
-          },
-          {
-            foreignKeyName: "cx_status_history_submission_id_fkey"
-            columns: ["submission_id"]
-            isOneToOne: false
-            referencedRelation: "closer_lead_alerts"
-            referencedColumns: ["submission_id"]
           },
           {
             foreignKeyName: "cx_status_history_submission_id_fkey"
@@ -549,13 +521,6 @@ export type Database = {
             foreignKeyName: "form_events_submission_id_fkey"
             columns: ["submission_id"]
             isOneToOne: false
-            referencedRelation: "closer_lead_alerts"
-            referencedColumns: ["submission_id"]
-          },
-          {
-            foreignKeyName: "form_events_submission_id_fkey"
-            columns: ["submission_id"]
-            isOneToOne: false
             referencedRelation: "cx_pipeline"
             referencedColumns: ["submission_id"]
           },
@@ -670,13 +635,6 @@ export type Database = {
             foreignKeyName: "payload_edits_submission_id_fkey"
             columns: ["submission_id"]
             isOneToOne: false
-            referencedRelation: "closer_lead_alerts"
-            referencedColumns: ["submission_id"]
-          },
-          {
-            foreignKeyName: "payload_edits_submission_id_fkey"
-            columns: ["submission_id"]
-            isOneToOne: false
             referencedRelation: "cx_pipeline"
             referencedColumns: ["submission_id"]
           },
@@ -743,13 +701,6 @@ export type Database = {
           submission_id?: string
         }
         Relationships: [
-          {
-            foreignKeyName: "payment_details_submission_id_fkey"
-            columns: ["submission_id"]
-            isOneToOne: true
-            referencedRelation: "closer_lead_alerts"
-            referencedColumns: ["submission_id"]
-          },
           {
             foreignKeyName: "payment_details_submission_id_fkey"
             columns: ["submission_id"]
@@ -896,13 +847,6 @@ export type Database = {
             foreignKeyName: "sheet_sync_attempts_submission_id_fkey"
             columns: ["submission_id"]
             isOneToOne: false
-            referencedRelation: "closer_lead_alerts"
-            referencedColumns: ["submission_id"]
-          },
-          {
-            foreignKeyName: "sheet_sync_attempts_submission_id_fkey"
-            columns: ["submission_id"]
-            isOneToOne: false
             referencedRelation: "cx_pipeline"
             referencedColumns: ["submission_id"]
           },
@@ -942,13 +886,6 @@ export type Database = {
           tagged_by?: string | null
         }
         Relationships: [
-          {
-            foreignKeyName: "submission_tags_submission_id_fkey"
-            columns: ["submission_id"]
-            isOneToOne: false
-            referencedRelation: "closer_lead_alerts"
-            referencedColumns: ["submission_id"]
-          },
           {
             foreignKeyName: "submission_tags_submission_id_fkey"
             columns: ["submission_id"]
@@ -1277,19 +1214,6 @@ export type Database = {
         }
         Relationships: []
       }
-      closer_lead_alerts: {
-        Row: {
-          carrier: string | null
-          category: string | null
-          changed_at: string | null
-          customer_name: string | null
-          status_label: string | null
-          submission_id: string | null
-          submitted_at: string | null
-          tone: string | null
-        }
-        Relationships: []
-      }
       cx_pipeline: {
         Row: {
           approved_on: string | null
@@ -1374,13 +1298,6 @@ export type Database = {
           submission_id: string | null
         }
         Relationships: [
-          {
-            foreignKeyName: "carrier_declines_submission_id_fkey"
-            columns: ["submission_id"]
-            isOneToOne: false
-            referencedRelation: "closer_lead_alerts"
-            referencedColumns: ["submission_id"]
-          },
           {
             foreignKeyName: "carrier_declines_submission_id_fkey"
             columns: ["submission_id"]
