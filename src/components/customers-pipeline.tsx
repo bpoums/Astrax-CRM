@@ -12,6 +12,7 @@ import {
   type UploaderRef,
 } from "@/components/ops";
 import { useCenterColorById } from "@/lib/centers";
+import { SSN_FIELD } from "@/lib/duplicate-ssn";
 import { formatCalendarDate, formatDate } from "@/lib/format-date";
 import { CxStatusCell, ReturnForValidationButton } from "@/components/cx-status-cell";
 import { LeadHistoryDialog } from "@/components/lead-history-dialog";
@@ -381,6 +382,7 @@ export function CustomersPipeline({
               {/* No width: Customer absorbs whatever the others leave. */}
               <TableHead className="w-28">Center</TableHead>
               <TableHead>Customer</TableHead>
+              <TableHead className="w-32">SSN</TableHead>
               <TableHead>Carrier</TableHead>
               <TableHead>Draft Date</TableHead>
               {/* <TableHead>Submitted On</TableHead> */}
@@ -426,6 +428,13 @@ export function CustomersPipeline({
                         </span>
                       </TooltipBody>
                     </Tooltip>
+                  </TableCell>
+                  {/* Same field the intake forms write and PayloadTable already
+                      shows unmasked in the detail sheet — every role that
+                      reaches this table can already see it there, so a column
+                      exposes nothing new, just saves the click. */}
+                  <TableCell className="text-muted-foreground tabular-nums">
+                    {typeof row.payload[SSN_FIELD] === "string" ? row.payload[SSN_FIELD] : "—"}
                   </TableCell>
                   {/* carrierName(), not the payload key: a closer's lead files
                     this under "Carrier Name" and a validator's under "Agency",
@@ -500,7 +509,7 @@ export function CustomersPipeline({
             {rows.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={showUpdatedBy ? (readOnly ? 10 : 11) : readOnly ? 9 : 10}
+                  colSpan={showUpdatedBy ? (readOnly ? 11 : 12) : readOnly ? 10 : 11}
                   className="text-center text-muted-foreground"
                 >
                   {pipeline.isLoading
