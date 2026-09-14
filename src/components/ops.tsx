@@ -454,7 +454,7 @@ export const STATUS_LABEL: Record<SubStatus, string> = {
   pending_manager: "Unassigned",
   assigned: "Assigned",
   in_review: "Attempting",
-  returned_timeout: "Returned",
+  returned_timeout: "Timed out",
   closed: "Completed",
 };
 
