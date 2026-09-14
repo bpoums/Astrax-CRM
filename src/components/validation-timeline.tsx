@@ -42,6 +42,34 @@ function actorName(event: TimelineEventRow) {
 }
 
 /**
+ * The validator who actually worked this pass.
+ *
+ * `pass.assigned`'s ACTOR is whoever ran `assign_to_validator` — a manager,
+ * not the validator the lead went to (the validator's id sits unresolved in
+ * `detail.validator`, a bare uuid this panel has no name for). The validator
+ * is instead whoever's actor_id shows up on a `claimed`/`held` event — the
+ * only actions a validator performs themselves — falling back to whoever
+ * disposed it if the pass has no churn recorded at all.
+ */
+function findValidator(pass: ValidationPass<TimelineEventRow>): string | null {
+  for (const item of pass.items) {
+    if (item.kind === "churn") return item.events[0] ? actorName(item.events[0]) : null;
+    if (item.event.event_type === "claimed" || item.event.event_type === "held") {
+      return actorName(item.event);
+    }
+  }
+  for (const item of pass.items) {
+    if (
+      item.kind === "event" &&
+      ["disposed", "timeout", "rejected"].includes(item.event.event_type)
+    ) {
+      return actorName(item.event);
+    }
+  }
+  return null;
+}
+
+/**
  * One pass's card content, folding its churn and outcome into card fields.
  *
  * The outcome line carries the offset from the assignment ("Rejected ·
@@ -74,8 +102,11 @@ function summarizePass(pass: ValidationPass<TimelineEventRow>, stamp: (iso: stri
     }
   }
 
+  const validator = findValidator(pass);
+
   return {
-    openedActor: pass.assigned ? actorName(pass.assigned) : "Unassigned",
+    heading: validator ?? "Awaiting claim",
+    assignedBy: pass.assigned ? `Assigned by ${actorName(pass.assigned)}` : null,
     openedTime: pass.assigned ? stamp(pass.assigned.created_at) : null,
     churn: hasChurn ? { attempts, holds } : null,
     outcome,
@@ -103,7 +134,14 @@ export function ValidationTimeline({
         .eq("submission_id", submissionId!)
         .order("created_at", { ascending: true });
       if (error) throw error;
-      return (data ?? []) as unknown as TimelineEventRow[];
+      // `cx_status_changed` is a bare marker `set_cx_status` also writes here
+      // — the actual detail (from/to status, reason) lives in
+      // `cx_status_history` and is what `CxLifecycleHistory` renders. Kept in
+      // `form_events` for other tooling, but showing it here too would be a
+      // near-empty card duplicating a story this panel doesn't tell.
+      return ((data ?? []) as unknown as TimelineEventRow[]).filter(
+        (event) => event.event_type !== "cx_status_changed",
+      );
     },
   });
 
@@ -131,6 +169,7 @@ export function ValidationTimeline({
     const { pass } = segment;
     const summary = summarizePass(pass, stamp);
     const lines: string[] = [];
+    if (summary.assignedBy) lines.push(summary.assignedBy);
     if (summary.churn) {
       lines.push(
         `${summary.churn.attempts} attempt${summary.churn.attempts === 1 ? "" : "s"}, ${summary.churn.holds} hold${summary.churn.holds === 1 ? "" : "s"}`,
@@ -143,7 +182,7 @@ export function ValidationTimeline({
       node: (
         <EventCard
           badge={{ label: `Pass ${pass.number}`, tone: "accent" }}
-          heading={summary.openedActor}
+          heading={summary.heading}
           time={summary.openedTime}
           lines={lines}
           outcome={summary.outcome ?? undefined}

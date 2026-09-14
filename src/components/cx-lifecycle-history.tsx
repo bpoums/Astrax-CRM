@@ -103,7 +103,8 @@ export function CxLifecycleHistory({ submissionId }: { submissionId: string }) {
           <EventCard
             heading={option?.label ?? "Not set"}
             time={when}
-            lines={[`by ${actor}`, ...(entry.reason ? [entry.reason] : [])]}
+            lines={[`by ${actor}`]}
+            note={entry.reason}
             highlight={index === entries.length - 1 && !!option && option.tone === "positive"}
           />
         ),

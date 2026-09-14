@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { EventTone } from "@/lib/event-labels";
+import { ClampedText } from "@/components/free-text";
 
 /**
  * The shape both of a lead's histories are drawn in: a horizontally
@@ -60,14 +61,23 @@ export function HistoryEmpty({ children }: { children: ReactNode }) {
   );
 }
 
-/** One horizontally-scrolling row of cards. Callers intersperse `CardConnector`. */
+/**
+ * One horizontally-scrolling row of cards. Callers intersperse
+ * `CardConnector`. Top-aligned rather than stretched: cards vary a lot in
+ * height (a "Not set" card vs. one with a multi-line reason), and stretching
+ * every card to match the tallest one in the row reads worse than a
+ * consistent top edge with the arrows anchored near the header line.
+ */
 export function CardRow({ children }: { children: ReactNode }) {
-  return <div className="flex min-w-0 items-stretch gap-2 overflow-x-auto pb-2">{children}</div>;
+  return <div className="flex min-w-0 items-start gap-2 overflow-x-auto pb-2">{children}</div>;
 }
 
+/** Anchored roughly level with a card's heading line, not the row's full
+ * height — the row is top-aligned, and cards vary too much in height for a
+ * true vertical center to mean anything. */
 export function CardConnector() {
   return (
-    <span aria-hidden className="flex shrink-0 items-center text-muted-foreground">
+    <span aria-hidden className="mt-8 shrink-0 text-muted-foreground">
       →
     </span>
   );
@@ -88,13 +98,18 @@ export function EventCard({
   heading,
   time,
   lines = [],
+  note,
   outcome,
   highlight = false,
 }: {
   badge?: { label: string; tone: EventTone } | undefined;
   heading: ReactNode;
   time?: string | null;
+  /** Short, structured facts — "by Sara Khan", "6 attempts, 2 holds". */
   lines?: string[];
+  /** Free text someone wrote (a decline/CX reason) — clamped to two lines
+   * with the full text in a tooltip, never left to grow the card unbounded. */
+  note?: string | null;
   outcome?: { text: string; tone: EventTone } | undefined;
   /** The lead's current/final state on this card — a soft emerald frame,
    * the same hardcoded exception `DispositionBadge` uses for "accepted". */
@@ -102,7 +117,7 @@ export function EventCard({
 }) {
   return (
     <div
-      className={`flex w-[200px] shrink-0 flex-col gap-1 rounded-lg border px-3 py-2.5 ${
+      className={`flex min-h-[92px] w-[200px] shrink-0 flex-col gap-1 rounded-lg border px-3 py-2.5 ${
         highlight ? "border-emerald-500/50 bg-emerald-500/5" : "border-border bg-card"
       }`}
     >
@@ -124,6 +139,14 @@ export function EventCard({
           {line}
         </span>
       ))}
+      {note ? (
+        <ClampedText
+          text={note}
+          className="text-muted-foreground"
+          lines={2}
+          {...(typeof heading === "string" ? { heading } : {})}
+        />
+      ) : null}
       {outcome ? (
         <span className={`text-xs font-semibold ${TEXT_TONE[outcome.tone]}`}>{outcome.text}</span>
       ) : null}
