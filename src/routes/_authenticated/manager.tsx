@@ -20,10 +20,10 @@ import {
   isOnHold,
   relativeTime,
   remainingMs,
+  sourceLabel,
   useNow,
   useReviewSettings,
   type Disposition,
-  type LeadSource,
   type SubmissionRow,
 } from "@/components/ops";
 import { useCenterColorById } from "@/lib/centers";
@@ -111,29 +111,43 @@ type ManagerRow = SubmissionRow & {
 const OPEN_STATUSES = ["pending_manager", "returned_timeout", "assigned", "in_review"] as const;
 
 /**
- * The two queues, split by origin rather than by workflow state.
+ * Three queues, split by origin rather than by workflow state — plus one
+ * split by an event instead of an origin: a lead CX sent back keeps whatever
+ * origin it started with, but is a different kind of "open" (it already went
+ * all the way to accepted once) and is pulled out of Live/Manual into its
+ * own tab rather than left mixed into either.
  *
- * There is deliberately no combined view. One table cannot serve both shapes:
- * a live lead is identified by the closer who took it, an uploaded one by the
- * centre that supplied it and the day the file arrived, and showing all four
- * columns at once leaves half of them blank on every row.
+ * There is deliberately no combined Live/Manual view. One table cannot serve
+ * both shapes: a live lead is identified by the closer who took it, an
+ * uploaded one by the centre that supplied it and the day the file arrived,
+ * and showing all four columns at once leaves half of them blank on every
+ * row. CXA Returned mixes both origins, so it draws yet another column set
+ * (see queueTabOf/its TabsContent below).
  *
- * Both queues hold the same OPEN statuses and offer the same actions — this is
- * about which columns a queue draws, never about what a manager may do.
+ * All three queues hold the same OPEN statuses and offer the same actions —
+ * this is about which columns a queue draws, never about what a manager may
+ * do.
  */
-type QueueTab = "live" | "manual";
+type QueueTab = "live" | "manual" | "cxa_returned";
 
 const QUEUE_TABS: { id: QueueTab; label: string }[] = [
   { id: "live", label: "Live" },
   { id: "manual", label: "Manual" },
+  { id: "cxa_returned", label: "CXA Returned" },
 ];
 
 /**
- * Tab to stored value. The tab is named for the reader, the column for the
- * database, and mapping them here is what stops a rename in either place from
- * quietly matching nothing.
+ * Which tab a row belongs to. A reopen (`reopened_from_cx_at` set) always
+ * wins over origin — once CX has sent a lead back, it shows up in exactly one
+ * place, not still mixed into Live or Manual by whatever `source` it started
+ * as. `submitted_by_role` never being cleared on reopen is exactly what makes
+ * checking `source` (not `submitted_by_role`) here still correct for the
+ * remaining live/manual split — see the queue query's own comment below.
  */
-const TAB_SOURCE: Record<QueueTab, LeadSource> = { live: "live", manual: "sheet" };
+function queueTabOf(row: { source: string | null; reopened_from_cx_at: string | null }): QueueTab {
+  if (row.reopened_from_cx_at) return "cxa_returned";
+  return (row.source ?? "live") === "sheet" ? "manual" : "live";
+}
 
 function isQueueTab(value: string): value is QueueTab {
   return QUEUE_TABS.some((tab) => tab.id === value);
@@ -398,10 +412,11 @@ function ManagerPage() {
   const centerColorById = useCenterColorById();
 
   const allRows = useMemo(() => submissions.data ?? [], [submissions.data]);
-  // One query still feeds both queues — the statuses they draw from are
-  // identical, so a second request would only duplicate the realtime work.
+  // One query still feeds all three queues — the statuses they draw from are
+  // identical, so a second (or third) request would only duplicate the
+  // realtime work.
   const rows = useMemo(
-    () => allRows.filter((row) => (row.source ?? "live") === TAB_SOURCE[queueTab]),
+    () => allRows.filter((row) => queueTabOf(row) === queueTab),
     [allRows, queueTab],
   );
   // Per tab, over the WHOLE set rather than the active filter — so a reader
@@ -410,9 +425,7 @@ function ManagerPage() {
   const tabCounts = useMemo(() => {
     const counts = {} as Record<QueueTab, number>;
     for (const tab of QUEUE_TABS) {
-      counts[tab.id] = allRows.filter(
-        (row) => (row.source ?? "live") === TAB_SOURCE[tab.id],
-      ).length;
+      counts[tab.id] = allRows.filter((row) => queueTabOf(row) === tab.id).length;
     }
     return counts;
   }, [allRows]);
@@ -733,6 +746,91 @@ function ManagerPage() {
                         <TableRow>
                           <TableCell colSpan={5} className="text-center text-muted-foreground">
                             {submissions.isLoading ? "Loading…" : "Nothing in the queue."}
+                          </TableCell>
+                        </TableRow>
+                      ) : null}
+                    </TableBody>
+                  </Table>
+                </TabsContent>
+
+                {/* Rows here mix both origins — a lead CX sent back keeps
+                    whatever it started as — so neither the Live tab's Closer
+                    column nor the Manual tab's Uploaded On column fits every
+                    row. Origin (sourceLabel) says which one it was; Returned
+                    is the column that's actually the point of this tab: how
+                    long CX's decision has been sitting unassigned. */}
+                <TabsContent value="cxa_returned" className="m-0">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-8">
+                          <Checkbox
+                            aria-label="Select all assignable submissions"
+                            disabled={assignableIds.length === 0 || busy}
+                            checked={
+                              allSelected ? true : selection.length > 0 ? "indeterminate" : false
+                            }
+                            onCheckedChange={(checked) =>
+                              setSelectedIds(checked === true ? assignableIds : [])
+                            }
+                          />
+                        </TableHead>
+                        <TableHead>Center</TableHead>
+                        <TableHead>Customer</TableHead>
+                        <TableHead>Origin</TableHead>
+                        <TableHead>Handled by</TableHead>
+                        <TableHead>Returned</TableHead>
+                        <TableHead>Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {rows.map((row) => (
+                        <TableRow
+                          key={row.id}
+                          className="cursor-pointer"
+                          onClick={() => setOpenId(row.id)}
+                        >
+                          <TableCell className="w-8" onClick={(event) => event.stopPropagation()}>
+                            {ASSIGNABLE.has(row.status) ? (
+                              <Checkbox
+                                aria-label={`Select ${customerName(row.payload)}`}
+                                disabled={busy}
+                                checked={selection.includes(row.id)}
+                                onCheckedChange={(checked) => toggleRow(row.id, checked === true)}
+                              />
+                            ) : null}
+                          </TableCell>
+                          <TableCell>
+                            <CenterBadge
+                              name={row.center_name}
+                              color={row.center_id ? centerColorById.get(row.center_id) : null}
+                            />
+                          </TableCell>
+                          <TableCell className="font-medium">{customerName(row.payload)}</TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {sourceLabel(row)}
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">{closerName(row)}</TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {row.reopened_from_cx_at
+                              ? relativeTime(row.reopened_from_cx_at, now)
+                              : "—"}
+                          </TableCell>
+                          <TableCell>
+                            <QueueStatusCell
+                              row={row}
+                              declinedCarriers={declinedBy(row.id)}
+                              now={now}
+                              showCountdown={showCountdown}
+                              windowMs={windowMs}
+                            />
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      {rows.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={7} className="text-center text-muted-foreground">
+                            {submissions.isLoading ? "Loading…" : "Nothing returned by CXA."}
                           </TableCell>
                         </TableRow>
                       ) : null}

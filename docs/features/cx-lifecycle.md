@@ -70,6 +70,14 @@ far). Views: `cx_pipeline`, `cx_status_summary`, `cx_untouched`,
   filter — without that clause the row is silently invisible to every
   manager despite being correctly `pending_manager` in the database. This was
   a real bug, found and fixed 2026-09-12.
+- **A reopened lead gets its own Operations tab, not a spot in Live/Manual**
+  — the Operations queue is three tabs (Live, Manual, **CXA Returned**), and
+  `queueTabOf()` in `manager.tsx` puts any row carrying `reopened_from_cx_at`
+  into CXA Returned regardless of its original `source`, so it stops
+  appearing in whichever origin tab it started in. That tab's own columns mix
+  both origins (`sourceLabel()` for which one, `closerName()` for who handled
+  it) and add a "Returned" column (`relativeTime(row.reopened_from_cx_at)`)
+  — the thing that tab specifically answers. Added 2026-09-14.
 - **No vocabulary delete, only deactivate** — `cx_status_options` and
   `cx_tags` rows are FK-referenced by history/lead-status tables; the admin
   UI has no delete control for either, only `active` toggling.

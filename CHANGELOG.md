@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-09-14 — Manager Operations gets a dedicated "CXA Returned" tab
+
+A lead sent back from the Customers Pipeline via "Return For Validation"
+(`return_lead_for_validation`) used to reappear mixed into whichever of the
+Live/Manual tabs matched its original `source`, indistinguishable from a
+fresh submission without opening the row. The Operations queue in
+`src/routes/_authenticated/manager.tsx` is now three tabs — Live, Manual,
+CXA Returned — and any row carrying `reopened_from_cx_at` is classified into
+the new tab regardless of origin (`queueTabOf()`), which shows Origin
+(Live/Manual), who handled it, and how long ago CX sent it back. No RPC,
+RLS, or schema change — purely a client-side reclassification of rows the
+existing queue query already fetched.
+
 ## 2026-09-12 — `sheet_sync_attempts` now cascades on submission delete
 
 Deleting a submission from Supabase Studio failed with a foreign-key error
