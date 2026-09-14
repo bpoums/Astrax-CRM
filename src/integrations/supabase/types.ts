@@ -1214,6 +1214,15 @@ export type Database = {
         }
         Relationships: []
       }
+      closer_lead_alerts: {
+        Row: {
+          category: string | null
+          status_label: string | null
+          submission_id: string | null
+          tone: string | null
+        }
+        Relationships: []
+      }
       cx_pipeline: {
         Row: {
           approved_on: string | null
