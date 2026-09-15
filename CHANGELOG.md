@@ -1,5 +1,34 @@
 # Changelog
 
+## 2026-09-15 — Parked Leads gets the detail panel it never had
+
+A parked ("External Transfer") lead could be seen in the table but not opened,
+so the decision to release it into validation was made against a customer name
+and a date. This was not a broken panel: `ParkedLeads` had no `openId` state,
+no `Sheet` and no click handler on its rows. It was never built.
+
+Rows are now clickable and open a `Sheet` rendering `PayloadTable` — the same
+component every other detail view uses, so a parked lead reads identically
+here and in Reporting. No query changed: `payload` was already in the
+component's `SELECT` and was simply never rendered, which also means no change
+to what the database returns or to any RLS surface. An admin could already
+read all six parked leads in Reporting → Submissions; this puts the same thing
+one click from where the decision is made, for both roles that can act on it
+(admin, and general_manager at `/closing?tab=parked`).
+
+"Move to Validation" now appears inside the panel as well as on the row, both
+driven by the one existing mutation. The row's button stops event propagation
+so it does not also open the panel, and a successful move closes the panel —
+the lead leaves the list at that moment and the panel would otherwise sit over
+a row that no longer exists.
+
+Recorded as a known limitation rather than changed here: a parked lead's
+payload renders unmasked, banking fields included, because the closer form
+writes `Routing Number` / `Account Number` / `Card Number` / `Exp Date` / `CVC`
+straight into `payload` and `PayloadTable` masks none of them. That is
+pre-existing and applies equally to Reporting, the manager queue and the
+customers pipeline. See `docs/features/closing-desk.md`.
+
 ## 2026-09-15 — sheet-sync no longer reports failed Google Sheets writes as successes
 
 Uploaded leads were reaching Google Sheets' door and being turned away, with

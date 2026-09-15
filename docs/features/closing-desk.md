@@ -68,9 +68,30 @@ branch that decides whether the Parked Leads tab even renders lives in the
   — so the restriction is enforced server-side, not just by the client
   omitting a button for anyone else. It only succeeds when the target row's
   `status = 'parked'` and `archived_at is null`.
+- **The Parked Leads table opens a detail panel** (added 2026-09-15). Clicking
+  a row opens a `Sheet` rendering `PayloadTable` — the same component every
+  other detail view uses, so a parked lead reads identically here and in
+  Reporting. It needs no extra query: `payload` was always part of the
+  component's `SELECT` and was simply never rendered. "Move to Validation"
+  appears both on the row and inside the panel, driven by the one mutation;
+  the row's own button stops event propagation so it does not also open the
+  panel, and a successful move closes the panel, since the lead leaves the
+  list at that moment.
 
 ## Known limitations
-None identified for this specific mechanism.
+- **A parked lead's payload is shown unmasked**, banking fields included. The
+  closer form writes `Routing Number`, `Account Number`, `Card Number`,
+  `Exp Date` and `CVC` straight into `payload` (see its "Banking" section),
+  and `PayloadTable` masks none of them. This is **not specific to this
+  panel** — Reporting, the manager queue and the customers pipeline have
+  always rendered the same payload the same way to the same roles, and an
+  admin can already read any parked lead in Reporting → Submissions. It is
+  recorded here because it sits awkwardly against `CLAUDE.md`'s "card numbers
+  and CVVs never reach a manager's or uploader's browser", which appears
+  aimed at the `payment_details` path for imported leads rather than at
+  closer-form payloads. Masking would be one change to `PayloadTable`
+  affecting every view at once; doing it in a single panel would read as
+  fixed while leaving the exposure intact.
 
 ## Future work
 None found as explicit TODOs.
