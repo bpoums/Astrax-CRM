@@ -85,7 +85,7 @@ export const SECTIONS: Section[] = [
       // validator's `final_carrier_id` (or, for a validator's own submission,
       // its `Agency` key) — a different field that regularly disagrees with
       // this one. See finalCarrierName() in ops.tsx.
-      { label: "Proposed Carrier", type: "text", required: true },
+      { label: "Proposed Carrier", type: "carrier", required: true , span: "sm:col-span-2" },
       // { label: "Proposed Carrier", type: "carrier", required: true , span: "sm:col-span-2" },
       { label: "Coverage Amount", type: "number", required: true },
       { label: "Premium", type: "text", required: true },
@@ -95,7 +95,7 @@ export const SECTIONS: Section[] = [
         label: "Plan Type",
         type: "radio",
         required: true,
-        // span: "sm:col-span-2",
+        span: "sm:col-span-2",
         options: ["Level", "Graded", "Mod", "G.I"],
       },
       { label: "Doc Address", type: "textarea", span: "sm:col-span-2" },
