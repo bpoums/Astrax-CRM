@@ -55,6 +55,23 @@ branch that decides whether the Parked Leads tab even renders lives in the
   for submissions and shows exactly what comes back; adding a client-side
   filter on top would risk quietly disagreeing with the server-side rule the
   moment that rule changes.
+- **Filter by submitted date** (added 2026-09-15, available to both
+  `closing_manager` and `general_manager`). A From/To pair over `created_at`,
+  the date the "Submitted" column already draws; a blank "To" filters exactly
+  the single day in "From". It composes with every other filter rather than
+  replacing them, and like all of them it runs in the database — this table is
+  paged, so a browser-side match would only ever see the rows already fetched.
+  Boundaries come from the **`reporting_window` RPC**, the same one Reporting
+  calls, never from browser date maths: a Pacific calendar day is not a UTC
+  day, and the difference is real rather than theoretical — for 2026-09-14 the
+  Pacific window holds 27 closer leads where a naive `created_at::date`
+  comparison holds 25. Reusing the RPC is also what keeps a "today" here
+  meaning the same day as a "today" in Reporting.
+  The RPC needs no role gate of its own: `EXECUTE` is granted to
+  `authenticated`, it is not `SECURITY DEFINER`, and it takes no submission id
+  and returns no lead data — only `{since, until}`. The rows themselves stay
+  scoped by the `submissions` RLS policy, so a closing manager filtering by
+  date still sees only their own centre.
 - **Parking**: the closer's "External Transfer" button calls
   `submit_form_parked`, which sets `status='parked'` on a closer-originated
   result (a validator submission has nothing to park — it's already

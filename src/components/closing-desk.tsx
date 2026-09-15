@@ -236,6 +236,11 @@ export function ClosingDesk() {
   const [disposition, setDisposition] = useState<DispositionFilter>(ANY);
   const [center, setCenter] = useState<CenterFilter>(ANY);
   const [cxFilters, setCxFilters] = useState<CxFilters>(NO_CX_FILTERS);
+  // A specific day, or a from/to range, over the Submitted column. Left blank,
+  // nothing is filtered by date at all — the same "unset means no filter"
+  // convention every other filter on this screen already uses.
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
 
@@ -257,14 +262,26 @@ export function ClosingDesk() {
   // A filter or a search changes what page 1 even means.
   useEffect(() => {
     setPage(0);
-  }, [term, origin, status, disposition, center, cxKey]);
+  }, [term, origin, status, disposition, center, cxKey, dateFrom, dateTo]);
 
   // Names the carriers on a returned lead. The view holds only leads that have
   // been declined at least once, so it stays short whatever this page shows.
   const declinedMap = useDeclinedCarrierMap();
 
   const leads = useQuery({
-    queryKey: ["closing", "leads", page, term, origin, status, disposition, center, cxKey],
+    queryKey: [
+      "closing",
+      "leads",
+      page,
+      term,
+      origin,
+      status,
+      disposition,
+      center,
+      cxKey,
+      dateFrom,
+      dateTo,
+    ],
     queryFn: async () => {
       // Resolved before the main query so a person match can be folded into
       // the same `or` as the payload matches: closer_id and uploaded_by are
@@ -272,6 +289,21 @@ export function ClosingDesk() {
       // with one. One lookup covers both — a term matches a profile by its name
       // or by its centre, and the row is kept if either column points at it.
       const profileIds = term ? await matchingProfileIds(term) : [];
+
+      // The boundaries come from the database, not from the browser. Pacific
+      // day maths has to stay server-side — a hardcoded JS offset is wrong for
+      // roughly half the year once DST moves — and this is the same RPC the
+      // Reporting date filter calls, so a "today" here and a "today" there can
+      // never disagree about where midnight falls. A blank To filters exactly
+      // the single day named in From.
+      let dateWindow: { since: string | null; until: string | null } | null = null;
+      if (dateFrom) {
+        const { data, error } = await supabase
+          .rpc("reporting_window", { p_start_date: dateFrom, p_end_date: dateTo || dateFrom })
+          .single();
+        if (error) throw error;
+        dateWindow = data;
+      }
 
       // Each concrete status filter goes on one shared inner join, which ANDs
       // them correctly. "Not set" cannot: it needs rows with no matching CX row
@@ -329,6 +361,14 @@ export function ClosingDesk() {
         query = query.or(clauses.join(","));
       }
 
+      // Independent of everything above: narrows whatever the other filters
+      // already matched rather than competing with them. Runs in the database
+      // like every filter here — this table is paged, so a browser-side match
+      // would only ever see the rows already fetched and would report nothing
+      // for a lead on page four.
+      if (dateWindow?.since) query = query.gte("created_at", dateWindow.since);
+      if (dateWindow?.until) query = query.lt("created_at", dateWindow.until);
+
       const from = page * PAGE_SIZE;
       const { data, error, count } = await query
         .order("created_at", { ascending: false })
@@ -355,7 +395,9 @@ export function ClosingDesk() {
     status !== ANY ||
     disposition !== ANY ||
     center !== ANY ||
-    cxKey !== UNFILTERED_CX;
+    cxKey !== UNFILTERED_CX ||
+    dateFrom !== "" ||
+    dateTo !== "";
 
   function clearFilters() {
     setSearch("");
@@ -364,6 +406,8 @@ export function ClosingDesk() {
     setDisposition(ANY);
     setCenter(ANY);
     setCxFilters(NO_CX_FILTERS);
+    setDateFrom("");
+    setDateTo("");
   }
 
   return (
@@ -446,6 +490,24 @@ export function ClosingDesk() {
             placeholder="Search customer, closer, phone…"
             className="field-input flex-1"
             aria-label="Search closer leads"
+          />
+          {/* Its own pair rather than another word in the search box: a date
+              range is a different kind of question, and this narrows whatever
+              the boxes above already matched. Leaving "To" blank filters
+              exactly the one day named in "From". */}
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={(event) => setDateFrom(event.target.value)}
+            aria-label="Submitted from date"
+            className="field-input w-36 shrink-0"
+          />
+          <input
+            type="date"
+            value={dateTo}
+            onChange={(event) => setDateTo(event.target.value)}
+            aria-label="Submitted to date (optional — leave blank for a single day)"
+            className="field-input w-36 shrink-0"
           />
           {filtersActive ? (
             <button

@@ -1,5 +1,32 @@
 # Changelog
 
+## 2026-09-15 — Closing desk can filter by submitted date
+
+The desk could be narrowed by search, origin, status, disposition, centre and
+four CX categories, but not by date — a closing manager working a day's book
+had to page through everything. Adds a From/To pair over `created_at`, the
+date the "Submitted" column already draws, for both roles that reach the
+screen (`closing_manager` and `general_manager`). A blank "To" filters exactly
+the single day in "From", and the pair composes with every other filter rather
+than replacing them.
+
+Boundaries come from the existing `reporting_window` RPC rather than browser
+date maths, for two reasons. A Pacific calendar day is not a UTC day and the
+gap is real, not theoretical: for 2026-09-14 the Pacific window holds 27
+closer leads where a naive `created_at::date` comparison holds 25. And reusing
+the RPC is what keeps a "today" here meaning the same day as a "today" in
+Reporting, instead of two screens quietly disagreeing about midnight.
+
+No new access: `reporting_window` is already granted to `authenticated`, is
+not `SECURITY DEFINER`, and takes no submission id while returning only
+`{since, until}`. The rows stay scoped by the `submissions` RLS policy, so the
+filter only ever narrows — a closing manager filtering by date still sees only
+their own centre. `created_at` was already in the query's select, so nothing
+about what the database returns changed either.
+
+Also worth knowing, unchanged here: `DraftDateDesk` is mounted only for admin
+and manager, so closing and general managers still have no draft-date view.
+
 ## 2026-09-15 — Parked Leads gets the detail panel it never had
 
 A parked ("External Transfer") lead could be seen in the table but not opened,
