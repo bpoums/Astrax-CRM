@@ -83,11 +83,24 @@ const ANNOTATIONS: Record<string, Annotation> = {
     kind: "text",
     aliases: ["smoker", "tobacco", "smoking status"],
   },
-  "Carrier Name": {
+  // Keyed off the closer form's label, which is now "Proposed Carrier". The
+  // internal `key` stays `carrier_name` — it is the normaliser's own slug, not
+  // a payload key, and renaming it would churn every rule and test for nothing.
+  // "carrier name" is an alias rather than a casualty of the rename: real
+  // uploader spreadsheets still carry that header, and dropping it would
+  // silently stop mapping the column on every file sent before today.
+  "Proposed Carrier": {
     key: "carrier_name",
     kind: "carrier",
     donate: true,
-    aliases: ["carrier", "company", "insurance company", "provider"],
+    aliases: [
+      "carrier",
+      "carrier name",
+      "proposed carrier",
+      "company",
+      "insurance company",
+      "provider",
+    ],
   },
   "Coverage Amount": {
     key: "coverage_amount",

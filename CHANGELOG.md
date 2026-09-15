@@ -1,5 +1,45 @@
 # Changelog
 
+## 2026-09-15 — Proposed Carrier vs Final Carrier, split apart
+
+Two different facts had been sharing one name. What a closer types is the
+carrier they *pitched*; what the policy is actually written on is the
+validator's `final_carrier_id`. Both surfaced as "Carrier Name", so reporting
+could not tell the two apart — and on 80 live leads they genuinely differ
+(pitched "American Amicable", written TransAmerica).
+
+The closer form's field is now **Proposed Carrier**. Because a closer-form
+label is simultaneously the payload key, the Google Sheet column header and
+the spreadsheet-import target, that one rename moved all three; migration
+`20260915120000` brought the 285 pre-existing rows onto the new key, with the
+sheet-sync UPDATE trigger disabled so the statement could not fire ~285
+`net.http_post` calls at once. It is idempotent (`where payload ? 'Carrier
+Name'`) and worth re-running after the front-end deploy to sweep up anything
+the old bundle wrote in between. The Sheet's own header cell is renamed by
+hand, which keeps the existing column and its history.
+
+The conflict between the two forms resolves as a lifecycle, not a collision —
+a validator submission simply has no proposal stage, because that form is only
+filed once the carrier has accepted:
+
+- **Proposed Carrier** — `payload['Proposed Carrier']`, closer/uploaded only.
+- **Final Carrier** — `final_carrier_id` -> `carriers.name`, or `Agency` for a
+  validator's own submission, or null when not yet determined. Read through
+  the new `finalCarrierName()` in `ops.tsx`; `PAYLOAD_LABEL` now relabels
+  `Agency` as "Final Carrier", which is what it always meant.
+
+Reporting gains **two carrier boxes** instead of one. Each is its own
+PostgREST `or` group and repeated groups AND together, so filling both asks
+for the intersection — "pitched Amicable, written on TransAmerica" (8 leads)
+is now directly askable, which one combined box could not express. The Final
+box spans both storage shapes, resolving typed text to carrier ids via the new
+`matchingCarrierIds()` because the column holds a uuid.
+
+Also fixed: the Sheet's `Final Carrier` column was blank on all 260 validator
+rows, since it was resolved only from `final_carrier_id`. Migration
+`20260915121000` falls back to `Agency` for those, gated on the role so a mere
+proposal is never reported as an issued policy.
+
 ## 2026-09-15 — Reporting: Live/Manual chips replace Closer/Validator/Manual
 
 The Submissions explorer (shared by admin → Submissions and the manager's

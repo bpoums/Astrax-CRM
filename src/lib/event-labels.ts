@@ -66,7 +66,7 @@ function carriers(detail: Record<string, unknown>): string[] {
  * Two shapes exist in the table: `{ field }` from `update_payload_field`, and
  * `{ fields: [...] }` from the bulk RPC that used to write these. Both are read
  * so an older lead's history is not blank, and both resolve through
- * `payloadDisplayLabel` so an edit to `Agency` reads as "Carrier Name".
+ * `payloadDisplayLabel` so an edit to `Agency` reads as "Final Carrier".
  */
 function editedFields(detail: Record<string, unknown>): string[] {
   const single = text(detail, "field");

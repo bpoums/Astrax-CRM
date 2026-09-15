@@ -75,10 +75,13 @@ const METADATA_COLUMNS: Column[] = [
  * across every selected row, not an intersection, so checking a closer lead
  * and a validator lead offers every field either one carries.
  *
- * Grouped by DISPLAY label rather than raw key: "Agency" and "Carrier Name"
- * are the same idea under two different stored keys (see `CARRIER_KEYS` /
- * `payloadDisplayLabel`), and a picker offering both as separate options would
- * just be the same column asked for twice.
+ * Grouped by DISPLAY label rather than raw key, so a key the app relabels is
+ * offered under the word the reader knows it by (see `payloadDisplayLabel`).
+ *
+ * Since 2026-09-15 that grouping no longer merges the carrier keys, and should
+ * not: "Agency" now reads as "Final Carrier" and a closer's key is "Proposed
+ * Carrier", which are two genuinely different facts about a lead rather than
+ * one idea stored two ways. They correctly offer as two separate columns.
  */
 function payloadColumns(rows: ExportRow[]): Column[] {
   const order: string[] = [];

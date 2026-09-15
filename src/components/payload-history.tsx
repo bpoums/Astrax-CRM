@@ -156,7 +156,7 @@ export function PayloadEditHistory({ submissionId }: { submissionId: string | nu
         {entries.map((entry) => (
           <li key={entry.key} className="flex min-w-0 flex-col gap-0.5 px-3 py-1.5">
             {/* The same word the panel above calls this field, so a lead does
-                not read as "Carrier Name" in the details and "Agency" in its
+                not read as "Final Carrier" in the details and "Agency" in its
                 own edit history. `entry.field` stays the stored key. */}
             <span className="field-label">{payloadDisplayLabel(entry.field)}</span>
             {entry.recorded ? (

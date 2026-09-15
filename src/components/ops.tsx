@@ -238,7 +238,13 @@ export function remainingMs(claimedAt: string | null, now: number, windowMs = RE
  * displays — a search that looked at one key while the cell rendered the other
  * would report "no results" over rows the reader can see.
  */
-export const CARRIER_KEYS = ["Carrier Name", "Agency"] as const;
+export const CARRIER_KEYS = ["Proposed Carrier", "Agency"] as const;
+
+/** The payload key a closer's PITCHED carrier is stored under. */
+export const PROPOSED_CARRIER_KEY = "Proposed Carrier";
+
+/** The payload key a validator's own submission stores its carrier under. */
+export const AGENCY_KEY = "Agency";
 
 export function customerName(payload: Record<string, unknown>) {
   const value = payload?.["Full Name"];
@@ -246,13 +252,18 @@ export function customerName(payload: Record<string, unknown>) {
 }
 
 /**
- * The carrier a lead was written for, as it was typed.
+ * Whatever carrier text a lead carries, whichever key holds it.
  *
- * TWO keys, because the two forms disagree and always have. A closer submission
- * and an imported lead carry "Carrier Name"; a validator submission carries
- * "Agency", which is the key the Apps Script routes a Google Sheet tab off and
- * so cannot be renamed. Reading only one of them left every row on one of the
- * Reporting tabs showing a dash.
+ * TWO keys, because the two forms store different STAGES of the same idea. A
+ * closer submission and an imported lead carry "Proposed Carrier" — the carrier
+ * that was pitched. A validator submission carries "Agency", which is already
+ * the carrier the policy was written on, and which cannot be renamed because
+ * the Apps Script routes a Google Sheet tab off that exact key.
+ *
+ * Use this only where "some carrier, as typed" is genuinely what is wanted.
+ * Where the question is "which carrier did this lead actually end up on",
+ * `finalCarrierName()` below is the one to reach for — it is not the same
+ * question, and on 80 leads today the two answers differ.
  *
  * The value is trimmed for display and nothing more. The stored values are
  * whatever the operator typed — "Fidelity Life", "Fidelity Life ", " Fidelity "
@@ -268,6 +279,49 @@ export function carrierName(payload: Record<string, unknown>) {
     if (trimmed) return trimmed;
   }
   return "—";
+}
+
+/** The carrier a closer PITCHED. Null on a validator submission, which has no proposal stage. */
+export function proposedCarrierName(payload: Record<string, unknown>) {
+  const value = payload?.[PROPOSED_CARRIER_KEY];
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  return trimmed || null;
+}
+
+/**
+ * The carrier the policy was actually written on, or null if that is not yet
+ * decided.
+ *
+ * Two storage shapes, one idea, because a lead reaches this state by two routes:
+ *
+ * - A closer or uploaded lead gets `final_carrier_id` stamped by
+ *   `set_validator_fields` during review. That FK is the authority.
+ * - A validator's OWN submission never passes through review — it auto-accepts
+ *   on submit — so `final_carrier_id` is null on every one of them (verified: 0
+ *   of 260 live). Its carrier lives in `Agency`, and that value is as canonical
+ *   as the FK would be: the validator form picks it from the `carriers` list
+ *   rather than accepting free text, so all 260 match a real carriers row.
+ *
+ * Null means "not determined yet", which is the honest answer for a closer lead
+ * still waiting on a validator — NOT a fallback to what was proposed. Callers
+ * that want the proposal should ask for it by name.
+ *
+ * Same precedence as `resolveCarrier()` in sales-breakdown.tsx, which got here
+ * first; keep the two in step.
+ */
+export function finalCarrierName(row: {
+  payload?: Record<string, unknown>;
+  submitted_by_role?: string | null;
+  final_carrier?: { name: string | null } | null;
+}) {
+  const stamped = row.final_carrier?.name?.trim();
+  if (stamped) return stamped;
+  if (row.submitted_by_role === "validator") {
+    const agency = row.payload?.[AGENCY_KEY];
+    const trimmed = typeof agency === "string" ? agency.trim() : "";
+    if (trimmed) return trimmed;
+  }
+  return null;
 }
 
 /**
@@ -757,7 +811,12 @@ export function payloadDisplayValue(key: string, value: unknown) {
  * the text reaches the screen and nothing else.
  */
 const PAYLOAD_LABEL: Record<string, string> = {
-  Agency: "Carrier Name",
+  // "Final Carrier", not "Carrier Name": a validator only files this form once
+  // the carrier has accepted, so the value here IS the carrier the policy was
+  // written on — the same thing `final_carrier_id` holds for a closer lead that
+  // went through review. Reading it as "Carrier Name" put it in the same words
+  // as a closer's mere proposal, which is the confusion this rename removes.
+  Agency: "Final Carrier",
 };
 
 export function payloadDisplayLabel(key: string) {

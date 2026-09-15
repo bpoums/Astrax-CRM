@@ -79,7 +79,21 @@ card), `validation-timeline.tsx`, `payload-history.tsx`.
   **Validated By** (`assignee`, a dash on a validator row because it genuinely
   was never assigned). Validation Status and Disposition show the real stored
   values on validator rows — "Completed"/"Submit", constant but true, and
-  matching what the detail sheet shows.
+  matching what the detail sheet shows. Its carrier column is the **Final
+  Carrier** (`finalCarrierName()`), not the proposal.
+- **Two carrier filters, not one** (2026-09-15): a *Proposed carrier* box and
+  a *Final carrier* box. Each is its own PostgREST `or` group, and repeated
+  groups AND together, so filling both asks for the intersection — "pitched
+  Amicable, written on TransAmerica" is a real slice of the book (8 leads
+  live) that a single combined box could not express. The Final box spans
+  both shapes the concept has: `final_carrier_id.in.(...)`, resolved from the
+  typed text by `matchingCarrierIds()` because the column holds a uuid, plus
+  `payload->>Agency` for a validator's own submission, which never gets that
+  FK. The Proposed box deliberately matches nothing on a validator row rather
+  than falling back to `Agency` — those leads have no proposal stage. See
+  [closer-submission-and-forms.md](closer-submission-and-forms.md) for the
+  two-concept model. `exports.tsx` keeps its single combined carrier box for
+  now; giving it the same treatment is an open follow-up.
 - **The Overview stat strip still reads Closer/Manual/Validator**, unmerged,
   because those are `submission_totals` view columns and merging them
   properly needs a view migration rather than a client-side sum (see
@@ -99,8 +113,8 @@ card), `validation-timeline.tsx`, `payload-history.tsx`.
   Overview tab reveals From/To date inputs (To optional — a single day
   filters exactly that day); `SubmissionsExplorer` on the Submissions tab
   has its own independent From/To inputs in its filter bar, ANDed with the
-  existing search/carrier/archived filters the same way the carrier box
-  already narrows the search box. Both features call the same
+  existing search/carrier/archived filters the same way the carrier boxes
+  already narrow the search box. Both features call the same
   `reporting_window` RPC rather than computing date boundaries in the
   browser — this codebase is deliberately strict about Pacific-timezone
   math staying server-side (DST makes a hardcoded JS offset wrong roughly

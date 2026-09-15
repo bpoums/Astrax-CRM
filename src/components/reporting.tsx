@@ -12,6 +12,7 @@ import {
   customerName,
   dataFlags,
   dispositionLabel,
+  finalCarrierName,
   isOnHold,
   relativeTime,
   sourceLabel,
@@ -39,10 +40,12 @@ import { ValidatorFields } from "@/components/validator-fields";
 import { useDeclinedCarrierMap } from "@/lib/carriers";
 import {
   LEAD_PAGE_SIZE,
-  carrierSearchClauses,
+  finalCarrierSearchClauses,
+  matchingCarrierIds,
   matchingProfileIds,
   payloadSearchClauses,
   personSearchClauses,
+  proposedCarrierSearchClauses,
   sanitizeTerm,
 } from "@/lib/lead-search";
 import { PaginationBar } from "@/components/pagination-bar";
@@ -81,6 +84,9 @@ type ReportingRow = SubmissionRow & {
   assignee: { full_name: string | null } | null;
   timeout_by: { full_name: string | null } | null;
   rejected_by: { full_name: string | null } | null;
+  /** Set during review by `set_validator_fields`; null until then, and on
+   *  every validator submission (which never passes through review). */
+  final_carrier: { name: string | null } | null;
 };
 
 /**
@@ -255,11 +261,22 @@ function explorerKey(
   page: number,
   term: string,
   archived: boolean,
-  carrier: string,
+  proposed: string,
+  final: string,
   dateFrom: string,
   dateTo: string,
 ) {
-  return [...SUBMISSIONS_KEY, tab, page, term, archived, carrier, dateFrom, dateTo] as const;
+  return [
+    ...SUBMISSIONS_KEY,
+    tab,
+    page,
+    term,
+    archived,
+    proposed,
+    final,
+    dateFrom,
+    dateTo,
+  ] as const;
 }
 
 /**
@@ -691,7 +708,13 @@ export function SubmissionsExplorer() {
   const now = useNow();
   const centerColorById = useCenterColorById();
   const [search, setSearch] = useState("");
-  const [carrierSearch, setCarrierSearch] = useState("");
+  // Two boxes, not one, because they are two different questions about a lead:
+  // what was pitched, and what it was actually written on. Each becomes its own
+  // `or` group, and PostgREST ANDs repeated groups, so filling both narrows to
+  // the intersection — "proposed Amicable, written on TransAmerica" is a real
+  // slice of the book and now directly askable.
+  const [proposedSearch, setProposedSearch] = useState("");
+  const [finalSearch, setFinalSearch] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [leadTab, setLeadTab] = useState<LeadTab>("live");
@@ -709,15 +732,16 @@ export function SubmissionsExplorer() {
   const term = sanitizeTerm(search);
   // Same sanitiser: this ends up in an `or=` group too, so a comma or a bracket
   // would end the group early exactly as it would in the free-text search.
-  const carrierTerm = sanitizeTerm(carrierSearch);
-  const carrierFiltered = carrierTerm.length > 0;
+  const proposedTerm = sanitizeTerm(proposedSearch);
+  const finalTerm = sanitizeTerm(finalSearch);
+  const carrierFiltered = proposedTerm.length > 0 || finalTerm.length > 0;
   const dateFiltered = dateFrom.length > 0 || dateTo.length > 0;
 
   // Any of these changes what page 1 even means, so both go back to the start.
   useEffect(() => {
     setLivePage(0);
     setManualPage(0);
-  }, [term, carrierTerm, showArchived, leadTab, dateFrom, dateTo]);
+  }, [term, proposedTerm, finalTerm, showArchived, leadTab, dateFrom, dateTo]);
 
   /**
    * One page of one sub-tab.
@@ -731,7 +755,16 @@ export function SubmissionsExplorer() {
    */
   function submissionsQuery(tab: LeadTab, page: number) {
     return {
-      queryKey: explorerKey(tab, page, term, showArchived, carrierTerm, dateFrom, dateTo),
+      queryKey: explorerKey(
+        tab,
+        page,
+        term,
+        showArchived,
+        proposedTerm,
+        finalTerm,
+        dateFrom,
+        dateTo,
+      ),
       enabled: leadTab === tab,
       queryFn: async () => {
         // Resolved first so a person match can join the same `or` as the
@@ -739,6 +772,9 @@ export function SubmissionsExplorer() {
         // columns, whereas an embedded profiles filter could not be or-ed
         // with one.
         const profileIds = term ? await matchingProfileIds(term) : [];
+        // Same gap, different table: final_carrier_id holds a uuid and the
+        // operator types a name, so the text has to become ids first.
+        const finalCarrierIds = finalTerm ? await matchingCarrierIds(finalTerm) : [];
 
         // The same Pacific-calendar-day RPC the Overview tab's custom range
         // uses — reused rather than reimplemented, so a "today" here and a
@@ -755,7 +791,7 @@ export function SubmissionsExplorer() {
         let query = supabase
           .from("submissions")
           .select(
-            "*, closer:profiles!submissions_closer_id_fkey(full_name), uploader:profiles!submissions_uploaded_by_fkey(full_name, org_name), assignee:profiles!submissions_assigned_to_fkey(full_name), timeout_by:profiles!submissions_last_timeout_by_fkey(full_name), rejected_by:profiles!submissions_last_rejected_by_fkey(full_name)",
+            "*, closer:profiles!submissions_closer_id_fkey(full_name), uploader:profiles!submissions_uploaded_by_fkey(full_name, org_name), assignee:profiles!submissions_assigned_to_fkey(full_name), timeout_by:profiles!submissions_last_timeout_by_fkey(full_name), rejected_by:profiles!submissions_last_rejected_by_fkey(full_name), final_carrier:carriers!submissions_final_carrier_id_fkey(name)",
             { count: "exact" },
           );
 
@@ -783,12 +819,18 @@ export function SubmissionsExplorer() {
         // the tab above rather than widening it.
         if (term) query = query.or(leadSearchClauses(term, profileIds).join(","));
 
-        // And a third, for the same reason: the carrier box narrows whatever
-        // the search box already matched rather than competing with it. It runs
-        // in the database like every other filter here — this table is paged, so
-        // a browser-side match would only ever see the twenty-five rows already
-        // fetched and would report nothing for a lead on page four.
-        if (carrierTerm) query = query.or(carrierSearchClauses(carrierTerm).join(","));
+        // And a third and fourth, for the same reason: each carrier box narrows
+        // whatever the boxes before it matched rather than competing with them.
+        // Two SEPARATE groups is the whole point — filling both asks for the
+        // intersection ("pitched Amicable, written on TransAmerica"), which one
+        // combined group could not express. They run in the database like every
+        // other filter here: this table is paged, so a browser-side match would
+        // only ever see the twenty-five rows already fetched and would report
+        // nothing for a lead on page four.
+        if (proposedTerm) query = query.or(proposedCarrierSearchClauses(proposedTerm).join(","));
+        if (finalTerm) {
+          query = query.or(finalCarrierSearchClauses(finalTerm, finalCarrierIds).join(","));
+        }
 
         // A fourth, independent AND: narrows whatever the filters above
         // already matched rather than competing with them, same as every
@@ -818,9 +860,18 @@ export function SubmissionsExplorer() {
    * chip's number always matches what that tab would show if opened.
    */
   const submissionCounts = useQuery({
-    queryKey: [...SUBMISSION_COUNTS_KEY, term, showArchived, carrierTerm, dateFrom, dateTo],
+    queryKey: [
+      ...SUBMISSION_COUNTS_KEY,
+      term,
+      showArchived,
+      proposedTerm,
+      finalTerm,
+      dateFrom,
+      dateTo,
+    ],
     queryFn: async () => {
       const profileIds = term ? await matchingProfileIds(term) : [];
+      const finalCarrierIds = finalTerm ? await matchingCarrierIds(finalTerm) : [];
 
       let dateWindow: { since: string | null; until: string | null } | null = null;
       if (dateFrom) {
@@ -842,7 +893,10 @@ export function SubmissionsExplorer() {
         }
         query = showArchived ? query.not("archived_at", "is", null) : query.is("archived_at", null);
         if (term) query = query.or(leadSearchClauses(term, profileIds).join(","));
-        if (carrierTerm) query = query.or(carrierSearchClauses(carrierTerm).join(","));
+        if (proposedTerm) query = query.or(proposedCarrierSearchClauses(proposedTerm).join(","));
+        if (finalTerm) {
+          query = query.or(finalCarrierSearchClauses(finalTerm, finalCarrierIds).join(","));
+        }
         if (dateWindow?.since) query = query.gte("created_at", dateWindow.since);
         if (dateWindow?.until) query = query.lt("created_at", dateWindow.until);
         const { count, error } = await query;
@@ -922,14 +976,15 @@ export function SubmissionsExplorer() {
    * resubscribe the channel on every keystroke.
    */
   const activeKeyRef = useRef(
-    explorerKey(leadTab, activePage, term, showArchived, carrierTerm, dateFrom, dateTo),
+    explorerKey(leadTab, activePage, term, showArchived, proposedTerm, finalTerm, dateFrom, dateTo),
   );
   activeKeyRef.current = explorerKey(
     leadTab,
     activePage,
     term,
     showArchived,
-    carrierTerm,
+    proposedTerm,
+    finalTerm,
     dateFrom,
     dateTo,
   );
@@ -978,24 +1033,39 @@ export function SubmissionsExplorer() {
               className="field-input max-w-xs"
               aria-label="Search submissions"
             />
-            {/* Its own box rather than another word in the one beside it: this
-                NARROWS whatever that search returned, so a carrier and a
-                customer can be asked for together. */}
+            {/* Two carrier boxes, because they are two different questions:
+                what the closer PITCHED, and what the policy was actually
+                written on. Each narrows the other, so filling both asks for
+                the intersection — "pitched Amicable, written on TransAmerica".
+                A proposed carrier only exists on a closer or uploaded lead; a
+                validator files its form only after acceptance, so its carrier
+                is a final one by definition. */}
             <input
               type="search"
-              value={carrierSearch}
-              onChange={(event) => setCarrierSearch(event.target.value)}
-              placeholder="Search carrier…"
-              className="field-input w-44"
-              aria-label="Filter submissions by carrier"
+              value={proposedSearch}
+              onChange={(event) => setProposedSearch(event.target.value)}
+              placeholder="Proposed carrier…"
+              className="field-input w-40"
+              aria-label="Filter submissions by the carrier the closer proposed"
+            />
+            <input
+              type="search"
+              value={finalSearch}
+              onChange={(event) => setFinalSearch(event.target.value)}
+              placeholder="Final carrier…"
+              className="field-input w-40"
+              aria-label="Filter submissions by the carrier the policy was written on"
             />
             {carrierFiltered ? (
               <button
                 type="button"
                 className="chip px-2.5 py-0.5 text-[0.66rem]"
-                onClick={() => setCarrierSearch("")}
+                onClick={() => {
+                  setProposedSearch("");
+                  setFinalSearch("");
+                }}
               >
-                Clear carrier
+                Clear carriers
               </button>
             ) : null}
             {/* Two more boxes rather than a third word in the search field:
@@ -1130,7 +1200,7 @@ export function SubmissionsExplorer() {
                 <TableHead>Type</TableHead>
                 <TableHead>Center</TableHead>
                 <TableHead>Customer</TableHead>
-                <TableHead>Carrier Name</TableHead>
+                <TableHead>Final Carrier</TableHead>
                 <TableHead>Submitted By</TableHead>
                 <TableHead>Validated By</TableHead>
                 <TableHead>Date</TableHead>
@@ -1163,10 +1233,13 @@ export function SubmissionsExplorer() {
                     />
                   </TableCell>
                   <TableCell className="font-medium">{customerName(row.payload)}</TableCell>
-                  {/* A validator submission files this under "Agency" rather
-                      than "Carrier Name" — carrierName() reads both. */}
+                  {/* The carrier the policy was actually written on, from the
+                      FK for an uploaded lead and from "Agency" for a
+                      validator's own — finalCarrierName() resolves both. A dash
+                      means not yet determined, never "look at the proposal
+                      instead". */}
                   <TableCell className="text-muted-foreground">
-                    {carrierName(row.payload)}
+                    {finalCarrierName(row) ?? "—"}
                   </TableCell>
                   {/* The uploading centre for an imported lead, the validator
                       themselves for one they typed — closerName() already

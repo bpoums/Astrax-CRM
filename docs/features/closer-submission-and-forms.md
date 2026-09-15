@@ -23,6 +23,33 @@ Live, stable. No placeholders.
   past submissions, read-only, sensitive fields stripped server-side — see
   below).
 
+## Proposed Carrier vs Final Carrier
+
+Renamed 2026-09-15. The closer's carrier field is **Proposed Carrier** — what
+was *pitched*. It is not the carrier the policy ends up on, and on 80 live
+leads the two differ (pitched "American Amicable", written TransAmerica).
+
+| | Where it lives | Which leads |
+|---|---|---|
+| **Proposed Carrier** | `payload['Proposed Carrier']` | closer + uploaded only |
+| **Final Carrier** | `final_carrier_id` -> `carriers.name` | closer + uploaded, once reviewed |
+| | `payload['Agency']` | validator's own submission |
+| | *(null — not yet determined)* | anything still awaiting review |
+
+A validator submission has **no proposal stage at all**: that form is only
+filed once the carrier has accepted, so its `Agency` value is already final.
+It also never gets `final_carrier_id`, because it auto-accepts on submit and
+never passes through `set_validator_fields` (verified live: 0 of 260).
+
+Read these through `finalCarrierName()` / `proposedCarrierName()` in `ops.tsx`,
+never by reaching for a payload key directly. `carrierName()` still exists for
+the narrower question "whatever carrier text this lead carries, either key".
+
+Migrations `20260915120000` (renamed the key on all 285 pre-existing rows, with
+the sheet-sync UPDATE trigger disabled — it is idempotent and safe to re-run)
+and `20260915121000` (the Sheet's `Final Carrier` column now falls back to
+`Agency` for a validator submission, which had left it blank on 260 rows).
+
 ## Important components
 - `closer-form.tsx` — `SECTIONS` is the single source of the field catalog:
   every label is simultaneously the payload jsonb key, the Google Sheet
@@ -33,10 +60,12 @@ Live, stable. No placeholders.
   hints, and a weekend warning on the draft date.
 - `validator-form.tsx` — one shared form for every carrier (carrier is a
   field, not a step), with its own duplicate-SSN/expiry/draft-date checks.
-  Stores the carrier under payload key `Agency` (not `Carrier Name`) —
+  Stores the carrier under payload key `Agency` (not `Proposed Carrier`) —
   required because the sheet-sync layer routes a Google Sheet tab off that
-  exact key; `payloadDisplayLabel()` in `ops.tsx` relabels it to "Carrier
-  Name" for display only.
+  exact key; `payloadDisplayLabel()` in `ops.tsx` relabels it to
+  **"Final Carrier"** for display only. The carrier is picked from the
+  `carriers` list rather than typed, so every stored value matches a real
+  carriers row (verified live: 260 of 260).
 - `forwarded-leads.tsx` — calls the RPC `my_forwarded_leads()` rather than
   reading `submissions` directly, because the closer RLS policy on
   `submissions` gives a closer nothing beyond their own submission at

@@ -1,5 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
-import { CARRIER_KEYS } from "@/components/ops";
+import { AGENCY_KEY, CARRIER_KEYS, PROPOSED_CARRIER_KEY } from "@/components/ops";
 
 /**
  * Searching leads server-side.
@@ -62,6 +62,50 @@ export function payloadSearchClauses(term: string) {
  */
 export function carrierSearchClauses(term: string) {
   return CARRIER_KEYS.map((key) => `payload->>${key}.ilike.*${term}*`);
+}
+
+/**
+ * The carrier a closer PITCHED, as its own `or` group.
+ *
+ * Only ever one key: a validator's own submission has no proposal stage at all,
+ * so this deliberately matches nothing on those rows rather than falling back
+ * to `Agency`. Combined with `finalCarrierSearchClauses` as a separate group —
+ * PostgREST ANDs repeated groups — this is what makes "proposed Amicable but
+ * written on TransAmerica" a question the filter bar can actually ask.
+ */
+export function proposedCarrierSearchClauses(term: string) {
+  return [`payload->>${PROPOSED_CARRIER_KEY}.ilike.*${term}*`];
+}
+
+/**
+ * The carrier the policy was actually written on, as its own `or` group.
+ *
+ * Two clauses for the two shapes `finalCarrierName()` reads (see its comment):
+ * the `final_carrier_id` FK for a reviewed closer/uploaded lead, and `Agency`
+ * for a validator's own submission, which never gets that FK stamped.
+ *
+ * `carrierIds` comes from `matchingCarrierIds()` — the FK stores a uuid, so the
+ * typed text has to be resolved to ids before it can be matched. An empty list
+ * contributes no clause rather than an empty `in.()`, which PostgREST rejects.
+ */
+export function finalCarrierSearchClauses(term: string, carrierIds: string[]) {
+  const clauses = [`payload->>${AGENCY_KEY}.ilike.*${term}*`];
+  if (carrierIds.length > 0) clauses.push(`final_carrier_id.in.(${carrierIds.join(",")})`);
+  return clauses;
+}
+
+/**
+ * The carriers whose name matches the term, as ids.
+ *
+ * Same shape and reasoning as `matchingProfileIds` below: the column holds a
+ * uuid, the operator types a name, and the gap has to be closed with a query
+ * before the main filter can run. The table is tiny (single digits today), so
+ * this is uncapped where the profiles lookup needs a limit.
+ */
+export async function matchingCarrierIds(term: string) {
+  const { data, error } = await supabase.from("carriers").select("id").ilike("name", `%${term}%`);
+  if (error) throw error;
+  return (data ?? []).map((row) => row.id);
 }
 
 /** The customer's own name, as a single `or` clause. */

@@ -71,7 +71,11 @@ columns, so they can be indexed/filtered without a jsonb cast), `ssn_normalized`
 (digits-only SSN, populated only when it forms a clean 9 digits — powers
 `check_duplicate_ssn`), `final_carrier_id`/`agent_name`/`policy_number` (the
 three validator-completed fields, columns not payload keys — see
-[features/validation-queue.md](features/validation-queue.md)),
+[features/validation-queue.md](features/validation-queue.md); note
+`final_carrier_id` is **null on every validator-submitted lead**, 0 of 260
+live, because those auto-accept on submit and never reach
+`set_validator_fields` — their final carrier is `payload->>'Agency'`, and
+`finalCarrierName()` in `ops.tsx` is what resolves the two shapes),
 `reopened_from_cx_at` (stamped by `return_lead_for_validation` — see the CX
 lifecycle RPCs below — when a CXA sends the lead back to the manager's queue;
 never cleared, so it stays as a permanent trace on that row).
@@ -183,7 +187,7 @@ each supports.
 - `purge_old_reporting_leads()` — cron only. Archives `closed` leads whose `disposed_at` is older than `reporting_retention_days` (skipped entirely if that setting is `0`).
 
 **Google Sheets sync (added/changed 2026-09-10)** — see the `notify_sheet_sync` entry under Triggers below for the full story.
-- `sync_submission_to_sheet(p_sub uuid) returns bigint` — no role check (called only by the trigger and the retry job, never by a client). Re-reads the submission fresh, builds the same payload `notify_sheet_sync` always has, posts it with a 45s timeout, returns the `pg_net` request id (or `null` if sync isn't configured or the row doesn't exist).
+- `sync_submission_to_sheet(p_sub uuid) returns bigint` — no role check (called only by the trigger and the retry job, never by a client). Re-reads the submission fresh, builds the same payload `notify_sheet_sync` always has, posts it with a 45s timeout, returns the `pg_net` request id (or `null` if sync isn't configured or the row doesn't exist). **Updated 2026-09-15** (`20260915121000`): the `final_carrier` field now falls back to `payload->>'Agency'` when `final_carrier_id` is null *and* `submitted_by_role = 'validator'`. Those submissions auto-accept on submit and so never pass through `set_validator_fields`, which left the Sheet's `Final Carrier` column blank on all 260 of them — even though their `Agency` value *is* the final carrier and matches a real `carriers` row. The fallback is gated on the role deliberately: on a closer/uploaded lead the payload only holds a *proposed* carrier, and letting it through would report a pitch as an issued policy.
 - `retry_failed_sheet_syncs() returns integer` — cron only. Resolves `sheet_sync_attempts` rows whose response was `200`, retries unresolved ones past a 3-minute grace period (max 3 attempts), gives up past that.
 
 ## Triggers

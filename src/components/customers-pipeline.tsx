@@ -64,8 +64,9 @@ const PAGE_SIZE = 25;
 /** The payload keys the search box spans. */
 /**
  * Spread from `CARRIER_KEYS` rather than naming one of them: a validator
- * submission files the carrier under "Agency", so searching only "Carrier Name"
- * matched none of them — the same split that used to leave the column blank.
+ * submission files the carrier under "Agency", so searching only the closer's
+ * "Proposed Carrier" key matched none of them — the same split that used to
+ * leave the column blank.
  */
 const SEARCH_KEYS = ["Full Name", ...CARRIER_KEYS, "Phone Number", SSN_FIELD];
 
@@ -437,8 +438,12 @@ export function CustomersPipeline({
                     {typeof row.payload[SSN_FIELD] === "string" ? row.payload[SSN_FIELD] : "—"}
                   </TableCell>
                   {/* carrierName(), not the payload key: a closer's lead files
-                    this under "Carrier Name" and a validator's under "Agency",
-                    and reading one of them left every validator row blank. */}
+                    this under "Proposed Carrier" and a validator's under
+                    "Agency", and reading one of them left every validator row
+                    blank. Deliberately the as-typed value rather than
+                    finalCarrierName() — this pipeline is about servicing the
+                    policy, and its own status columns already carry the
+                    outcome. */}
                   <TableCell
                     className="truncate text-muted-foreground"
                     title={carrierName(row.payload)}

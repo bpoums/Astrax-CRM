@@ -80,8 +80,13 @@ export const SECTIONS: Section[] = [
     title: "Policy",
     fields: [
       //  if type = carrier than carrier name will be selectable
-      { label: "Carrier Name", type: "text", required: true },
-      // { label: "Carrier Name", type: "carrier", required: true , span: "sm:col-span-2" },
+      // "Proposed", not "Carrier Name": what a closer types here is the carrier
+      // they PITCHED. The carrier the policy is actually written on is the
+      // validator's `final_carrier_id` (or, for a validator's own submission,
+      // its `Agency` key) — a different field that regularly disagrees with
+      // this one. See finalCarrierName() in ops.tsx.
+      { label: "Proposed Carrier", type: "text", required: true },
+      // { label: "Proposed Carrier", type: "carrier", required: true , span: "sm:col-span-2" },
       { label: "Coverage Amount", type: "number", required: true },
       { label: "Premium", type: "text", required: true },
       { label: "Doc Name", type: "text" },
