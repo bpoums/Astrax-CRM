@@ -1,5 +1,40 @@
 # Changelog
 
+## 2026-09-15 — sheet-sync no longer reports failed Google Sheets writes as successes
+
+Uploaded leads were reaching Google Sheets' door and being turned away, with
+every layer reporting success. Diagnosed from the edge function logs: Apps
+Script was throwing
+
+> `Exception: リクエストされたドキュメントにアクセスする権限がありません。（行 26、ファイル「Code」）`
+> — *"You do not have permission to access the requested document"*
+
+on line 26, `SpreadsheetApp.openById(sheetId)`. The routing was correct (the
+log line reads `synced … uploaded …`), but the Apps Script project has no
+access to the **Astrax Uploader Feed** spreadsheet. That part is a Google
+permissions fix, outside this repo.
+
+What *was* ours: an Apps Script web app answers **200 even when `doPost`
+threw**, returning its HTML error page instead of the `'ok'` the handler sends
+on success. `sheet-sync` only checked `res.ok`, so every exception was logged
+as a synced row, recorded `resolved_status = 'ok'` in `sheet_sync_attempts`,
+and gave `retry_failed_sheet_syncs` nothing to retry. Sync could fail
+indefinitely with no signal anywhere.
+
+**sheet-sync v12** adds `appsScriptFailure()`, which inspects the body for the
+three failure shapes that arrive as 200 — an HTML error page, any `Exception:`
+text, or the literal `unauthorized` on a secret mismatch — and returns 502 so
+the attempt is recorded truthfully and retried. It also logs just the extracted
+`Exception:` line rather than ~8KB of Google's CSP shim. Verified against the
+still-failing lead: the sync now returns `502 apps script error` where it
+previously returned `200 {"ok":true}`.
+
+Separately worth knowing: an uploaded lead does not sync at all until its
+import batch is approved — `notify_sheet_sync()` returns early while
+`source = 'sheet' and status = 'pending_import_approval'`. That is by design,
+not a fault, but it means a freshly uploaded lead is legitimately absent from
+the Sheet until a manager accepts the batch.
+
 ## 2026-09-15 — Proposed Carrier vs Final Carrier, split apart
 
 Two different facts had been sharing one name. What a closer types is the
