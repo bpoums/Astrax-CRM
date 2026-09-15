@@ -62,6 +62,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
 import { CxCoverageCard } from "./cx-status-breakdown";
 
 /**
@@ -83,21 +84,62 @@ type ReportingRow = SubmissionRow & {
 };
 
 /**
- * The three sets of leads, split by where each one came from rather than by
- * what it is tagged with.
+ * The two sets of leads, named for how the business actually categorises them:
+ * a lead a closer took on the phone is *Live*; everything a human typed or
+ * uploaded outside that flow is *Manual*.
  *
- * That distinction is the point. `ingest_sheet_lead` writes an imported lead
- * with `submitted_by_role = 'closer'` and `closer_id = null`, so splitting on
- * the role alone put every uploaded lead on the Closer tab with an empty Closer
- * column. Origin is what actually separates them.
+ * Live is a pure origin test, and has to be. `ingest_sheet_lead` writes an
+ * imported lead with `submitted_by_role = 'closer'` and `closer_id = null`, so
+ * splitting on the role alone put every uploaded lead on this tab with an empty
+ * Closer column.
+ *
+ * Manual is the one place this file mixes a ROLE test with an ORIGIN test, and
+ * does so deliberately: a validator's own submission (role) and an uploaded
+ * lead (origin) arrive by completely different paths but are the same thing to
+ * a reader of this table — a lead nobody closed live. They used to be two
+ * separate tabs; the merged table is what pays for that, and its columns are
+ * chosen so none of them changes meaning depending on which kind a row is.
  */
-type LeadTab = "closer" | "validator" | "offline";
+type LeadTab = "live" | "manual";
 
 const LEAD_TABS: { id: LeadTab; label: string }[] = [
-  { id: "closer", label: "Closer Submissions" },
-  { id: "validator", label: "Validator Submissions" },
-  { id: "offline", label: "Manual Submissions" },
+  { id: "live", label: "Live Submissions" },
+  { id: "manual", label: "Manual Submissions" },
 ];
+
+/**
+ * The Manual tab's selection, applied in one place because it is used twice —
+ * the paged fetch and the chip's head-count. A chip whose number disagrees
+ * with its own table is worse than either being wrong on its own.
+ *
+ * Two conditions ANDed, not a nested `or(and(...))`: the role test and the
+ * origin test are genuinely alternatives (a validator submission is stored
+ * `source = 'live'`, so origin alone would miss it), but the
+ * `pending_import_approval` exclusion can sit outside the group because only
+ * a sheet import is ever in that status — `submit_form_internal` hardcodes
+ * 'closed' for a validator's own submission. So excluding it unconditionally
+ * hides exactly the rows the nested form would have, while keeping this flat
+ * enough to read. Those rows belong to the Pending Imports queue and must
+ * appear nowhere else until a batch is accepted.
+ */
+function applyManualTabFilter<
+  T extends { or(filters: string): T; neq(column: string, value: string): T },
+>(query: T): T {
+  return query
+    .or("submitted_by_role.eq.validator,source.eq.sheet")
+    .neq("status", "pending_import_approval");
+}
+
+/**
+ * Which kind of Manual lead a row is — the one thing the merged tab would
+ * otherwise lose, since `sourceLabel()` calls both of them "Manual".
+ *
+ * Reads the role first for the same reason `sourceLabel()` does: a validator
+ * submission is `source = 'live'`, so origin alone would file it as an upload.
+ */
+function manualKind(row: { source?: LeadSource | null; submitted_by_role?: string | null }) {
+  return row.submitted_by_role === "validator" ? "Validator" : "Upload";
+}
 
 /**
  * The windows the record can be read over.
@@ -172,6 +214,16 @@ function matchingSources(term: string): LeadSource[] {
 }
 
 /**
+ * "Manual" means two things since the Validator and Manual tabs merged, and a
+ * search for the word has to find both of them. `source.in.('sheet')` alone
+ * misses a validator's own submission, which is stored `source = 'live'` and
+ * is only manual by virtue of its role.
+ */
+function matchesValidatorRole(term: string) {
+  return "manual".includes(term) || "validator".includes(term);
+}
+
+/**
  * Everything a lead can be matched on, as one `or` group.
  *
  * Both sub-tabs use it, so a term behaves the same whichever one is open —
@@ -190,6 +242,7 @@ function leadSearchClauses(term: string, profileIds: string[]) {
   if (dispositions.length > 0) clauses.push(`disposition.in.(${dispositions.join(",")})`);
   const sources = matchingSources(lower);
   if (sources.length > 0) clauses.push(`source.in.(${sources.join(",")})`);
+  if (matchesValidatorRole(lower)) clauses.push("submitted_by_role.eq.validator");
   return clauses;
 }
 
@@ -641,18 +694,17 @@ export function SubmissionsExplorer() {
   const [carrierSearch, setCarrierSearch] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [leadTab, setLeadTab] = useState<LeadTab>("closer");
+  const [leadTab, setLeadTab] = useState<LeadTab>("live");
   const [showArchived, setShowArchived] = useState(false);
   // A specific day, or a from/to range. Left blank, nothing is filtered by
   // date at all — the same "unset means no filter" convention the carrier
   // box and the Overview tab's custom range both already use.
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-  // A page number each. The three tabs are separate lists of separate lengths;
+  // A page number each. The two tabs are separate lists of separate lengths;
   // sharing one would land the reader on an empty page four when they switch.
-  const [closerPage, setCloserPage] = useState(0);
-  const [validatorPage, setValidatorPage] = useState(0);
-  const [offlinePage, setOfflinePage] = useState(0);
+  const [livePage, setLivePage] = useState(0);
+  const [manualPage, setManualPage] = useState(0);
 
   const term = sanitizeTerm(search);
   // Same sanitiser: this ends up in an `or=` group too, so a comma or a bracket
@@ -661,11 +713,10 @@ export function SubmissionsExplorer() {
   const carrierFiltered = carrierTerm.length > 0;
   const dateFiltered = dateFrom.length > 0 || dateTo.length > 0;
 
-  // Any of these changes what page 1 even means, so all three go back to the start.
+  // Any of these changes what page 1 even means, so both go back to the start.
   useEffect(() => {
-    setCloserPage(0);
-    setValidatorPage(0);
-    setOfflinePage(0);
+    setLivePage(0);
+    setManualPage(0);
   }, [term, carrierTerm, showArchived, leadTab, dateFrom, dateTo]);
 
   /**
@@ -708,22 +759,16 @@ export function SubmissionsExplorer() {
             { count: "exact" },
           );
 
-        // A validator submission carries its author in closer_id. Anything not
-        // explicitly tagged 'validator' is a closer submission, which is what
-        // keeps rows written before the column existed on the Closer tab.
-        //
-        // ORIGIN is what separates the other two, not the role. An imported
-        // lead is tagged 'closer' by ingest_sheet_lead and has no closer at
-        // all, so without the source test it sat on the Closer tab with an
-        // empty Closer column. `source` is NOT NULL and defaults to 'live', so
-        // no row is old enough to fall through this split.
-        if (tab === "validator") {
-          query = query.eq("submitted_by_role", "validator");
-        } else if (tab === "offline") {
-          // A lead still inside the import gate belongs to Pending Imports and
-          // nowhere else — that queue is the action, this tab is the record of
-          // what happened after the decision. Neither may show it at once.
-          query = query.eq("source", "sheet").neq("status", "pending_import_approval");
+        // Live is an ORIGIN test, not a role one. An imported lead is tagged
+        // 'closer' by ingest_sheet_lead and has no closer at all, so without
+        // the source test it sat on this tab with an empty Closer column.
+        // `source` is NOT NULL and defaults to 'live', so no row is old enough
+        // to fall through the split; the role test then lifts out a validator's
+        // own submission, which is also stored 'live'. Rows written before that
+        // column existed are null and stay here, which is correct — they
+        // predate validator self-submission entirely.
+        if (tab === "manual") {
+          query = applyManualTabFilter(query);
         } else {
           query = query
             .eq("source", "live")
@@ -761,12 +806,11 @@ export function SubmissionsExplorer() {
     };
   }
 
-  const closerQuery = useQuery(submissionsQuery("closer", closerPage));
-  const validatorQuery = useQuery(submissionsQuery("validator", validatorPage));
-  const offlineQuery = useQuery(submissionsQuery("offline", offlinePage));
+  const liveQuery = useQuery(submissionsQuery("live", livePage));
+  const manualQuery = useQuery(submissionsQuery("manual", manualPage));
 
   /**
-   * All three tabs' counts, so a reader sees where the leads are without
+   * Both tabs' counts, so a reader sees where the leads are without
    * clicking through each one. Head-count only (`head: true`) — no rows,
    * so this runs for every tab at once without the cost the paginated
    * fetch above deliberately avoids by only running the active tab's.
@@ -789,10 +833,8 @@ export function SubmissionsExplorer() {
 
       async function countFor(tab: LeadTab) {
         let query = supabase.from("submissions").select("id", { count: "exact", head: true });
-        if (tab === "validator") {
-          query = query.eq("submitted_by_role", "validator");
-        } else if (tab === "offline") {
-          query = query.eq("source", "sheet").neq("status", "pending_import_approval");
+        if (tab === "manual") {
+          query = applyManualTabFilter(query);
         } else {
           query = query
             .eq("source", "live")
@@ -808,12 +850,8 @@ export function SubmissionsExplorer() {
         return count ?? 0;
       }
 
-      const [closer, validator, offline] = await Promise.all([
-        countFor("closer"),
-        countFor("validator"),
-        countFor("offline"),
-      ]);
-      return { closer, validator, offline } satisfies Record<LeadTab, number>;
+      const [live, manual] = await Promise.all([countFor("live"), countFor("manual")]);
+      return { live, manual } satisfies Record<LeadTab, number>;
     },
   });
 
@@ -850,21 +888,18 @@ export function SubmissionsExplorer() {
     <QueueStatusBadge row={row} declinedCarriers={declinedMap.data?.get(row.id) ?? []} />
   );
 
-  const filteredCloser = useMemo(() => closerQuery.data?.rows ?? [], [closerQuery.data]);
-  const filteredValidator = useMemo(() => validatorQuery.data?.rows ?? [], [validatorQuery.data]);
-  const filteredOffline = useMemo(() => offlineQuery.data?.rows ?? [], [offlineQuery.data]);
+  const filteredLive = useMemo(() => liveQuery.data?.rows ?? [], [liveQuery.data]);
+  const filteredManual = useMemo(() => manualQuery.data?.rows ?? [], [manualQuery.data]);
 
-  // Keyed rather than chained: a third tab turns a ternary pair into something
-  // nobody can read, and a Record over the union cannot silently miss a tab.
-  const queries: Record<LeadTab, typeof closerQuery> = {
-    closer: closerQuery,
-    validator: validatorQuery,
-    offline: offlineQuery,
+  // Keyed rather than chained: a Record over the union cannot silently miss a
+  // tab, which a ternary chain can.
+  const queries: Record<LeadTab, typeof liveQuery> = {
+    live: liveQuery,
+    manual: manualQuery,
   };
   const paging: Record<LeadTab, { page: number; setPage: (next: number) => void }> = {
-    closer: { page: closerPage, setPage: setCloserPage },
-    validator: { page: validatorPage, setPage: setValidatorPage },
-    offline: { page: offlinePage, setPage: setOfflinePage },
+    live: { page: livePage, setPage: setLivePage },
+    manual: { page: manualPage, setPage: setManualPage },
   };
 
   const active = queries[leadTab];
@@ -1013,7 +1048,7 @@ export function SubmissionsExplorer() {
           ))}
         </div>
 
-        {leadTab === "closer" ? (
+        {leadTab === "live" ? (
           <Table>
             <TableHeader>
               <TableRow>
@@ -1030,7 +1065,7 @@ export function SubmissionsExplorer() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredCloser.map((row) => (
+              {filteredLive.map((row) => (
                 <TableRow key={row.id} className="cursor-pointer" onClick={() => setOpenId(row.id)}>
                   <TableCell>
                     <OriginBadge row={row} />
@@ -1070,85 +1105,57 @@ export function SubmissionsExplorer() {
                   ) : null}
                 </TableRow>
               ))}
-              {filteredCloser.length === 0 ? (
+              {filteredLive.length === 0 ? (
                 <TableRow>
                   <TableCell
                     colSpan={showArchived ? 10 : 9}
                     className="text-center text-muted-foreground"
                   >
-                    {closerQuery.isLoading ? "Loading…" : "No submissions match that search."}
-                  </TableCell>
-                </TableRow>
-              ) : null}
-            </TableBody>
-          </Table>
-        ) : leadTab === "validator" ? (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Customer</TableHead>
-                <TableHead>Carrier Name</TableHead>
-                <TableHead>Validator</TableHead>
-                <TableHead>Submitted</TableHead>
-                {showArchived ? <TableHead className="text-right">Action</TableHead> : null}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredValidator.map((row) => (
-                <TableRow key={row.id} className="cursor-pointer" onClick={() => setOpenId(row.id)}>
-                  <TableCell className="font-medium">{customerName(row.payload)}</TableCell>
-                  {/* A validator submission stores this under "Agency", not
-                      "Carrier Name" — carrierName() reads both. */}
-                  <TableCell className="text-muted-foreground">
-                    {carrierName(row.payload)}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">{closerName(row)}</TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {/* {relativeTime(row.created_at, now)} */}
-                    {formatDate(row.created_at)}
-                  </TableCell>
-                  {showArchived ? (
-                    <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                      <RestoreButton id={row.id} onRestore={unarchive} />
-                    </TableCell>
-                  ) : null}
-                </TableRow>
-              ))}
-              {filteredValidator.length === 0 ? (
-                <TableRow>
-                  <TableCell
-                    colSpan={showArchived ? 5 : 4}
-                    className="text-center text-muted-foreground"
-                  >
-                    {validatorQuery.isLoading ? "Loading…" : "No submissions match that search."}
+                    {liveQuery.isLoading ? "Loading…" : "No submissions match that search."}
                   </TableCell>
                 </TableRow>
               ) : null}
             </TableBody>
           </Table>
         ) : (
+          /* Two kinds of lead in one table, so every column here answers the
+             same question for both of them. The two that could not — Source,
+             which `sourceLabel()` reads as "Manual" for either kind, and
+             Validator, which meant the AUTHOR of a validator submission but
+             the ASSIGNEE of an uploaded one — are gone: Type says which kind a
+             row is, and the author/assignee split is now two honest columns. */
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Source</TableHead>
+                <TableHead>Type</TableHead>
                 <TableHead>Center</TableHead>
                 <TableHead>Customer</TableHead>
                 <TableHead>Carrier Name</TableHead>
-                <TableHead>Validator</TableHead>
-                <TableHead>Upload Date</TableHead>
+                <TableHead>Submitted By</TableHead>
+                <TableHead>Validated By</TableHead>
+                <TableHead>Date</TableHead>
                 <TableHead>Validation Status</TableHead>
                 <TableHead>Disposition</TableHead>
                 {showArchived ? <TableHead className="text-right">Action</TableHead> : null}
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredOffline.map((row) => (
+              {filteredManual.map((row) => (
                 <TableRow key={row.id} className="cursor-pointer" onClick={() => setOpenId(row.id)}>
+                  {/* Styled like the Source badge it replaces, because it sits
+                      where that column used to and does the same job of saying
+                      where a row came from — only now it distinguishes the two
+                      kinds that share this tab instead of labelling both
+                      "Manual". */}
                   <TableCell>
-                    <OriginBadge row={row} />
+                    <Badge variant="outline" className="border-border text-muted-foreground">
+                      {manualKind(row)}
+                    </Badge>
                   </TableCell>
-                  {/* The stamped name, not a join — see the Closer tab's own
-                      Center column above for why. */}
+                  {/* The stamped name, not a join — see the Live tab's own
+                      Center column above for why. Blank on a validator
+                      submission from before validators were assigned centres;
+                      stamped from their profile on every one since. */}
                   <TableCell>
                     <CenterBadge
                       name={row.center_name}
@@ -1156,21 +1163,32 @@ export function SubmissionsExplorer() {
                     />
                   </TableCell>
                   <TableCell className="font-medium">{customerName(row.payload)}</TableCell>
+                  {/* A validator submission files this under "Agency" rather
+                      than "Carrier Name" — carrierName() reads both. */}
                   <TableCell className="text-muted-foreground">
                     {carrierName(row.payload)}
                   </TableCell>
-                  {/* No Closer column: an imported lead has none. It can still
-                      be assigned to a validator like any other, once its batch
-                      has been accepted. */}
+                  {/* The uploading centre for an imported lead, the validator
+                      themselves for one they typed — closerName() already
+                      resolves both off `source`, so one column covers it. */}
+                  <TableCell className="text-muted-foreground">{closerName(row)}</TableCell>
+                  {/* Empty on a validator submission, and that is the fact
+                      rather than a gap: it auto-accepts on submit and is never
+                      assigned to anyone. */}
                   <TableCell className="text-muted-foreground">
                     {row.assignee?.full_name ?? "—"}
                   </TableCell>
-                  {/* An absolute date, not "3d ago": this column is the date the
-                      file was uploaded, and it is what an operator reconciles
+                  {/* Absolute, not "3d ago": for an uploaded lead this is the
+                      date the file arrived, which an operator reconciles
                       against the spreadsheet they sent. */}
                   <TableCell className="text-muted-foreground">
                     {formatDate(row.created_at)}
                   </TableCell>
+                  {/* Both read "Completed"/"Submit" on every validator row —
+                      the real stored values, since submit_form_internal closes
+                      and accepts one on submit. Left as they are rather than
+                      blanked: the detail sheet shows the same thing, and a
+                      dash here would contradict it. */}
                   <TableCell>{validationStatus(row)}</TableCell>
                   <TableCell>
                     <DispositionBadge disposition={row.disposition} onHold={isOnHold(row)} />
@@ -1182,13 +1200,13 @@ export function SubmissionsExplorer() {
                   ) : null}
                 </TableRow>
               ))}
-              {filteredOffline.length === 0 ? (
+              {filteredManual.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={showArchived ? 9 : 8}
+                    colSpan={showArchived ? 10 : 9}
                     className="text-center text-muted-foreground"
                   >
-                    {offlineQuery.isLoading ? "Loading…" : "No submissions match that search."}
+                    {manualQuery.isLoading ? "Loading…" : "No submissions match that search."}
                   </TableCell>
                 </TableRow>
               ) : null}

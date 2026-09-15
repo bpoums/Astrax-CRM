@@ -53,11 +53,38 @@ card), `validation-timeline.tsx`, `payload-history.tsx`.
   matches sitting on a different page.
 
 ## Business rules
-- **Origin split, not role split**: the Closer/Validator/Manual tabs split by
-  `source` + `submitted_by_role` together, not either alone — an imported
-  lead is written with `submitted_by_role='closer'` and `closer_id=null`, so
-  splitting on role alone would put it on the Closer tab with a blank Closer
-  column.
+- **Two tabs, Live and Manual** (renamed/merged 2026-09-15 from three:
+  Closer/Validator/Manual). Live = `source='live'` AND not
+  `submitted_by_role='validator'`; Manual = (`submitted_by_role='validator'`
+  OR `source='sheet'`) AND not `pending_import_approval`. Both tests are
+  needed, not either alone: an imported lead is written with
+  `submitted_by_role='closer'` and `closer_id=null`, so splitting on role
+  alone would put it on Live with a blank Closer column, while a validator's
+  own submission is stored `source='live'`, so splitting on origin alone
+  would miss it. The `pending_import_approval` exclusion sits outside the OR
+  group deliberately — only a sheet import is ever in that status
+  (`submit_form_internal` hardcodes `closed` for a validator submission), so
+  an unconditional exclusion hides exactly the right rows and stays flat.
+  Spelled once in `applyManualTabFilter()` because the paged fetch and the
+  chip's head-count both use it and must agree.
+- **The merged Manual table's columns are chosen so none changes meaning by
+  row kind.** It mixes validator-typed and uploaded leads, so the two columns
+  that *would* have changed meaning were replaced: `Source` (which
+  `sourceLabel()` reads as "Manual" for both kinds, saying nothing inside a
+  tab already named that) became **Type** — Validator vs Upload, the one
+  distinction the old tab split conveyed for free — and the old `Validator`
+  column, which meant the *author* on the Validator tab but the *assignee* on
+  the Manual tab, split into **Submitted By** (`closerName()`, which already
+  resolves the uploading centre or the validator themselves off `source`) and
+  **Validated By** (`assignee`, a dash on a validator row because it genuinely
+  was never assigned). Validation Status and Disposition show the real stored
+  values on validator rows — "Completed"/"Submit", constant but true, and
+  matching what the detail sheet shows.
+- **The Overview stat strip still reads Closer/Manual/Validator**, unmerged,
+  because those are `submission_totals` view columns and merging them
+  properly needs a view migration rather than a client-side sum (see
+  [database.md](../database.md) on not recomputing a view's numbers).
+  A known inconsistency with the chips, left for a follow-up.
 - **Archived and non-archived never mix** — the toggle switches which set
   you see; there is no combined view.
 - Realtime invalidation on `SubmissionsExplorer` only invalidates the

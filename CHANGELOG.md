@@ -1,5 +1,38 @@
 # Changelog
 
+## 2026-09-15 — Reporting: Live/Manual chips replace Closer/Validator/Manual
+
+The Submissions explorer (shared by admin → Submissions and the manager's
+Reporting tab) split leads across three chips. The business categorises them
+as two: a closer's phone lead is *Live*; a validator's own submission and an
+uploaded lead are both *Manual*. So "Closer Submissions" is now "Live
+Submissions", and the Validator and Manual chips are one.
+
+Merging the two tables meant resolving two columns that would otherwise have
+changed meaning depending on which kind of row you were looking at:
+
+- **Source** said "Manual" for both kinds (`sourceLabel()` maps a validator
+  submission and a sheet upload to the same word), so inside a tab already
+  named Manual it said nothing — and the reader lost the one thing the tab
+  split gave them for free. Replaced by **Type** (Validator / Upload).
+- **Validator** meant the *author* on the old Validator tab but the
+  *assignee* on the Manual tab. Split into **Submitted By** (the uploading
+  centre, or the validator themselves) and **Validated By** (a dash on a
+  validator row, which is the fact: it auto-accepts on submit and is never
+  assigned to anyone).
+
+Validation Status and Disposition were kept and show their real stored values
+on validator rows — "Completed"/"Submit", constant but true, and consistent
+with what the row's own detail sheet shows. The Manual selection is spelled
+once in `applyManualTabFilter()` since the paged fetch and the chip's
+head-count both use it and must agree. Searching "manual" or "validator" now
+also matches validator submissions, which are stored `source='live'`.
+
+Not changed: the Overview stat strip still reads Closer/Manual/Validator —
+those are `submission_totals` view columns, and merging them properly needs a
+view migration rather than a client-side sum. A known inconsistency, left for
+a follow-up.
+
 ## 2026-09-15 — Validators get a real Center field in Users, not a dash
 
 An admin had set every validator's `center_id` to UMS BPO directly (already
