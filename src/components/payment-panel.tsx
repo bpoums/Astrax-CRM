@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { usePaymentSummary } from "@/lib/payment-summary";
+import { paymentSummaryKey, usePaymentSummary } from "@/lib/payment-summary";
 import { Badge } from "@/components/ui/badge";
 
 /**
@@ -12,7 +12,26 @@ import { Badge } from "@/components/ui/badge";
  * fields plus the card's last four and nothing else, so a manager's queue never
  * holds a card number to leak. The full card is a separate, logged RPC that
  * only a validator inside their own review can call.
+ *
+ * `editable` adds inline correction of the bank fields through
+ * `update_payment_field`, one field per call, the same RPC and the same
+ * `form_events` trail the data-flag editor uses. The card number and the CVV are
+ * never offered here for anyone — they cannot be read back out of
+ * `payment_summary`, and the RPC refuses them to every role but admin. A
+ * card-type lead therefore has nothing editable in this panel at all: its last
+ * four and its expiry are all that ever reach the browser.
  */
+
+/**
+ * The bank-draft fields, which are the ones `update_payment_field` accepts and
+ * `payment_summary` reads back — so the input can start from the stored value.
+ */
+const EDITABLE_BANK_FIELDS = [
+  { field: "bank_name", label: "Bank Name" },
+  { field: "account_title", label: "Account Title" },
+  { field: "routing_number", label: "Routing Number" },
+  { field: "account_number", label: "Account Number" },
+] as const;
 
 type CardDetails = {
   card_number: string | null;
@@ -39,9 +58,12 @@ function groupCard(digits: string | null) {
 export function PaymentPanel({
   submissionId,
   canRevealCard = false,
+  editable = false,
 }: {
   submissionId: string;
   canRevealCard?: boolean;
+  /** Inline correction of the bank fields. Never the card number or the CVV. */
+  editable?: boolean;
 }) {
   const [card, setCard] = useState<CardDetails | null>(null);
 
@@ -115,12 +137,19 @@ export function PaymentPanel({
             <Row label="Card Expiry" value={details.card_exp ?? "—"} />
           </>
         ) : (
-          <>
-            <Row label="Bank Name" value={details.bank_name ?? "—"} />
-            <Row label="Account Title" value={details.account_title ?? "—"} />
-            <Row label="Routing Number" value={details.routing_number ?? "—"} />
-            <Row label="Account Number" value={details.account_number ?? "—"} />
-          </>
+          EDITABLE_BANK_FIELDS.map(({ field, label }) =>
+            editable ? (
+              <EditableRow
+                key={field}
+                submissionId={submissionId}
+                field={field}
+                label={label}
+                value={details[field] ?? ""}
+              />
+            ) : (
+              <Row key={field} label={label} value={details[field] ?? "—"} />
+            ),
+          )
         )}
       </div>
 
@@ -152,6 +181,83 @@ export function PaymentPanel({
           </div>
         )
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * One bank field, corrected in place.
+ *
+ * Save is only offered once the value actually differs, and the field re-reads
+ * from `paymentSummaryKey` afterwards rather than trusting the local draft — the
+ * panel and the data-flag editor share that one cache entry, so a correction
+ * made in either place has to be what both then draw from.
+ */
+function EditableRow({
+  submissionId,
+  field,
+  label,
+  value,
+}: {
+  submissionId: string;
+  field: string;
+  label: string;
+  value: string;
+}) {
+  const queryClient = useQueryClient();
+  const [draft, setDraft] = useState(value);
+  // The row is keyed by submission upstream, but a refetch can bring a new
+  // stored value in underneath an untouched input.
+  const [committed, setCommitted] = useState(value);
+  if (committed !== value) {
+    setCommitted(value);
+    setDraft(value);
+  }
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.rpc("update_payment_field", {
+        p_sub: submissionId,
+        p_field: field,
+        p_value: draft.trim(),
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success(`${label} updated`);
+      queryClient.invalidateQueries({ queryKey: paymentSummaryKey(submissionId) });
+    },
+    // The RPC raises its own authorisation message ("not authorized", "only an
+    // admin may change card credentials") — show that, not a generic one.
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const dirty = draft.trim() !== value.trim();
+
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] items-center gap-2 px-3 py-1.5">
+      <label className="field-label truncate" htmlFor={`payment-${field}-${submissionId}`}>
+        {label}
+      </label>
+      <div className="flex items-center gap-1.5">
+        <input
+          id={`payment-${field}-${submissionId}`}
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          className="field-input h-7 flex-1 text-xs tabular-nums"
+          autoComplete="off"
+        />
+        {dirty ? (
+          <button
+            type="button"
+            className="chip shrink-0 px-2 py-0.5 text-[0.62rem]"
+            disabled={save.isPending}
+            onClick={() => save.mutate()}
+          >
+            {save.isPending ? "Saving…" : "Save"}
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }

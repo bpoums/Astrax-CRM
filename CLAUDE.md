@@ -204,8 +204,9 @@ Full list with role gates in `docs/database.md`.
 - `payment_summary(p_sub uuid)` — bank fields plus `card_last4`, never the number
 - `card_details(p_sub uuid)` — full card; validator, in_review, theirs, **logged**
 - `update_payment_field(p_sub uuid, p_field text, p_value text)` — manager/admin
-  for `payment_type`, `bank_name`, `routing_number`, `account_number`,
-  `account_title`, `card_exp`; **admin only** for `card_number` and `cvv`. It
+  (and cxa/cxm on their own pipeline lead) for `payment_type`, `bank_name`,
+  `routing_number`, `account_number`, `account_title`, `card_exp`;
+  **admin only** for `card_number` and `cvv`. It
   raises its own authorisation message; show that message rather than a generic
   one.
 
@@ -302,7 +303,11 @@ in `requireRole()` only keeps someone off a screen that would show them nothing.
   window. Disposes them.
 - **data_uploader** — `/upload` and nothing else, and only the leads they
   imported themselves.
-- **cxm** / **cxa** — approved leads only. They set the four CX statuses.
+- **cxm** / **cxa** — the CX pipeline: approved leads, plus any lead they sent
+  back for re-validation, until one of them removes it
+  (`remove_from_cx_pipeline`; admin-only `restore_to_cx_pipeline` undoes it).
+  They set the four CX statuses and may edit a lead's payload and bank fields
+  on their own queue — never `card_number`/`cvv`, which stay admin-only.
   Three of the four CX-pipeline tabs (Transfer, Chargeback, Analytics) are
   placeholders — only Customers Pipeline is built. See
   `docs/features/cx-lifecycle.md`.

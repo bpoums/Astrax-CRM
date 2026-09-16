@@ -34,6 +34,9 @@ import { LeadPayload } from "@/components/lead-editor";
 import { acceptBlockedReason, ValidatorFields } from "@/components/validator-fields";
 import { PayloadEditHistory, payloadHistoryKey } from "@/components/payload-history";
 import { validationTimelineKey } from "@/components/validation-timeline";
+import { LeadHistoryDialog } from "@/components/lead-history-dialog";
+import { ClampedText } from "@/components/free-text";
+import { History } from "lucide-react";
 import {
   CarrierDeclineList,
   DeclinedCarriersBadge,
@@ -153,6 +156,34 @@ function isQueueTab(value: string): value is QueueTab {
   return QUEUE_TABS.some((tab) => tab.id === value);
 }
 
+/** One `reopened_from_cx` event, as the queue reads it. */
+type CxReturnEventRow = {
+  submission_id: string;
+  created_at: string;
+  detail: Record<string, unknown> | null;
+  actor: { full_name: string | null } | null;
+};
+
+/** The most recent return of one lead: who sent it back, when, and why. */
+type CxReturn = { reason: string | null; by: string | null; at: string };
+
+/** Attribution for a return, shown under the reason wherever it is read. */
+function returnedMeta(entry: CxReturn) {
+  return `${entry.by ?? "CX"} · ${formatDate(entry.at)}`;
+}
+
+/**
+ * One row's return reason.
+ *
+ * A dash covers both "returned with nothing typed" and "the reasons are still
+ * loading" — either way there is nothing to read yet, and a spinner in a table
+ * cell reads as a broken value rather than a pending one.
+ */
+function ReturnReasonCell({ entry, customer }: { entry: CxReturn | null; customer: string }) {
+  if (!entry?.reason) return <>—</>;
+  return <ClampedText text={entry.reason} heading={customer} meta={returnedMeta(entry)} />;
+}
+
 // Rows a manager may hand to a validator. `in_review` is excluded: a validator
 // is inside their window on it, and reassigning would yank it out from under them.
 const ASSIGNABLE = new Set<ManagerRow["status"]>([
@@ -246,6 +277,7 @@ function ManagerPage() {
   const { profile } = useAuth();
   const now = useNow();
   const [openId, setOpenId] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkValidator, setBulkValidator] = useState<string>("");
   const [archiveId, setArchiveId] = useState<string | null>(null);
@@ -254,6 +286,11 @@ function ManagerPage() {
   // decline_with_carriers is what disposes the lead.
   const [declineId, setDeclineId] = useState<string | null>(null);
   const [queueTab, setQueueTab] = useState<QueueTab>("live");
+  // Narrows the open tab only, by customer name. The queue holds every open
+  // row already, so this is a filter over what is loaded rather than a query —
+  // unlike the paged tables, which have to search server-side (see
+  // `src/lib/lead-search.ts` for why).
+  const [search, setSearch] = useState("");
   const { enabled: timeoutEnabled, windowMs, ready: settingsReady } = useReviewSettings();
   const showCountdown = settingsReady && timeoutEnabled;
 
@@ -284,6 +321,55 @@ function ManagerPage() {
   // One query for the whole queue rather than one per row — the view only
   // holds leads that have been declined at least once.
   const declinedMap = useDeclinedCarrierMap();
+
+  /**
+   * Why CX sent each returned lead back.
+   *
+   * `return_lead_for_validation` records the CXA's reason as a
+   * `reopened_from_cx` event, which is the only place it is stored — the
+   * submission row itself carries just the timestamp. Without this the CXA
+   * Returned tab could say a lead came back but never why, which is the one
+   * thing the manager needs before reassigning it.
+   *
+   * One query for the whole tab, in the same shape as `declinedMap` above.
+   * Newest first and first-write-wins on the map, because a lead can make the
+   * round trip more than once and the current return is the one being acted on.
+   */
+  const returnedIds = useMemo(
+    () =>
+      (submissions.data ?? [])
+        .filter((row) => row.reopened_from_cx_at)
+        .map((row) => row.id)
+        .sort(),
+    [submissions.data],
+  );
+
+  const returnReasons = useQuery({
+    queryKey: ["manager", "cx-return-reasons", returnedIds],
+    enabled: returnedIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("form_events")
+        .select(
+          "submission_id, created_at, detail, actor:profiles!form_events_actor_id_fkey(full_name)",
+        )
+        .in("submission_id", returnedIds)
+        .eq("event_type", "reopened_from_cx")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      const byId = new Map<string, CxReturn>();
+      for (const row of (data ?? []) as unknown as CxReturnEventRow[]) {
+        if (byId.has(row.submission_id)) continue;
+        const reason = typeof row.detail?.["reason"] === "string" ? row.detail["reason"] : null;
+        byId.set(row.submission_id, {
+          reason: reason && reason.trim() !== "" ? reason : null,
+          by: row.actor?.full_name ?? null,
+          at: row.created_at,
+        });
+      }
+      return byId;
+    },
+  });
 
   /**
    * Just the count, so it can sit on the "Pending Imports" tab trigger itself
@@ -323,6 +409,9 @@ function ManagerPage() {
       .channel("manager-submissions")
       .on("postgres_changes", { event: "*", schema: "public", table: "submissions" }, () => {
         queryClient.invalidateQueries({ queryKey: ["manager", "submissions"] });
+        // A lead arriving back from CX brings its reason with it, in another
+        // table this channel does not watch — so it is refetched alongside.
+        queryClient.invalidateQueries({ queryKey: ["manager", "cx-return-reasons"] });
         // An import lands as a batch of inserts, so the same channel is what
         // puts a newly uploaded batch on the Pending Imports tab.
         queryClient.invalidateQueries({ queryKey: PENDING_IMPORTS_KEY });
@@ -415,13 +504,17 @@ function ManagerPage() {
   // One query still feeds all three queues — the statuses they draw from are
   // identical, so a second (or third) request would only duplicate the
   // realtime work.
-  const rows = useMemo(
-    () => allRows.filter((row) => queueTabOf(row) === queueTab),
-    [allRows, queueTab],
-  );
+  const term = search.trim().toLowerCase();
+  const rows = useMemo(() => {
+    const onTab = allRows.filter((row) => queueTabOf(row) === queueTab);
+    if (!term) return onTab;
+    return onTab.filter((row) => customerName(row.payload).toLowerCase().includes(term));
+  }, [allRows, queueTab, term]);
   // Per tab, over the WHOLE set rather than the active filter — so a reader
   // can see how many manual leads are open without clicking over to that
-  // tab first.
+  // tab first. Deliberately NOT narrowed by the search: the search narrows the
+  // tab being read, and a count that moved with it would stop answering "how
+  // much is open" on the tabs the reader is not looking at.
   const tabCounts = useMemo(() => {
     const counts = {} as Record<QueueTab, number>;
     for (const tab of QUEUE_TABS) {
@@ -431,6 +524,7 @@ function ManagerPage() {
   }, [allRows]);
   const selected = rows.find((row) => row.id === openId) ?? null;
   const selectedFlags = selected ? dataFlags(selected.data_flags) : [];
+  const selectedReturn = selected ? (returnReasons.data?.get(selected.id) ?? null) : null;
   /**
    * Why Accept is unavailable, or null. Read off the SAVED row rather than the
    * editor's draft: the server gates on what is stored, so anything else would
@@ -439,6 +533,7 @@ function ManagerPage() {
   const acceptBlocked = selected ? acceptBlockedReason(selected) : null;
   const declining = rows.find((row) => row.id === declineId) ?? null;
   const declinedBy = (id: string) => declinedMap.data?.get(id) ?? [];
+  const returnReasonFor = (id: string) => returnReasons.data?.get(id) ?? null;
   const selectedDeclines = selected ? declinedBy(selected.id) : [];
   const busy = dispose.isPending || assign.isPending || archive.isPending;
   const canArchive = profile?.role === "manager" || profile?.role === "admin";
@@ -482,8 +577,10 @@ function ManagerPage() {
   // A tick belongs to the queue it was made in. `selection` already intersects
   // with what is assignable on the open tab, so nothing could leak across —
   // this clears the ids too, so returning to a tab does not resurrect a
-  // selection the reader has long since moved on from.
-  useEffect(() => setSelectedIds([]), [queueTab]);
+  // selection the reader has long since moved on from. A changed search term
+  // clears it for the same reason: a bulk assign must never reach a lead that
+  // is no longer on screen to be unticked.
+  useEffect(() => setSelectedIds([]), [queueTab, term]);
 
   const toggleRow = (id: string, checked: boolean) =>
     setSelectedIds((prev) =>
@@ -548,6 +645,28 @@ function ManagerPage() {
                         </TabsTrigger>
                       ))}
                     </TabsList>
+                    {/* Beside the tabs it narrows, not above the whole panel:
+                        it filters the open queue only, and the counts on the
+                        other tabs stay whole. */}
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="search"
+                        value={search}
+                        onChange={(event) => setSearch(event.target.value)}
+                        placeholder="Search customer…"
+                        className="field-input h-8 w-52"
+                        aria-label="Search this queue by customer name"
+                      />
+                      {term ? (
+                        <button
+                          type="button"
+                          className="chip px-2.5 py-0.5 text-[0.66rem]"
+                          onClick={() => setSearch("")}
+                        >
+                          Clear
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
                   {/* The bulk bar belongs to whichever queue is open. Crossing
                       to the other tab clears the selection, so an assign can
@@ -666,7 +785,11 @@ function ManagerPage() {
                       {rows.length === 0 ? (
                         <TableRow>
                           <TableCell colSpan={6} className="text-center text-muted-foreground">
-                            {submissions.isLoading ? "Loading…" : "Nothing in the queue."}
+                            {submissions.isLoading
+                              ? "Loading…"
+                              : term
+                                ? "No lead on this tab matches that name."
+                                : "Nothing in the queue."}
                           </TableCell>
                         </TableRow>
                       ) : null}
@@ -745,7 +868,11 @@ function ManagerPage() {
                       {rows.length === 0 ? (
                         <TableRow>
                           <TableCell colSpan={5} className="text-center text-muted-foreground">
-                            {submissions.isLoading ? "Loading…" : "Nothing in the queue."}
+                            {submissions.isLoading
+                              ? "Loading…"
+                              : term
+                                ? "No lead on this tab matches that name."
+                                : "Nothing in the queue."}
                           </TableCell>
                         </TableRow>
                       ) : null}
@@ -780,6 +907,9 @@ function ManagerPage() {
                         <TableHead>Origin</TableHead>
                         <TableHead>Handled by</TableHead>
                         <TableHead>Returned</TableHead>
+                        {/* The reason CX gave. Without it this tab says a lead
+                            came back but not what to do about it. */}
+                        {/* <TableHead className="w-64">Reason</TableHead> */}
                         <TableHead>Status</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -816,6 +946,16 @@ function ManagerPage() {
                               ? relativeTime(row.reopened_from_cx_at, now)
                               : "—"}
                           </TableCell>
+                          {/* Clamped to two lines with the whole of it on
+                              hover: a reason is free text a CXA typed, and
+                              letting it set the row height would push the
+                              columns either side of it out of scanning range. */}
+                          {/* <TableCell className="text-muted-foreground">
+                            <ReturnReasonCell
+                              entry={returnReasonFor(row.id)}
+                              customer={customerName(row.payload)}
+                            />
+                          </TableCell> */}
                           <TableCell>
                             <QueueStatusCell
                               row={row}
@@ -829,8 +969,12 @@ function ManagerPage() {
                       ))}
                       {rows.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={7} className="text-center text-muted-foreground">
-                            {submissions.isLoading ? "Loading…" : "Nothing returned by CXA."}
+                          <TableCell colSpan={8} className="text-center text-muted-foreground">
+                            {submissions.isLoading
+                              ? "Loading…"
+                              : term
+                                ? "No returned lead matches that name."
+                                : "Nothing returned by CXA."}
                           </TableCell>
                         </TableRow>
                       ) : null}
@@ -863,7 +1007,15 @@ function ManagerPage() {
         </Tabs>
       </div>
 
-      <Sheet open={!!selected} onOpenChange={(open) => !open && setOpenId(null)}>
+      <Sheet
+        open={!!selected}
+        onOpenChange={(open) => {
+          if (!open) {
+            setOpenId(null);
+            setHistoryOpen(false);
+          }
+        }}
+      >
         <SheetContent className="w-full overflow-y-auto overflow-x-hidden sm:max-w-xl">
           {selected ? (
             <>
@@ -875,6 +1027,35 @@ function ManagerPage() {
                 </SheetDescription>
               </SheetHeader>
               <div className="flex min-w-0 max-w-full flex-col gap-4 px-4">
+                {/* Why this lead is back, in full — the column in the queue
+                    clamps it, and the whole point of opening the lead is to
+                    read what CX actually said before reassigning it. Shown
+                    first because it is the reason this sheet is open. */}
+                {selected.reopened_from_cx_at ? (
+                  <div className="flex flex-col gap-1 rounded-md border border-accent/50 bg-accent/5 px-3 py-2">
+                    <span className="field-label text-accent">Returned by CX</span>
+                    <span className="text-[0.66rem] text-muted-foreground">
+                      {selectedReturn
+                        ? returnedMeta(selectedReturn)
+                        : relativeTime(selected.reopened_from_cx_at, now)}
+                    </span>
+                    <p className="free-text whitespace-pre-wrap text-xs leading-snug text-foreground">
+                      {selectedReturn?.reason ?? "No reason was given."}
+                    </p>
+                  </div>
+                ) : null}
+
+                {/* The same history every other lead screen offers: the
+                    validation passes, and the CX lifecycle alongside them. */}
+                <button
+                  type="button"
+                  className="chip w-full justify-center gap-1.5"
+                  onClick={() => setHistoryOpen(true)}
+                >
+                  <History className="h-3.5 w-3.5" aria-hidden />
+                  View History
+                </button>
+
                 {/* Editable: a manager correcting a lead is fixing the record
                     the sheet-sync trigger pushes, so every field goes through
                     update_payload_field rather than the table — which is what
@@ -990,6 +1171,16 @@ function ManagerPage() {
           ) : null}
         </SheetContent>
       </Sheet>
+
+      {/* Outside the sheet, like every other screen that mounts it: a dialog
+          nested inside a sheet inherits the sheet's width, which is the one
+          thing this view exists to escape. */}
+      <LeadHistoryDialog
+        submissionId={selected?.id ?? null}
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        customerName={selected ? customerName(selected.payload) : null}
+      />
 
       <DeclineDialog
         submissionId={declineId}

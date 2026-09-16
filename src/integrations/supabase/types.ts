@@ -944,6 +944,8 @@ export type Database = {
           created_at: string
           cx_assigned_at: string | null
           cx_assigned_to: string | null
+          cx_removed_at: string | null
+          cx_removed_by: string | null
           data_flags: Json
           disposed_at: string | null
           disposed_by: string | null
@@ -982,6 +984,8 @@ export type Database = {
           created_at?: string
           cx_assigned_at?: string | null
           cx_assigned_to?: string | null
+          cx_removed_at?: string | null
+          cx_removed_by?: string | null
           data_flags?: Json
           disposed_at?: string | null
           disposed_by?: string | null
@@ -1020,6 +1024,8 @@ export type Database = {
           created_at?: string
           cx_assigned_at?: string | null
           cx_assigned_to?: string | null
+          cx_removed_at?: string | null
+          cx_removed_by?: string | null
           data_flags?: Json
           disposed_at?: string | null
           disposed_by?: string | null
@@ -1112,6 +1118,20 @@ export type Database = {
           {
             foreignKeyName: "submissions_cx_assigned_to_fkey"
             columns: ["cx_assigned_to"]
+            isOneToOne: false
+            referencedRelation: "validator_stats"
+            referencedColumns: ["validator_id"]
+          },
+          {
+            foreignKeyName: "submissions_cx_removed_by_fkey"
+            columns: ["cx_removed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "submissions_cx_removed_by_fkey"
+            columns: ["cx_removed_by"]
             isOneToOne: false
             referencedRelation: "validator_stats"
             referencedColumns: ["validator_id"]
@@ -1236,6 +1256,7 @@ export type Database = {
           commission_tone: string | null
           cx_updated_at: string | null
           cx_updated_by: string | null
+          disposition: Database["public"]["Enums"]["disposition_t"] | null
           draft_date: string | null
           payload: Json | null
           policy_code: string | null
@@ -1246,7 +1267,9 @@ export type Database = {
           premium_label: string | null
           premium_reason: string | null
           premium_tone: string | null
+          reopened_from_cx_at: string | null
           source: string | null
+          status: Database["public"]["Enums"]["sub_status"] | null
           submission_id: string | null
           submitted_on: string | null
         }
@@ -1399,6 +1422,8 @@ export type Database = {
           created_at: string
           cx_assigned_at: string | null
           cx_assigned_to: string | null
+          cx_removed_at: string | null
+          cx_removed_by: string | null
           data_flags: Json
           disposed_at: string | null
           disposed_by: string | null
@@ -1446,6 +1471,8 @@ export type Database = {
           created_at: string
           cx_assigned_at: string | null
           cx_assigned_to: string | null
+          cx_removed_at: string | null
+          cx_removed_by: string | null
           data_flags: Json
           disposed_at: string | null
           disposed_by: string | null
@@ -1499,6 +1526,8 @@ export type Database = {
           created_at: string
           cx_assigned_at: string | null
           cx_assigned_to: string | null
+          cx_removed_at: string | null
+          cx_removed_by: string | null
           data_flags: Json
           disposed_at: string | null
           disposed_by: string | null
@@ -1546,6 +1575,8 @@ export type Database = {
           created_at: string
           cx_assigned_at: string | null
           cx_assigned_to: string | null
+          cx_removed_at: string | null
+          cx_removed_by: string | null
           data_flags: Json
           disposed_at: string | null
           disposed_by: string | null
@@ -1578,6 +1609,7 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      cx_pipeline_member: { Args: { p_sub: string }; Returns: boolean }
       decline_with_carriers: {
         Args: { p_carrier_ids: string[]; p_reason?: string; p_sub: string }
         Returns: {
@@ -1593,6 +1625,8 @@ export type Database = {
           created_at: string
           cx_assigned_at: string | null
           cx_assigned_to: string | null
+          cx_removed_at: string | null
+          cx_removed_by: string | null
           data_flags: Json
           disposed_at: string | null
           disposed_by: string | null
@@ -1643,6 +1677,8 @@ export type Database = {
           created_at: string
           cx_assigned_at: string | null
           cx_assigned_to: string | null
+          cx_removed_at: string | null
+          cx_removed_by: string | null
           data_flags: Json
           disposed_at: string | null
           disposed_by: string | null
@@ -1691,6 +1727,8 @@ export type Database = {
           created_at: string
           cx_assigned_at: string | null
           cx_assigned_to: string | null
+          cx_removed_at: string | null
+          cx_removed_by: string | null
           data_flags: Json
           disposed_at: string | null
           disposed_by: string | null
@@ -1745,6 +1783,8 @@ export type Database = {
           created_at: string
           cx_assigned_at: string | null
           cx_assigned_to: string | null
+          cx_removed_at: string | null
+          cx_removed_by: string | null
           data_flags: Json
           disposed_at: string | null
           disposed_by: string | null
@@ -1792,6 +1832,8 @@ export type Database = {
           created_at: string
           cx_assigned_at: string | null
           cx_assigned_to: string | null
+          cx_removed_at: string | null
+          cx_removed_by: string | null
           data_flags: Json
           disposed_at: string | null
           disposed_by: string | null
@@ -1857,6 +1899,8 @@ export type Database = {
           created_at: string
           cx_assigned_at: string | null
           cx_assigned_to: string | null
+          cx_removed_at: string | null
+          cx_removed_by: string | null
           data_flags: Json
           disposed_at: string | null
           disposed_by: string | null
@@ -1893,6 +1937,10 @@ export type Database = {
         Args: { p_import_id: string; p_reason?: string }
         Returns: Json
       }
+      remove_from_cx_pipeline: {
+        Args: { p_reason?: string; p_sub: string }
+        Returns: Json
+      }
       remove_submission_tag: {
         Args: { p_sub: string; p_tag: string }
         Returns: undefined
@@ -1923,6 +1971,7 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      restore_to_cx_pipeline: { Args: { p_sub: string }; Returns: Json }
       retry_failed_sheet_syncs: { Args: never; Returns: number }
       return_lead_for_validation: {
         Args: { p_reason?: string; p_sub: string }
@@ -1939,6 +1988,8 @@ export type Database = {
           created_at: string
           cx_assigned_at: string | null
           cx_assigned_to: string | null
+          cx_removed_at: string | null
+          cx_removed_by: string | null
           data_flags: Json
           disposed_at: string | null
           disposed_by: string | null
@@ -2006,6 +2057,8 @@ export type Database = {
           created_at: string
           cx_assigned_at: string | null
           cx_assigned_to: string | null
+          cx_removed_at: string | null
+          cx_removed_by: string | null
           data_flags: Json
           disposed_at: string | null
           disposed_by: string | null
@@ -2100,6 +2153,8 @@ export type Database = {
           created_at: string
           cx_assigned_at: string | null
           cx_assigned_to: string | null
+          cx_removed_at: string | null
+          cx_removed_by: string | null
           data_flags: Json
           disposed_at: string | null
           disposed_by: string | null
@@ -2150,6 +2205,8 @@ export type Database = {
           created_at: string
           cx_assigned_at: string | null
           cx_assigned_to: string | null
+          cx_removed_at: string | null
+          cx_removed_by: string | null
           data_flags: Json
           disposed_at: string | null
           disposed_by: string | null
@@ -2197,6 +2254,8 @@ export type Database = {
           created_at: string
           cx_assigned_at: string | null
           cx_assigned_to: string | null
+          cx_removed_at: string | null
+          cx_removed_by: string | null
           data_flags: Json
           disposed_at: string | null
           disposed_by: string | null
@@ -2245,6 +2304,8 @@ export type Database = {
           created_at: string
           cx_assigned_at: string | null
           cx_assigned_to: string | null
+          cx_removed_at: string | null
+          cx_removed_by: string | null
           data_flags: Json
           disposed_at: string | null
           disposed_by: string | null

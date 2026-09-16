@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import {
   CARRIER_KEYS,
   CenterBadge,
   carrierName,
-  PayloadTable,
   customerName,
   sourceLabel,
   type LeadSource,
@@ -14,7 +14,13 @@ import {
 import { useCenterColorById } from "@/lib/centers";
 import { SSN_FIELD } from "@/lib/duplicate-ssn";
 import { formatCalendarDate, formatDate } from "@/lib/format-date";
-import { CxStatusCell, ReturnForValidationButton } from "@/components/cx-status-cell";
+import {
+  CxStatusCell,
+  RemoveFromQueueButton,
+  ReturnForValidationButton,
+} from "@/components/cx-status-cell";
+import { LeadPayload } from "@/components/lead-editor";
+import { PaymentPanel } from "@/components/payment-panel";
 import { LeadHistoryDialog } from "@/components/lead-history-dialog";
 import { History } from "lucide-react";
 import {
@@ -54,9 +60,14 @@ import {
  *
  * Reads `cx_pipeline`, which is one row per lead with the status labels, tones
  * and reasons already resolved — so the table needs no joins and no per-cell
- * lookups. That view carries its own `disposition = 'accepted' AND archived_at
- * IS NULL`, which is why nothing here re-filters for it: unlike a bare
- * submissions query, an admin reading this view gets the same set a CXA does.
+ * lookups. That view carries the pipeline's own membership rule (accepted, or
+ * sent back for re-validation, and not removed or archived), which is why
+ * nothing here re-filters for it: unlike a bare submissions query, an admin
+ * reading this view gets the same set a CXA does.
+ *
+ * A lead sent back with "Return For Validation" STAYS here, marked
+ * In Validation, until a CXA removes it — losing sight of a lead at the moment
+ * it was handed back was the thing that made this queue hard to work.
  */
 
 const PAGE_SIZE = 25;
@@ -81,6 +92,10 @@ const SELECT_COLUMNS = [
   "commission_code, commission_label, commission_tone, commission_reason",
   "chargeback_code, chargeback_label, chargeback_tone, chargeback_reason",
   "cx_updated_by, cx_updated_at",
+  // What the Actions cell renders: a lead that has been sent back carries
+  // `reopened_from_cx_at` and no longer has a disposition until the manager
+  // disposes it again.
+  "status, disposition, reopened_from_cx_at",
 ].join(", ");
 
 /** A filter is "any", "none" (not set), or a status code within that category. */
@@ -131,7 +146,23 @@ type PipelineRow = {
   chargeback_reason: string | null;
   cx_updated_by: string | null;
   cx_updated_at: string | null;
+  status: string | null;
+  disposition: string | null;
+  reopened_from_cx_at: string | null;
 };
+
+/**
+ * Is this lead away being re-validated?
+ *
+ * `return_lead_for_validation` stamps `reopened_from_cx_at` and clears the
+ * disposition, so "sent and not yet disposed again" is exactly those two
+ * together. Once the manager disposes it a second time the row reads as a
+ * normal pipeline lead again — accepted, or carrying whatever outcome the
+ * manager recorded — and the Return button comes back.
+ */
+function inValidation(row: PipelineRow) {
+  return row.reopened_from_cx_at !== null && row.disposition !== "accepted";
+}
 
 /** Reads one category's four columns off a row. */
 function statusOf(row: PipelineRow, category: CxCategory) {
@@ -430,8 +461,8 @@ export function CustomersPipeline({
                       </TooltipBody>
                     </Tooltip>
                   </TableCell>
-                  {/* Same field the intake forms write and PayloadTable already
-                      shows unmasked in the detail sheet — every role that
+                  {/* Same field the intake forms write and the detail sheet
+                      already shows unmasked — every role that
                       reaches this table can already see it there, so a column
                       exposes nothing new, just saves the click. */}
                   <TableCell className="text-muted-foreground tabular-nums">
@@ -502,10 +533,17 @@ export function CustomersPipeline({
                     mount has no column for it at all — see the header above. */}
                   {readOnly ? null : (
                     <TableCell onClick={(event) => event.stopPropagation()}>
-                      <ReturnForValidationButton
-                        submissionId={row.submission_id}
-                        onReturned={onStatusSaved}
-                      />
+                      <div className="flex flex-col items-start gap-1">
+                        <ReturnForValidationButton
+                          submissionId={row.submission_id}
+                          inValidation={inValidation(row)}
+                          onReturned={onStatusSaved}
+                        />
+                        <RemoveFromQueueButton
+                          submissionId={row.submission_id}
+                          onRemoved={onStatusSaved}
+                        />
+                      </div>
                     </TableCell>
                   )}
                 </TableRow>
@@ -572,6 +610,15 @@ export function CustomersPipeline({
                 <SheetDescription>
                   {carrierName(selected.payload)} · {sourceLabel(originOf(selected))} · submitted{" "}
                   {formatDate(selected.submitted_on)}
+                  {/* Said here as well as in the row: this sheet offers edits,
+                      and a lead that is away being re-validated can be edited by
+                      a validator at the same time. */}
+                  {inValidation(selected) ? (
+                    <span className="mt-1 block text-accent">
+                      Sent back for validation {formatDate(selected.reopened_from_cx_at)} · waiting
+                      on the manager
+                    </span>
+                  ) : null}
                 </SheetDescription>
               </SheetHeader>
 
@@ -613,7 +660,21 @@ export function CustomersPipeline({
                   View History
                 </button>
 
-                <PayloadTable payload={selected.payload} />
+                {/* The same editor a manager uses: one `update_payload_field`
+                    call per changed field, each with its own before/after row in
+                    `payload_edits`. Read-only for the admin mount, which views
+                    this pipeline but does not work it. */}
+                <LeadPayload
+                  submissionId={selected.submission_id}
+                  payload={selected.payload}
+                  editable={!readOnly}
+                  onSaved={onStatusSaved}
+                />
+
+                {/* Bank fields only. Card number and CVV are never rendered as
+                    inputs here and `update_payment_field` refuses them to
+                    anyone but an admin regardless. */}
+                <PaymentPanel submissionId={selected.submission_id} editable={!readOnly} />
 
                 {/* Both stories now live in the dedicated history dialog —
                     squeezed inline here, a lead with real history made this
@@ -640,5 +701,125 @@ export function CustomersPipeline({
         customerName={selected ? customerName(selected.payload) : null}
       />
     </TooltipProvider>
+  );
+}
+
+/**
+ * The leads a CXA has taken off the pipeline, and the admin's way to put one
+ * back.
+ *
+ * Removal is deliberately not an archive — the lead never left reporting, the
+ * manager's queue or its own history — so the only thing missing was a way to
+ * undo it. `restore_to_cx_pipeline` is admin-only, which is why this panel is
+ * mounted from the admin's read-only Pipeline tab and nowhere else.
+ *
+ * Read directly from `submissions` rather than through `cx_pipeline`: the view
+ * exists to define the working queue, and these rows are precisely the ones it
+ * excludes.
+ */
+type RemovedRow = {
+  id: string;
+  payload: Record<string, unknown>;
+  cx_removed_at: string | null;
+  remover: { full_name: string | null } | null;
+};
+
+export const CX_REMOVED_KEY = ["cx", "removed"] as const;
+
+export function RemovedFromPipeline() {
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+
+  const removed = useQuery({
+    queryKey: CX_REMOVED_KEY,
+    enabled: open,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("submissions")
+        .select(
+          "id, payload, cx_removed_at, remover:profiles!submissions_cx_removed_by_fkey(full_name)",
+        )
+        .not("cx_removed_at", "is", null)
+        .is("archived_at", null)
+        .order("cx_removed_at", { ascending: false })
+        .limit(100);
+      if (error) throw error;
+      return (data ?? []) as unknown as RemovedRow[];
+    },
+  });
+
+  const restore = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.rpc("restore_to_cx_pipeline", { p_sub: id });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Lead restored to the customer pipeline");
+      queryClient.invalidateQueries({ queryKey: CX_REMOVED_KEY });
+      queryClient.invalidateQueries({ queryKey: ["cx", "pipeline"] });
+    },
+    // `restore_to_cx_pipeline` raises "not authorized" and "lead was not
+    // removed from the customer pipeline" — both worth reading as written.
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const rows = removed.data ?? [];
+
+  return (
+    <section className="panel">
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="panel-title">Removed From Pipeline</h2>
+        <button
+          type="button"
+          className={`chip px-2.5 py-0.5 text-[0.66rem] ${open ? "chip-active" : ""}`}
+          onClick={() => setOpen((current) => !current)}
+        >
+          {open ? "Hide" : "Show"}
+        </button>
+      </div>
+
+      {open ? (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Customer</TableHead>
+              <TableHead className="w-40">Removed By</TableHead>
+              <TableHead className="w-32">Removed</TableHead>
+              <TableHead className="w-24">Restore</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((row) => (
+              <TableRow key={row.id}>
+                <TableCell className="font-medium">{customerName(row.payload)}</TableCell>
+                <TableCell className="text-muted-foreground">
+                  {row.remover?.full_name ?? "—"}
+                </TableCell>
+                <TableCell className="whitespace-nowrap text-muted-foreground">
+                  {formatDate(row.cx_removed_at)}
+                </TableCell>
+                <TableCell>
+                  <button
+                    type="button"
+                    className="chip px-2.5 py-0.5 text-[0.66rem]"
+                    disabled={restore.isPending}
+                    onClick={() => restore.mutate(row.id)}
+                  >
+                    Restore
+                  </button>
+                </TableCell>
+              </TableRow>
+            ))}
+            {rows.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={4} className="text-center text-muted-foreground">
+                  {removed.isLoading ? "Loading…" : "No leads have been removed from the pipeline."}
+                </TableCell>
+              </TableRow>
+            ) : null}
+          </TableBody>
+        </Table>
+      ) : null}
+    </section>
   );
 }

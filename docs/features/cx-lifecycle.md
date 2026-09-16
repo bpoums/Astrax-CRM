@@ -50,21 +50,60 @@ far). Views: `cx_pipeline`, `cx_status_summary`, `cx_untouched`,
   premium/commission/chargeback, and **none** of the four touch
   `submissions.status`/`disposition` — not even policy, as of 2026-09-12 (see
   below). A status change and returning a lead are two separate decisions now.
-- **"Return For Validation" is the only way a lead leaves the pipeline** —
+- **The pipeline is "a lead CX has not finished with", not "an accepted
+  lead"** — as of 2026-09-16 its membership rule is `archived_at is null and
+  cx_removed_at is null and (disposition = 'accepted' or reopened_from_cx_at
+  is not null)`, spelled in the `cx_pipeline` view, the `cxa`/`cxm` branches
+  of the `submissions` RLS policy, and the helper `cx_pipeline_member(p_sub)`
+  that every CX RPC guards on. See
+  [decisions/0005](../decisions/0005-cx-queue-retention-and-removal.md).
+- **"Return For Validation" no longer removes the lead from the pipeline** —
   a standalone button (`ReturnForValidationButton` in
   `src/components/cx-status-cell.tsx`), its own column in the Customers
   Pipeline table, calling `return_lead_for_validation(p_sub, p_reason?)`.
-  cxa/cxm/admin, on any lead currently `disposition='accepted'` and not
-  archived, regardless of what its four CX statuses currently read. Resets
-  the same fields the old auto-reopen did: `status='pending_manager'`,
+  cxa/cxm/admin, on any lead currently `disposition='accepted'`, not archived
+  and not CX-removed, regardless of what its four CX statuses currently read.
+  Resets the same fields the old auto-reopen did: `status='pending_manager'`,
   `disposition`/`disposed_*`/`assigned_*`/`final_carrier_id`/`agent_name`/
   `policy_number` all cleared, `reopened_from_cx_at` stamped. See
   [decisions/0004](../decisions/0004-only-accepted-is-terminal.md), which
   this superseded the auto-reopen part of.
+  Because `reopened_from_cx_at` survives, the lead **stays on the CXA's
+  queue** through the whole re-validation round. Its row shows an
+  "In Validation" chip where the Return button was — the RPC would refuse a
+  second send anyway, since the lead no longer has a disposition — and its
+  four statuses stay editable throughout. `inValidation()` in
+  `customers-pipeline.tsx` is the one place that decides this
+  (`reopened_from_cx_at` set and `disposition <> 'accepted'`).
+- **A lead leaves the pipeline only when a CXA removes it** —
+  `RemoveFromQueueButton` → `remove_from_cx_pipeline(p_sub, p_reason?)`
+  (cxa/cxm/admin) stamps `cx_removed_at`/`cx_removed_by` and writes a
+  `cx_removed` event. This is **not** an archive: the lead stays in
+  reporting, exports, the manager's queue and its own history, and none of
+  the columns `notify_sheet_sync()` watches change, so no Google Sheets write
+  fires. `restore_to_cx_pipeline(p_sub)` (admin only) undoes it; the admin's
+  Pipeline tab carries the `RemovedFromPipeline` panel that lists removed
+  leads and restores one.
+- **A CXA can correct the lead they are servicing** — the detail sheet mounts
+  the same `LeadPayload` editor a manager uses (per-field
+  `update_payload_field`, one `payload_edits` before/after row each) and an
+  editable `PaymentPanel` for the four bank-draft fields
+  (`update_payment_field`). Both RPCs gained `cxa`/`cxm`, and for those two
+  roles only they also require `cx_pipeline_member()`. **Card number and CVV
+  are unchanged and remain admin-only** — the same line that refuses a
+  manager refuses a CXA, and neither field is ever rendered as an input in
+  the CX workspace.
 - **The manager's Operations queue must admit a reopened lead regardless of
   `submitted_by_role`** — `submitted_by_role` is permanent lineage and is
   never cleared on reopen, so a validator-submitted lead sent back via
   "Return For Validation" still reads `submitted_by_role='validator'`.
+  The reason the CXA typed reaches the manager too, as of 2026-09-16: it is
+  stored only as the `reopened_from_cx` event's `detail->>'reason'`, and the
+  Operations queue batches those events for its CXA Returned tab, showing them
+  in a clamped Reason column and in full at the top of the detail sheet (see
+  [validation-queue.md](validation-queue.md)). The same sheet now opens
+  `LeadHistoryDialog`, so a manager can read the CX lifecycle of the lead they
+  are about to reassign.
   `manager.tsx`'s queue query (`src/routes/_authenticated/manager.tsx`)
   admits it anyway via `reopened_from_cx_at.not.is.null` in its `.or(...)`
   filter — without that clause the row is silently invisible to every

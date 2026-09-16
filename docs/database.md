@@ -78,7 +78,11 @@ live, because those auto-accept on submit and never reach
 `finalCarrierName()` in `ops.tsx` is what resolves the two shapes),
 `reopened_from_cx_at` (stamped by `return_lead_for_validation` — see the CX
 lifecycle RPCs below — when a CXA sends the lead back to the manager's queue;
-never cleared, so it stays as a permanent trace on that row).
+never cleared, so it stays as a permanent trace on that row, and as of
+2026-09-16 it is also what keeps the lead on the CX pipeline while it is away),
+`cx_removed_at`/`cx_removed_by` (added 2026-09-16, written by
+`remove_from_cx_pipeline`/`restore_to_cx_pipeline` — a CX-workspace-only
+dismissal, invisible to every other queue and report).
 
 ## Views
 
@@ -90,7 +94,7 @@ never cleared, so it stays as a permanent trace on that row).
 | `carrier_decline_stats` | Per active carrier: `total_declines`, `leads_declined` (distinct submissions), `last_decline`. |
 | `submission_declined_carriers` | Per submission that has ≥1 decline: aggregated `declined_carriers` name array, `decline_count`, `last_declined_at`. |
 | `pending_import_batches` | Batches still awaiting manager approval, with `lead_count` and `flagged_count` (rows with ≥1 data flag). |
-| `cx_pipeline` | Every accepted, non-archived submission joined to its four resolved CX status codes/labels/tones — the read model for Customers Pipeline. |
+| `cx_pipeline` | Every submission in the CX pipeline — non-archived, `cx_removed_at is null`, and either `disposition='accepted'` or carrying `reopened_from_cx_at` — joined to its four resolved CX status codes/labels/tones. The read model for Customers Pipeline. Also carries `status`, `disposition` and `reopened_from_cx_at` so the table can mark a lead that is out for re-validation. |
 | `cx_status_summary` | Per (category, option): `lead_count` across accepted, non-archived leads — feeds the CX coverage card. |
 | `cx_untouched` | Accepted, non-archived leads with **no** `cx_lead_status` row, or a row with all four categories null — "nobody on the CX team has looked at this yet." |
 | `closer_lead_alerts` | Per closer (`s.closer_id = auth.uid()`), their own leads whose CX status just changed to something toned `destructive`/`warning` — the read model behind `forwarded-leads.tsx`'s alerting. |
@@ -156,18 +160,21 @@ each supports.
 - `expire_stale_reviews()` — no role check (called only by `pg_cron`, not exposed to the client as something a role would invoke meaningfully). Runs every minute; moves any `in_review` row whose `claimed_at` has exceeded `review_window()` to `returned_timeout`, tagging `last_timeout_by`.
 
 **Payload / data-quality**
-- `update_payload_field(p_sub, p_field, p_value)` — closing_manager/general_manager/manager/admin. Refuses `ID`/`Submitted By Role` (system-stamped) and archived leads. Writes one `payload_edits` row with old/new value per call — this is the **only** write path to `submissions.payload`; there is no RLS policy that lets any role update it directly (see [decisions/0002](decisions/0002-payload-writes-via-rpc.md)).
+- `update_payload_field(p_sub, p_field, p_value)` — closing_manager/general_manager/manager/admin, plus **cxa/cxm** (2026-09-16), who must additionally pass `cx_pipeline_member(p_sub)` so a CX agent can only correct a lead on their own queue. Refuses `ID`/`Submitted By Role` (system-stamped) and archived leads. Writes one `payload_edits` row with old/new value per call — this is the **only** write path to `submissions.payload`; there is no RLS policy that lets any role update it directly (see [decisions/0002](decisions/0002-payload-writes-via-rpc.md)).
 - `clear_data_flag(p_sub, p_field)` — manager/admin/**data_uploader**. Removes one entry from the `data_flags` jsonb array by field name. (The data_uploader grant appears unused by the current UI — see the audit summary's "unclear" section.)
-- `update_payment_field(p_sub, p_field, p_value)` — manager/admin for bank fields (`payment_type`, `bank_name`, `routing_number`, `account_number`, `account_title`, `card_exp`); **admin only** for `card_number`/`cvv`. Auto-derives `card_last4` when `card_number` changes. Creates the `payment_details` row on first write if none exists.
+- `update_payment_field(p_sub, p_field, p_value)` — manager/admin, plus **cxa/cxm** (2026-09-16, scoped by `cx_pipeline_member(p_sub)`), for bank fields (`payment_type`, `bank_name`, `routing_number`, `account_number`, `account_title`, `card_exp`); **admin only** for `card_number`/`cvv` — the one card check refuses every non-admin role, CX included. Auto-derives `card_last4` when `card_number` changes. Creates the `payment_details` row on first write if none exists.
 
 **Payment reads**
-- `payment_summary(p_sub)` — admin, manager, closing_manager, general_manager, validator (only their own assignment), **cxm/cxa** (only if the lead's `disposition='accepted'`). Returns bank fields + `card_last4`, never the number.
+- `payment_summary(p_sub)` — admin, manager, closing_manager, general_manager, validator (only their own assignment), **cxm/cxa** (only if `cx_pipeline_member(p_sub)`). Returns bank fields + `card_last4`, never the number.
 - `card_details(p_sub)` — admin, or the assigned validator while the lead is `in_review`. Returns the full card + CVV, and **always** writes a `card_access_log` row first.
 - `purge_payment_data()` — cron only. Nulls `cvv` once the lead is disposed or `cvv_purge_days` old (whichever first); nulls `card_number` once `card_purge_days` past disposal or creation.
 
 **CX lifecycle**
-- `set_cx_status(p_sub, p_category, p_option_id, p_reason?)` — cxa/cxm/admin. No-ops if the value is unchanged and no new reason. Writes `cx_lead_status` (upserted) and a `cx_status_history` row. **As of 2026-09-12, never touches `submissions`** for any of the four categories, policy included — it used to auto-reopen the lead on a policy decline/withdrawal/cancellation; that side effect moved to `return_lead_for_validation` below so a status change and returning the lead are separate actions.
-- `return_lead_for_validation(p_sub, p_reason?)` — cxa/cxm/admin, only on a lead `disposition='accepted'` and not archived (raises `'lead is not in the customer pipeline'` otherwise — same wording `set_cx_status` uses). The explicit action that takes a lead out of the pipeline and back to the manager, regardless of what its four CX statuses currently read: `status='pending_manager'`, `disposition`/`disposed_*`/`assigned_*`/`final_carrier_id`/`agent_name`/`policy_number` all cleared, `reopened_from_cx_at` stamped, one `form_events` row (`reopened_from_cx`).
+- `cx_pipeline_member(p_sub)` — added 2026-09-16, `STABLE SECURITY DEFINER`, returns whether a lead is on the CX pipeline (`archived_at is null and cx_removed_at is null and (disposition='accepted' or reopened_from_cx_at is not null)`). The single definition of pipeline membership that every CX RPC guards on; the RLS policy repeats the predicate inline because a policy on `submissions` must not call a function that reads `submissions`.
+- `set_cx_status(p_sub, p_category, p_option_id, p_reason?)` — cxa/cxm/admin, on any `cx_pipeline_member` lead (so statuses stay settable while a lead is out for re-validation). No-ops if the value is unchanged and no new reason. Writes `cx_lead_status` (upserted) and a `cx_status_history` row. **As of 2026-09-12, never touches `submissions`** for any of the four categories, policy included — it used to auto-reopen the lead on a policy decline/withdrawal/cancellation; that side effect moved to `return_lead_for_validation` below so a status change and returning the lead are separate actions.
+- `return_lead_for_validation(p_sub, p_reason?)` — cxa/cxm/admin, only on a lead `disposition='accepted'`, not archived and not CX-removed (raises `'lead is not in the customer pipeline'` otherwise — same wording `set_cx_status` uses; that strict guard is also what makes a second send impossible while the lead is already out). The explicit action that hands a lead back to the manager — as of 2026-09-16 it does **not** take the lead off the CX pipeline, which keeps it via `reopened_from_cx_at` — regardless of what its four CX statuses currently read: `status='pending_manager'`, `disposition`/`disposed_*`/`assigned_*`/`final_carrier_id`/`agent_name`/`policy_number` all cleared, `reopened_from_cx_at` stamped, one `form_events` row (`reopened_from_cx`).
+- `remove_from_cx_pipeline(p_sub, p_reason?)` — added 2026-09-16. cxa/cxm/admin, on any `cx_pipeline_member` lead. Stamps `cx_removed_at`/`cx_removed_by` and writes a `cx_removed` `form_events` row. The CX team's own housekeeping, **not** an archive: every other queue, view and report still sees the row, and none of the columns `notify_sheet_sync()` watches change, so no Sheets write fires.
+- `restore_to_cx_pipeline(p_sub)` — added 2026-09-16. **admin only.** Clears both columns and writes a `cx_restored` event; raises `'lead was not removed from the customer pipeline'` if there was nothing to undo.
 - `add_submission_tag(p_sub, p_tag)` / `remove_submission_tag(p_sub, p_tag)` — cxa/cxm/admin, only on accepted/non-archived leads.
 
 **Spreadsheet import**
@@ -287,7 +294,10 @@ Every table has RLS **enabled**. Policy count per table, condensed:
     closer- and validator-originated non-archived leads across every center;
     `validator` sees only their own current assignment, inside the review
     window; `data_uploader` sees only `uploaded_by = self`; `cxm`/`cxa` see
-    only accepted, non-archived leads; everyone else, nothing).
+    the CX pipeline — non-archived, not CX-removed leads that are either
+    accepted or carry `reopened_from_cx_at` (2026-09-16: widened from
+    "accepted only", so a lead sent back for re-validation stays visible to
+    the CX team); everyone else, nothing).
   - Most reference/config/audit tables (`carriers`, `centers`,
     `cx_status_options`, `cx_tags`, `carrier_declines`, `form_events`,
     `payload_edits`, `settings_audit`, `card_access_log`, `cx_lead_status`,

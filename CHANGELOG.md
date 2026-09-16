@@ -1,5 +1,71 @@
 # Changelog
 
+## 2026-09-16 — The manager can see why CX sent a lead back, read its history, and find it
+
+**No database change.** Three gaps on the Operations queue, all reported from
+the floor.
+
+- **The CXA's return reason now reaches the manager.** It was never lost —
+  `return_lead_for_validation` writes it as the `reopened_from_cx` event's
+  `detail->>'reason'` — but nothing on the manager's screen read it. The queue
+  now batches those events for its returned rows (newest per lead, since a lead
+  can make the round trip more than once) and shows the reason in a clamped
+  **Reason** column on the CXA Returned tab, with the whole of it on hover, and
+  in full in a "Returned by CX" block at the top of the detail sheet.
+- **View History** in the detail sheet, mounting the same `LeadHistoryDialog`
+  the closing desk, the CX pipeline, the draft-date desk and reporting already
+  use: the validation passes and the customer lifecycle, each at the dialog's
+  full width. The manager queue was the one lead screen without it.
+- **Search**, beside the tab list, matching the customer's name. The queue
+  already holds every open row, so this filters what is loaded rather than
+  querying — unlike the paged tables, which must search server-side. It narrows
+  **only the open tab**; the other tabs keep whole counts, so a term that
+  matches nothing on Live does not imply the lead does not exist. Changing the
+  term clears any pending bulk selection, exactly as changing tab does.
+
+Also worded `cx_removed` / `cx_restored` in `event-labels.ts` — they shipped
+with the CX queue work earlier today and were falling through to the generic
+humanizer ("Cx removed") in the very timeline this change puts in front of a
+manager.
+
+## 2026-09-16 — The CX queue keeps its leads: retention, removal and editing
+
+**Migration `20260916140000_cx_queue_retention.sql`.** Pressing **Return For
+Validation** used to delete the lead from the CXA's own screen. The pipeline was
+defined as `disposition = 'accepted'`, and returning a lead clears the
+disposition — so the CXA lost sight of the lead at the moment they were waiting
+on an answer about it.
+
+Membership of the pipeline is now "a lead CX has not finished with":
+non-archived, not CX-removed, and either accepted **or** carrying
+`reopened_from_cx_at`. It is spelled once as `cx_pipeline_member(p_sub)`, which
+every CX RPC guards on, and inline in the `cxa`/`cxm` branches of the
+`submissions` RLS policy (a policy on `submissions` cannot call a function that
+reads `submissions`). `cx_pipeline` follows the same rule and now carries
+`status`, `disposition` and `reopened_from_cx_at`.
+
+- **A returned lead stays put**, marked "In Validation" where the Return button
+  was, with its four CX statuses still editable. `return_lead_for_validation`
+  keeps its strict `disposition = 'accepted'` guard, so a second send is refused
+  server-side and not merely hidden.
+- **`remove_from_cx_pipeline(p_sub, p_reason?)`** (cxa/cxm/admin) is the only
+  thing that takes a lead off the queue. It is not an archive: reporting,
+  exports, the manager's queue, the sheet and the lead's own history are
+  untouched, and it changes none of the columns `notify_sheet_sync()` watches,
+  so no Sheets write fires. **`restore_to_cx_pipeline(p_sub)`** (admin) undoes
+  it, from the new `RemovedFromPipeline` panel on the admin's Pipeline tab.
+- **A CXA can correct the lead they are servicing.** The detail sheet mounts the
+  same `LeadPayload` editor a manager uses (per-field `update_payload_field`,
+  one `payload_edits` before/after row each) and an editable `PaymentPanel` for
+  the four bank-draft fields. `update_payload_field` and `update_payment_field`
+  gained `cxa`/`cxm`, scoped by `cx_pipeline_member` to their own queue. The
+  card-credentials check was not touched — the same line that refuses a manager
+  refuses a CXA, and no CX screen renders a card number or CVV input.
+
+Applying this brought 39 previously-returned leads back onto the queue; they
+already carried `reopened_from_cx_at`. See
+[decisions/0005](docs/decisions/0005-cx-queue-retention-and-removal.md).
+
 ## 2026-09-16 — Merged 74 legacy validator re-types back onto the closer's row
 
 **Data repair, no code change.** Before 2026-09-07 a validator had no way to

@@ -433,11 +433,16 @@ export function CxStatusCell({
 }
 
 /**
- * `return_lead_for_validation` takes the lead out of the customer pipeline
- * and hands it back to the manager for another validation pass — independent
- * of what any of the four CX statuses are set to. A separate, deliberate
- * action from setting a status, which is why it lives here as its own button
- * rather than as a consequence of `CxStatusCell`'s Save.
+ * `return_lead_for_validation` hands the lead back to the manager for another
+ * validation pass — independent of what any of the four CX statuses are set to.
+ * A separate, deliberate action from setting a status, which is why it lives
+ * here as its own button rather than as a consequence of `CxStatusCell`'s Save.
+ *
+ * The lead does NOT leave the CX queue when it is sent: it stays, marked
+ * "In Validation", so the CXA keeps sight of the thing they are waiting on.
+ * While it is away it has no `disposition`, so the RPC would refuse a second
+ * send — `inValidation` swaps the button for a badge rather than leaving a
+ * control that can only produce an error.
  */
 type ReturnForValidationArgs = {
   p_sub: string;
@@ -447,11 +452,14 @@ type ReturnForValidationArgs = {
 export function ReturnForValidationButton({
   submissionId,
   readOnly = false,
+  inValidation = false,
   onReturned,
 }: {
   submissionId: string;
   /** Admin views the pipeline but does not work it, same as the status cells. */
   readOnly?: boolean;
+  /** Already sent back and not yet re-disposed: a state, not an action. */
+  inValidation?: boolean;
   onReturned: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -486,6 +494,13 @@ export function ReturnForValidationButton({
   // No trigger at all when read-only: an admin should not find a button that
   // refuses them, and the RPC would refuse them anyway.
   if (readOnly) return null;
+
+  // Sent, and still out. The row stays on the queue; this is what it now says.
+  if (inValidation) {
+    // Outlined amber, not the filled `warning` tone: the status chips in the
+    // same row already carry the emphasis, and this is a state, not an alarm.
+    return <StatusChip label="In Validation" tone="accent" />;
+  }
 
   return (
     <Popover
@@ -536,6 +551,114 @@ export function ReturnForValidationButton({
               {returnLead.isPending ? "Returning…" : "Return For Validation"}
             </button>
             <button type="button" className="chip" disabled={returnLead.isPending} onClick={close}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/**
+ * "Remove from queue": the CXA's own way to take a lead off their screen once
+ * they are finished with it.
+ *
+ * Deliberately NOT an archive. `remove_from_cx_pipeline` sets a CX-only flag —
+ * the lead stays in reporting, in exports, in the manager's queue and in its own
+ * history, and an admin can put it back. That is the whole difference between
+ * this and `archive_submission`, and it is what the confirmation says.
+ */
+type RemoveFromQueueArgs = {
+  p_sub: string;
+  p_reason?: string;
+};
+
+export function RemoveFromQueueButton({
+  submissionId,
+  readOnly = false,
+  onRemoved,
+}: {
+  submissionId: string;
+  /** Admin views the pipeline but does not work it, same as the status cells. */
+  readOnly?: boolean;
+  onRemoved: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+
+  function close() {
+    setOpen(false);
+    setReason("");
+  }
+
+  const remove = useMutation({
+    mutationFn: async () => {
+      const args = {
+        p_sub: submissionId,
+        p_reason: reason.trim(),
+      } as unknown as RemoveFromQueueArgs;
+      const { error } = await supabase.rpc("remove_from_cx_pipeline", args);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Lead removed from the customer pipeline");
+      close();
+      onRemoved();
+    },
+    // The RPC raises its own messages ("not authorized", "lead is not in the
+    // customer pipeline").
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  if (readOnly) return null;
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        if (next) setOpen(true);
+        else close();
+      }}
+    >
+      <PopoverTrigger asChild>
+        <button type="button" className="chip justify-center">
+          Remove
+        </button>
+      </PopoverTrigger>
+
+      <PopoverContent align="end" className="w-64 p-2">
+        <div className="flex flex-col gap-2">
+          <p className="rounded border border-border px-2 py-1.5 text-[0.66rem] leading-snug text-muted-foreground">
+            This takes the lead off the customer pipeline only. It stays in reporting, in exports
+            and in the manager&rsquo;s queue, and an admin can put it back.
+          </p>
+
+          <div className="flex flex-col gap-1">
+            <label htmlFor={`remove-reason-${submissionId}`} className="field-label">
+              Reason (optional)
+            </label>
+            <input
+              id={`remove-reason-${submissionId}`}
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              className="field-input"
+              maxLength={500}
+              autoComplete="off"
+              autoFocus
+            />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="chip chip-active justify-center"
+              disabled={remove.isPending}
+              onClick={() => remove.mutate()}
+            >
+              {remove.isPending ? "Removing…" : "Remove from queue"}
+            </button>
+            <button type="button" className="chip" disabled={remove.isPending} onClick={close}>
               Cancel
             </button>
           </div>

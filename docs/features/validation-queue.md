@@ -23,7 +23,11 @@ only, inside the window).
 `manager.tsx`, `validator.tsx`, `src/components/validator-fields.tsx`
 (the three-field accept gate), `src/components/decline-dialog.tsx` +
 `carrier-declines.tsx` (per-carrier decline recording), `lead-editor.tsx`
-(in-place payload editing), `data-flags.tsx` (correct-then-clear pattern).
+(in-place payload editing), `data-flags.tsx` (correct-then-clear pattern),
+`lead-history-dialog.tsx` (the "View History" dialog in the detail sheet —
+validation passes plus the CX lifecycle, the same one the closing desk, the
+CX pipeline and reporting mount), `free-text.tsx`'s `ClampedText` (the
+CX return reason in the queue's Reason column).
 
 ## Database
 See [database.md](../database.md) for full RPC list. The RPCs specific to
@@ -37,9 +41,28 @@ One unpaged query against `submissions` (`.in("status", ["pending_manager",
 "returned_timeout","assigned","in_review"])`, excluding validator-originated
 rows and archived rows) feeds **both** the Live and Manual queue tabs —
 they are the same result set, split client-side by `row.source`, not two
-separate requests. A single Realtime channel (`"manager-submissions"`,
-`postgres_changes` on all `submissions` events) invalidates both this query
-and the Pending Imports count.
+separate requests. (The third tab, **CXA Returned**, is the same set again —
+`queueTabOf()` routes any row carrying `reopened_from_cx_at` there regardless
+of origin.) A single Realtime channel (`"manager-submissions"`,
+`postgres_changes` on all `submissions` events) invalidates this query, the
+CX return reasons below, and the Pending Imports count.
+
+Because the whole open queue is already loaded, **search is a client-side
+filter, not a query** — the opposite of the paged tables, which must search
+server-side through `src/lib/lead-search.ts`. The box sits beside the tab
+list, matches the customer's name (`customerName()` from `ops.tsx`), and
+narrows **only the open tab**: the other tabs' counts stay whole totals, so a
+term that matches nothing on Live does not imply the lead does not exist.
+Changing the term clears any pending bulk selection, the same way changing
+tab does — a bulk assign must never reach a lead that is filtered off screen.
+
+The CXA's **return reason** is not on the submission row; it is the
+`detail->>'reason'` of the lead's most recent `reopened_from_cx` event. The
+queue fetches it for the returned rows in one batched `form_events` query
+(newest first, first-write-wins per lead, because a lead can make the round
+trip more than once) and renders it in two places: a clamped **Reason**
+column on the CXA Returned tab, with the whole of it on hover, and a
+full-text "Returned by CX" block at the top of the detail sheet.
 
 ## Business rules
 - **The review window is enforced in three places, all server-side**: the

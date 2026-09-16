@@ -4,7 +4,7 @@ import { requireRole } from "@/lib/auth";
 import { supabase } from "@/integrations/supabase/client";
 import { AppHeader } from "@/components/ops";
 import { ReportingStats, SubmissionsExplorer } from "@/components/reporting";
-import { CustomersPipeline } from "@/components/customers-pipeline";
+import { CustomersPipeline, RemovedFromPipeline } from "@/components/customers-pipeline";
 import { CxStatusBreakdown, CxCoverageCard } from "@/components/cx-status-breakdown";
 import { UserAdmin } from "@/components/user-admin";
 import { DataUploader } from "@/components/data-uploader";
@@ -178,6 +178,10 @@ function AdminPage() {
           <TabsContent value="pipeline" className="flex flex-col gap-4">
             <CxStatusBreakdown />
             <CustomersPipeline readOnly showUpdatedBy />
+            {/* Removing a lead from the pipeline is the CXA's own housekeeping,
+                and restoring one is admin-only — so this is the one place the
+                undo lives. */}
+            <RemovedFromPipeline />
           </TabsContent>
 
           <TabsContent value="draft-dates" className="flex flex-col gap-4">

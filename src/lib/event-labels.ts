@@ -196,6 +196,14 @@ export function presentEvent(event: TimelineEvent): EventPresentation {
       );
     }
 
+    // The CX team's own housekeeping, not an archive — worded so a manager
+    // reading this timeline does not think the lead left their queue too.
+    case "cx_removed":
+      return plain("Removed from the CX pipeline", "accent");
+
+    case "cx_restored":
+      return plain("Restored to the CX pipeline");
+
     case "archived":
       return plain("Archived", "destructive");
 
