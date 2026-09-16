@@ -1,5 +1,53 @@
 # Changelog
 
+## 2026-09-16 — Merged 74 legacy validator re-types back onto the closer's row
+
+**Data repair, no code change.** Before 2026-09-07 a validator had no way to
+record the carrier that actually wrote a policy, nor the agent name or policy
+number, on a closer's lead. When a closer forwarded a lead proposed for one
+carrier and a different carrier accepted it, the validator re-typed the entire
+lead through "New Submission" with the correct details — one real sale,
+recorded twice. `set_validator_fields` ended the practice.
+
+The data dates the cutover precisely: closer leads carrying a `final_carrier_id`
+go from 0–1/day before 09/05 to 4–18/day from 09/07, and no closer lead since
+09/05 shares an SSN *or a name* with a validator submission. The last re-typed
+pair is 09/04.
+
+Matching on `ssn_normalized` found 74 such pairs. The two halves are
+complementary — the closer row has the attribution and the proposed carrier, the
+validator copy has the true carrier (`payload['Agency']`), policy number and
+agent name — so `20260916100000` keeps the **closer's** row (attribution drives
+commission and the leaderboard) and lifts everything the copy knows onto it:
+the three columns, plus every payload key the validator filled and the closer
+left empty. Gap-fill only; nothing entered by a closer was overwritten.
+Result: final carrier / agent / policy 5 → 74, future draft date 0 → 54, and
+245 further payload fields recovered (email address on 53, bank type on 23,
+card details where present). Verified afterwards that no closer row gained
+`Agency` / `Agent Name` / `Policy Number` as payload keys — `Agency` especially
+would have been read by `CARRIER_KEYS` and rendered as the proposal.
+
+`20260916110000` then archives the 74 consumed copies — archived, not deleted,
+so they stay readable under the admin panel's "Show archived" and restorable.
+It mirrors `archive_submission()` (same cleared assignment fields, same
+`form_events` entry) so they look like any other archived lead;
+`archived_by`/`actor_id` are null because no person performed it, with the
+reason string carrying the audit trail.
+
+Accepted rows for 25 Aug – 4 Sep fall from **256 to 190** against 184 real
+sales — a 39% overstatement reduced to 3%.
+
+**Two rows deliberately left active.** Elizabeth Holmander and Tommy L Davis
+each had a *second* validator submission under a different carrier, policy
+number and premium — genuine second policies, not duplicates. The merge only
+ever consumed the earliest copy per customer, so archiving all 76 would have
+erased two real sales.
+
+Both migrations disable `sheet_sync_on_closed` for their duration: 74
+simultaneous `net.http_post` calls overrun the Apps Script 30-second lock. **The
+Google Sheet therefore still shows all 74 as live** — the sync has no delete
+path, so a row leaving the database never leaves the spreadsheet on its own.
+
 ## 2026-09-15 — Closing desk can filter by submitted date
 
 The desk could be narrowed by search, origin, status, disposition, centre and
