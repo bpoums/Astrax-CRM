@@ -1294,6 +1294,7 @@ export type Database = {
       }
       cx_pipeline: {
         Row: {
+          agent_name: string | null
           approved_on: string | null
           chargeback_code: string | null
           chargeback_label: string | null
@@ -1307,9 +1308,12 @@ export type Database = {
           cx_updated_by: string | null
           disposition: Database["public"]["Enums"]["disposition_t"] | null
           draft_date: string | null
+          final_carrier_id: string | null
+          final_carrier_name: string | null
           payload: Json | null
           policy_code: string | null
           policy_label: string | null
+          policy_number: string | null
           policy_reason: string | null
           policy_tone: string | null
           premium_code: string | null
@@ -1320,9 +1324,25 @@ export type Database = {
           source: string | null
           status: Database["public"]["Enums"]["sub_status"] | null
           submission_id: string | null
+          submitted_by_role: Database["public"]["Enums"]["app_role"] | null
           submitted_on: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "submissions_final_carrier_id_fkey"
+            columns: ["final_carrier_id"]
+            isOneToOne: false
+            referencedRelation: "carrier_decline_stats"
+            referencedColumns: ["carrier_id"]
+          },
+          {
+            foreignKeyName: "submissions_final_carrier_id_fkey"
+            columns: ["final_carrier_id"]
+            isOneToOne: false
+            referencedRelation: "carriers"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       cx_status_summary: {
         Row: {

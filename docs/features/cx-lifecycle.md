@@ -84,6 +84,42 @@ far). Views: `cx_pipeline`, `cx_status_summary`, `cx_untouched`,
   fires. `restore_to_cx_pipeline(p_sub)` (admin only) undoes it; the admin's
   Pipeline tab carries the `RemovedFromPipeline` panel that lists removed
   leads and restores one.
+- **The pipeline's carrier column is the FINAL carrier** (2026-09-17). It used
+  to render `carrierName(payload)` — the carrier as typed on the intake form,
+  which for a closer or an uploaded lead is only a *proposal*. Two things were
+  wrong with that: a team servicing a live policy needs to know who actually
+  wrote it, and an uploaded lead carries no carrier text in its payload at all
+  (1 of 25 live), so the column was blank for exactly the leads whose carrier
+  was already known — in `final_carrier_id`, which the view did not select.
+  `cx_pipeline` now carries `submitted_by_role`, `final_carrier_id`,
+  `final_carrier_name`, `agent_name` and `policy_number`, and the column calls
+  the shared `finalCarrierName()` from `ops.tsx`, which resolves both storage
+  shapes (the FK for a reviewed lead, `payload->>'Agency'` for a validator's
+  own submission, which never gets the FK). Of 412 pipeline leads today 360
+  resolve a real final carrier. The 52 that have none show their **proposal,
+  muted and marked "· proposed"** with a tooltip saying so, rather than a dash
+  — losing the text would take information off a screen that had it. The search
+  box follows the column: `final_carrier_name` is one more clause in its `or`
+  group, so a carrier that is only a stamped FK is still findable by name.
+- **The detail sheet has a read-only "Filled By Validator" panel** — Final
+  Carrier, Agent Name, Policy Number, sitting directly under Lead Details
+  because it reads as the rest of the same record: what the validator added to
+  what the closer typed. Read-only on purpose: `set_validator_fields` does not
+  accept a CX role, and `ValidatorFields` (`src/components/validator-fields.tsx`)
+  is the editor for the roles that do. For a validator-submitted lead the agent
+  and policy live in `payload` rather than in the columns, so each falls back to
+  the payload value before showing a dash — without that the panel would read
+  empty on 191 of today's 412 leads.
+- **The Draft Date column reads an uploaded lead's arrangement** (2026-09-17).
+  `draft_date` is derived from the payload on import now — it never was before,
+  which is why the column was blank on every uploaded lead — and an uploaded
+  lead usually states a recurrence ("3rd of the month") rather than a date. That
+  is resolved to its next real occurrence, so the cell keeps the original
+  wording in its title rather than presenting a worked-out date as something an
+  operator wrote. Text that resolves to no single date (`Every 2nd Friday`) is
+  shown as written. See
+  [decisions/0006](../decisions/0006-recurring-draft-dates-resolved.md) and
+  [spreadsheet-import.md](spreadsheet-import.md).
 - **A CXA can correct the lead they are servicing** — the detail sheet mounts
   the same `LeadPayload` editor a manager uses (per-field
   `update_payload_field`, one `payload_edits` before/after row each) and an

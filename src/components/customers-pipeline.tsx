@@ -7,6 +7,8 @@ import {
   CenterBadge,
   carrierName,
   customerName,
+  finalCarrierName,
+  proposedCarrierName,
   sourceLabel,
   type LeadSource,
   type UploaderRef,
@@ -96,6 +98,10 @@ const SELECT_COLUMNS = [
   // `reopened_from_cx_at` and no longer has a disposition until the manager
   // disposes it again.
   "status, disposition, reopened_from_cx_at",
+  // The placement: which carrier actually wrote the policy, who placed it and
+  // what it became. `final_carrier_name` is resolved inside the view, so the
+  // column draws in one query and the search can filter on the name.
+  "submitted_by_role, final_carrier_id, final_carrier_name, agent_name, policy_number",
 ].join(", ");
 
 /** A filter is "any", "none" (not set), or a status code within that category. */
@@ -149,7 +155,106 @@ type PipelineRow = {
   status: string | null;
   disposition: string | null;
   reopened_from_cx_at: string | null;
+  submitted_by_role: string | null;
+  final_carrier_id: string | null;
+  final_carrier_name: string | null;
+  agent_name: string | null;
+  policy_number: string | null;
 };
+
+/**
+ * The carrier this policy was written on, whichever shape it is stored in.
+ *
+ * `finalCarrierName()` reads both — the FK a validator stamps during review,
+ * and `payload->>'Agency'` on a validator's own submission, which never gets
+ * that FK — so the view's resolved name is handed to it in the shape it
+ * already expects rather than the two cases being re-derived here.
+ */
+function finalCarrierOf(row: PipelineRow) {
+  return finalCarrierName({
+    payload: row.payload,
+    submitted_by_role: row.submitted_by_role,
+    final_carrier: row.final_carrier_name ? { name: row.final_carrier_name } : null,
+  });
+}
+
+/**
+ * The Final Carrier cell.
+ *
+ * Where no final carrier was ever recorded — 52 leads today, 46 of which do
+ * carry a proposal — the proposal is shown rather than a dash, but muted and
+ * labelled, because the difference between "placed with Corbridge" and
+ * "someone once pitched Corbridge" is the whole point of this column. Losing
+ * the text entirely would take information off a screen that had it.
+ */
+function FinalCarrierCell({ row }: { row: PipelineRow }) {
+  const final = finalCarrierOf(row);
+  if (final) {
+    return (
+      <span className="block truncate" title={final}>
+        {final}
+      </span>
+    );
+  }
+
+  const proposed = proposedCarrierName(row.payload);
+  if (!proposed) return <>—</>;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="block truncate text-muted-foreground">
+          {proposed} <span className="text-[0.62rem] italic">· proposed</span>
+        </span>
+      </TooltipTrigger>
+      <TooltipBody>
+        <TooltipHeading>{proposed}</TooltipHeading>
+        <span className="free-text text-[0.62rem] text-muted-foreground">
+          The carrier this lead was pitched for. No final carrier was recorded on it.
+        </span>
+      </TooltipBody>
+    </Tooltip>
+  );
+}
+
+/** The Draft Date payload key, which is what the column is derived from. */
+const DRAFT_DATE_FIELD = "Draft Date";
+
+function draftDateText(payload: Record<string, unknown>) {
+  const value = payload[DRAFT_DATE_FIELD];
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  return trimmed || null;
+}
+
+/**
+ * When the first premium draws.
+ *
+ * An uploaded lead rarely states a date. It states an arrangement — "3rd of the
+ * month", "3rd wed of the month" — which `parse_lead_date` resolves to the next
+ * real occurrence so the lead reaches the date-keyed screens at all. That makes
+ * the date something the system worked out rather than something an operator
+ * wrote, so the original wording rides along in the title: the cell should
+ * never be the only place a reader learns a recurring draft is recurring.
+ *
+ * Where nothing resolved ("Every 2nd Friday" — a fortnightly cadence has no one
+ * date), the text itself is shown rather than a dash. It is what the operator
+ * has to work with.
+ */
+function DraftDateCell({ row }: { row: PipelineRow }) {
+  const text = draftDateText(row.payload);
+
+  if (!row.draft_date) {
+    if (!text) return <>—</>;
+    return (
+      <span className="italic" title={text}>
+        {text}
+      </span>
+    );
+  }
+
+  const shown = formatCalendarDate(row.draft_date);
+  return <span title={text && text !== shown ? `Recorded as "${text}"` : undefined}>{shown}</span>;
+}
 
 /**
  * Is this lead away being re-validated?
@@ -162,6 +267,45 @@ type PipelineRow = {
  */
 function inValidation(row: PipelineRow) {
   return row.reopened_from_cx_at !== null && row.disposition !== "accepted";
+}
+
+/**
+ * The three things the validator recorded when the policy was placed.
+ *
+ * They are columns on `submissions` for a reviewed lead, but payload keys on a
+ * validator's own submission — that form types them itself and never passes
+ * through review — so each falls back before showing a dash. Without the
+ * fallback this panel would read empty on 191 of today's 412 pipeline leads.
+ */
+function ValidatorFilledPanel({ row }: { row: PipelineRow }) {
+  const payloadText = (key: string) => {
+    const value = row.payload[key];
+    const trimmed = typeof value === "string" ? value.trim() : "";
+    return trimmed || null;
+  };
+
+  const fields: { label: string; value: string | null }[] = [
+    { label: "Final Carrier", value: finalCarrierOf(row) },
+    { label: "Agent Name", value: row.agent_name ?? payloadText("Agent Name") },
+    { label: "Policy Number", value: row.policy_number ?? payloadText("Policy Number") },
+  ];
+
+  return (
+    <div className="flex min-w-0 flex-col gap-2">
+      <h3 className="panel-title">Filled By Validator</h3>
+      <div className="divide-y divide-border rounded-md border border-border">
+        {fields.map((field) => (
+          <div
+            key={field.label}
+            className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] items-center gap-2 px-3 py-1.5"
+          >
+            <span className="field-label truncate">{field.label}</span>
+            <span className="break-words text-xs text-foreground">{field.value ?? "—"}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 /** Reads one category's four columns off a row. */
@@ -182,7 +326,13 @@ function statusOf(row: PipelineRow, category: CxCategory) {
 function searchFilter(term: string) {
   const safe = term.replace(/[,()"\\]/g, " ").trim();
   if (!safe) return null;
-  return SEARCH_KEYS.map((key) => `payload->>${key}.ilike.*${safe}*`).join(",");
+  const clauses = SEARCH_KEYS.map((key) => `payload->>${key}.ilike.*${safe}*`);
+  // The search follows the column: a reviewed lead's final carrier is a uuid on
+  // the row, not text in the payload, so typing the name a reader can see would
+  // otherwise match nothing. The view resolves the name, which is why this is
+  // one more clause here rather than a carriers lookup per keystroke.
+  clauses.push(`final_carrier_name.ilike.*${safe}*`);
+  return clauses.join(",");
 }
 
 const UNFILTERED = CX_CATEGORIES.map(() => ANY).join("|");
@@ -415,7 +565,7 @@ export function CustomersPipeline({
               <TableHead className="w-28">Center</TableHead>
               <TableHead>Customer</TableHead>
               <TableHead className="w-32">SSN</TableHead>
-              <TableHead>Carrier</TableHead>
+              <TableHead>Final Carrier</TableHead>
               <TableHead>Draft Date</TableHead>
               {/* <TableHead>Submitted On</TableHead> */}
               {CX_CATEGORIES.map((category) => (
@@ -468,25 +618,22 @@ export function CustomersPipeline({
                   <TableCell className="text-muted-foreground tabular-nums">
                     {typeof row.payload[SSN_FIELD] === "string" ? row.payload[SSN_FIELD] : "—"}
                   </TableCell>
-                  {/* carrierName(), not the payload key: a closer's lead files
-                    this under "Proposed Carrier" and a validator's under
-                    "Agency", and reading one of them left every validator row
-                    blank. Deliberately the as-typed value rather than
-                    finalCarrierName() — this pipeline is about servicing the
-                    policy, and its own status columns already carry the
-                    outcome. */}
-                  <TableCell
-                    className="truncate text-muted-foreground"
-                    title={carrierName(row.payload)}
-                  >
-                    {carrierName(row.payload)}
+                  {/* The carrier the policy was WRITTEN on, not the one a
+                    closer pitched. This used to render the as-typed payload
+                    value on the reasoning that the status columns carry the
+                    outcome — but a team servicing a live policy needs to know
+                    who to call, and an uploaded lead has no carrier text in
+                    its payload at all (1 of 25 live), so the column was blank
+                    for exactly the leads whose carrier was already known. */}
+                  <TableCell className="truncate text-muted-foreground">
+                    <FinalCarrierCell row={row} />
                   </TableCell>
 
                   {/* formatCalendarDate, not formatDate: draft_date is a SQL
                     `date` with no instant in it, and rendering it in Pacific
                     prints the day before. See format-date.ts. */}
                   <TableCell className="whitespace-nowrap text-muted-foreground">
-                    {formatCalendarDate(row.draft_date)}
+                    <DraftDateCell row={row} />
                   </TableCell>
 
                   {/* <TableCell className="whitespace-nowrap text-muted-foreground">
@@ -608,8 +755,8 @@ export function CustomersPipeline({
               <SheetHeader>
                 <SheetTitle>{customerName(selected.payload)}</SheetTitle>
                 <SheetDescription>
-                  {carrierName(selected.payload)} · {sourceLabel(originOf(selected))} · submitted{" "}
-                  {formatDate(selected.submitted_on)}
+                  {finalCarrierOf(selected) ?? carrierName(selected.payload)} ·{" "}
+                  {sourceLabel(originOf(selected))} · submitted {formatDate(selected.submitted_on)}
                   {/* Said here as well as in the row: this sheet offers edits,
                       and a lead that is away being re-validated can be edited by
                       a validator at the same time. */}
@@ -670,6 +817,13 @@ export function CustomersPipeline({
                   editable={!readOnly}
                   onSaved={onStatusSaved}
                 />
+
+                {/* Directly under Lead Details, because it reads as the rest of
+                    the same record — what the validator added to what the
+                    closer typed. Read-only: `set_validator_fields` does not
+                    accept a CX role, and `ValidatorFields` is the editor for
+                    the roles it does. */}
+                <ValidatorFilledPanel row={selected} />
 
                 {/* Bank fields only. Card number and CVV are never rendered as
                     inputs here and `update_payment_field` refuses them to

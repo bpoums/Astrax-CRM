@@ -66,10 +66,15 @@ Columns **not** previously documented in `CLAUDE.md`: `cx_assigned_to`,
 in this audit — see "Unclear / undocumented" in the audit summary),
 `center_id`/`center_name` (stamped at submission — see
 [multi-tenancy.md](multi-tenancy.md)), `draft_date`/`future_draft_date`
-(parsed out of `payload` at submission time by `submit_form`, as real `date`
-columns, so they can be indexed/filtered without a jsonb cast), `ssn_normalized`
-(digits-only SSN, populated only when it forms a clean 9 digits — powers
-`check_duplicate_ssn`), `final_carrier_id`/`agent_name`/`policy_number` (the
+(derived from `payload` as real `date`
+columns, so they can be indexed/filtered without a jsonb cast — by `submit_form`
+at submission, by `ingest_sheet_lead` at import and by `update_payload_field`
+on a correction, all three through `parse_lead_date`; an uploaded lead's
+recurrence text is resolved to its next real occurrence, see
+[decisions/0006](decisions/0006-recurring-draft-dates-resolved.md)),
+`ssn_normalized` (digits-only SSN, populated only when it forms a clean 9
+digits — powers `check_duplicate_ssn`; written by the same three functions
+through `normalize_ssn`), `final_carrier_id`/`agent_name`/`policy_number` (the
 three validator-completed fields, columns not payload keys — see
 [features/validation-queue.md](features/validation-queue.md); note
 `final_carrier_id` is **null on every validator-submitted lead**, 0 of 260
@@ -94,7 +99,7 @@ dismissal, invisible to every other queue and report).
 | `carrier_decline_stats` | Per active carrier: `total_declines`, `leads_declined` (distinct submissions), `last_decline`. |
 | `submission_declined_carriers` | Per submission that has ≥1 decline: aggregated `declined_carriers` name array, `decline_count`, `last_declined_at`. |
 | `pending_import_batches` | Batches still awaiting manager approval, with `lead_count` and `flagged_count` (rows with ≥1 data flag). |
-| `cx_pipeline` | Every submission in the CX pipeline — non-archived, `cx_removed_at is null`, and either `disposition='accepted'` or carrying `reopened_from_cx_at` — joined to its four resolved CX status codes/labels/tones. The read model for Customers Pipeline. Also carries `status`, `disposition` and `reopened_from_cx_at` so the table can mark a lead that is out for re-validation. |
+| `cx_pipeline` | Every submission in the CX pipeline — non-archived, `cx_removed_at is null`, and either `disposition='accepted'` or carrying `reopened_from_cx_at` — joined to its four resolved CX status codes/labels/tones. The read model for Customers Pipeline. Also carries `status`, `disposition` and `reopened_from_cx_at` so the table can mark a lead that is out for re-validation, and (2026-09-17) `submitted_by_role`, `final_carrier_id`, `final_carrier_name` (joined from `carriers`), `agent_name` and `policy_number` — the placement. The name is resolved **in the view** so the pipeline's Final Carrier column needs no second query and its search box can filter on `final_carrier_name` directly. |
 | `cx_status_summary` | Per (category, option): `lead_count` across accepted, non-archived leads — feeds the CX coverage card. |
 | `cx_untouched` | Accepted, non-archived leads with **no** `cx_lead_status` row, or a row with all four categories null — "nobody on the CX team has looked at this yet." |
 | `closer_lead_alerts` | Per closer (`s.closer_id = auth.uid()`), their own leads whose CX status just changed to something toned `destructive`/`warning` — the read model behind `forwarded-leads.tsx`'s alerting. |
@@ -176,10 +181,14 @@ each supports.
 - `reject_assignment(p_sub, p_reason?)` — validator only, on their own assignment. Returns the lead to `pending_manager`, increments `rejection_count`.
 - `hold_submission(p_sub)` — the assigned validator only, while `in_review`. Enforces `max_holds` from `app_config` (0 = unlimited) and raises once reached. Releases the claim (`claimed_at=null`, back to `'assigned'`) without losing the assignment; reopening restarts the full window.
 - `set_validator_fields(p_sub, p_final_carrier_id, p_agent_name, p_policy_number)` — manager/validator/admin/`general_manager`. Validates the carrier id is active if provided. Callable at any stage, not gated to `in_review`.
+- `parse_lead_date(p_text, p_from default current_date)` — added 2026-09-17, `IMMUTABLE`. One draft-date string as a date, or null. Accepts `YYYY-MM-DD`, `MM/DD/YYYY`/`M/D/YY`, `Nth of the month` and `Nth <weekday> of the month` (returning the first occurrence on or after `p_from`, searching up to a year ahead so a 5th Wednesday resolves). Pattern-matched and built with `make_date`, so `DateStyle` cannot change its answer; unrecognised text — `Every 2nd Friday` — is null rather than a guess.
+- `next_monthly_day(p_day, p_from default current_date)` — added 2026-09-17, `IMMUTABLE`. Day N of this month if still to come, else next; clamped to the month's length, so "31st" in February is the 28th/29th.
+- `normalize_ssn(p_text)` — added 2026-09-17, `IMMUTABLE`. The digits-only-and-exactly-nine rule, extracted so `submit_form_internal`, `ingest_sheet_lead` and `update_payload_field` share one definition.
+- `roll_recurring_draft_dates()` — cron only, added 2026-09-17. See the scheduled jobs table.
 - `expire_stale_reviews()` — no role check (called only by `pg_cron`, not exposed to the client as something a role would invoke meaningfully). Runs every minute; moves any `in_review` row whose `claimed_at` has exceeded `review_window()` to `returned_timeout`, tagging `last_timeout_by`.
 
 **Payload / data-quality**
-- `update_payload_field(p_sub, p_field, p_value)` — closing_manager/general_manager/manager/admin, plus **cxa/cxm** (2026-09-16), who must additionally pass `cx_pipeline_member(p_sub)` so a CX agent can only correct a lead on their own queue. Refuses `ID`/`Submitted By Role` (system-stamped) and archived leads. Writes one `payload_edits` row with old/new value per call — this is the **only** write path to `submissions.payload`; there is no RLS policy that lets any role update it directly (see [decisions/0002](decisions/0002-payload-writes-via-rpc.md)).
+- `update_payload_field(p_sub, p_field, p_value)` — closing_manager/general_manager/manager/admin, plus **cxa/cxm** (2026-09-16), who must additionally pass `cx_pipeline_member(p_sub)` so a CX agent can only correct a lead on their own queue. Refuses `ID`/`Submitted By Role` (system-stamped) and archived leads. Re-derives the mirrored column when the edited field is `Draft Date`, `Future Draft Date` or `SSN Number` (2026-09-17) — writing the payload alone left a correction invisible to every date filter and the duplicate check, which is exactly how the bug was found. Writes one `payload_edits` row with old/new value per call — this is the **only** write path to `submissions.payload`; there is no RLS policy that lets any role update it directly (see [decisions/0002](decisions/0002-payload-writes-via-rpc.md)).
 - `clear_data_flag(p_sub, p_field)` — manager/admin/**data_uploader**. Removes one entry from the `data_flags` jsonb array by field name. (The data_uploader grant appears unused by the current UI — see the audit summary's "unclear" section.)
 - `update_payment_field(p_sub, p_field, p_value)` — manager/admin, plus **cxa/cxm** (2026-09-16, scoped by `cx_pipeline_member(p_sub)`), for bank fields (`payment_type`, `bank_name`, `routing_number`, `account_number`, `account_title`, `card_exp`); **admin only** for `card_number`/`cvv` — the one card check refuses every non-admin role, CX included. Auto-derives `card_last4` when `card_number` changes. Creates the `payment_details` row on first write if none exists.
 
@@ -198,7 +207,7 @@ each supports.
 
 **Spreadsheet import**
 - `start_lead_import(p_file_name, p_row_count)` — data_uploader/admin. Opens a `lead_imports` batch row.
-- `ingest_sheet_lead(p_payload, p_source_ref, p_uploaded_by?, p_import_id?, p_flags?, p_payment?)` — idempotent on `source_ref` (returns the existing row if already ingested rather than duplicating). Inserts with `status='pending_import_approval'`, `source='sheet'`, `closer_id=null`. Writes `payment_details` in the same call if `p_payment` is given.
+- `ingest_sheet_lead(p_payload, p_source_ref, p_uploaded_by?, p_import_id?, p_flags?, p_payment?)` — idempotent on `source_ref` (returns the existing row if already ingested rather than duplicating). Inserts with `status='pending_import_approval'`, `source='sheet'`, `closer_id=null`. Writes `payment_details` in the same call if `p_payment` is given. **As of 2026-09-17 it also derives `draft_date`, `future_draft_date` (via `parse_lead_date`) and `ssn_normalized` (via `normalize_ssn`)** — it set none of the three before, which is why every uploaded lead had a blank Draft Date column, never appeared on the By Draft Date desk, and was invisible to `check_duplicate_ssn`.
 - `bump_import_skipped(p_import_id, p_count)` — increments a batch's `skipped_count`.
 - `approve_import_batch(p_import_id, p_reject_ids[]?)` / `reject_import_batch(p_import_id, p_reason?)` — manager/admin. Approve moves every non-rejected row in the batch to `pending_manager`; any explicitly rejected ids (or, for `reject_import_batch`, the whole batch) are archived instead.
 - `my_forwarded_leads()` — returns the calling closer's own leads with every sensitive payload key stripped (`SSN Number`, `Routing Number`, `Account Number`, `Card Number`, `CVC`, `CVV`, `Exp Date`) — stripped in SQL, not in the client, so there is no path for those keys to reach the browser for this screen even by mistake.
@@ -333,6 +342,7 @@ nothing in this app reads the sheet back to diff against it).
 | `purge-payment-data` | daily 03:17 | `purge_payment_data()` |
 | `purge-reporting-leads` | daily 04:11 | `purge_old_reporting_leads()` |
 | `retry-sheet-sync` | every 5 minutes (`*/5 * * * *`) | `retry_failed_sheet_syncs()` — added 2026-09-10 |
+| `roll-recurring-draft-dates` | daily 05:23 | `roll_recurring_draft_dates()` — added 2026-09-17. Moves a lead whose `draft_date` has passed and whose payload text is a recurrence ("3rd of the month") to its next occurrence. An explicitly typed date does not match those patterns and is never moved. See [decisions/0006](decisions/0006-recurring-draft-dates-resolved.md). |
 
 ## Edge Functions
 

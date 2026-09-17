@@ -1,5 +1,75 @@
 # Changelog
 
+## 2026-09-17 — Uploaded leads finally have a draft date (and a normalised SSN)
+
+**Migrations `20260917150000_lead_date_parsing.sql` and
+`20260917150100_sheet_lead_derived_columns.sql`.** The CX queue's Draft Date
+column was blank on every uploaded lead, and editing the payload to a proper
+mm/dd/yyyy date did not fix it. Neither was a display bug:
+
+- `submit_form_internal` was the **only** function in the database that wrote
+  `draft_date`. `ingest_sheet_lead` inserted no `draft_date`, no
+  `future_draft_date` and no `ssn_normalized` at all — so all 44 uploaded leads
+  had all three null, never appeared on the By Draft Date desk, and were
+  invisible to `check_duplicate_ssn`.
+- `update_payload_field` wrote `payload` and nothing else, so a hand correction
+  changed the text and left the column null. That is exactly the symptom
+  reported.
+
+Both now derive the three columns, through two new `IMMUTABLE` helpers:
+`parse_lead_date(text, from_date)` and `normalize_ssn(text)`. The parser matches
+by pattern and builds with `make_date`, so `DateStyle` cannot change its answer.
+
+Uploaded leads mostly state a recurrence rather than a date — "3rd of the
+month", "3rd wed of the month" — and those are resolved to the next real
+occurrence so the leads reach the date-keyed screens at all, with the new
+`roll-recurring-draft-dates` cron job (daily 05:23) moving them forward once a
+date passes. An explicitly typed date never matches those patterns and is never
+moved. `Every 2nd Friday` resolves to nothing and stays null, and the pipeline
+shows that wording rather than an empty cell. See
+[decisions/0006](docs/decisions/0006-recurring-draft-dates-resolved.md).
+
+Backfill: 31 of 44 uploaded leads gained a `draft_date`, all 44 gained
+`ssn_normalized`. The remaining 13 are the one unresolvable cadence and twelve
+leads whose payload carries no draft text at all.
+
+Also, in the CX detail sheet, the panel added yesterday moved below Lead Details
+and is now headed **"Filled By Validator"** — it reads as the rest of the same
+record, not as a separate thing above it.
+
+## 2026-09-17 — The CX pipeline shows the carrier the policy was written on
+
+**Migration `20260917140000_cx_pipeline_final_carrier.sql`.** The Customers
+Pipeline's Carrier column rendered `carrierName(payload)` — the carrier as typed
+on the intake form, which for a closer or an uploaded lead is only a *proposal*.
+It was a deliberate choice once, and wrong twice over: a team servicing a live
+policy needs to know who actually wrote it, and an uploaded lead carries no
+carrier text in its payload at all, so the column was blank for exactly the
+leads whose carrier was already known — in `final_carrier_id`, a column this
+view never selected. Of the 25 uploaded leads in the pipeline, 19 have a final
+carrier stamped and 1 has payload carrier text.
+
+`cx_pipeline` gains five columns: `submitted_by_role`, `final_carrier_id`,
+`final_carrier_name` (joined from `carriers`), `agent_name` and
+`policy_number`. Resolving the name inside the view — rather than embedding it
+per page — is what lets the column draw in one query and the search filter on
+the name with no carriers lookup per keystroke. No policy change: `carriers` is
+already readable by cxa/cxm and the view is `security_invoker`.
+
+- **Final Carrier column**, through the shared `finalCarrierName()` in
+  `ops.tsx`, which resolves both storage shapes (the FK for a reviewed lead,
+  `payload->>'Agency'` for a validator's own submission, which never gets one).
+  360 of 412 pipeline leads resolve a real final carrier. The 52 with none show
+  their proposal muted and marked "· proposed", with a tooltip saying so —
+  a dash would have taken text off a screen that had it.
+- **A read-only Placement panel** in the detail sheet: Final Carrier, Agent
+  Name, Policy Number. Read-only because `set_validator_fields` does not accept
+  a CX role. On a validator-submitted lead the agent and policy are payload keys
+  rather than columns, so each falls back before showing a dash — 191 of 412
+  leads would otherwise read empty.
+- **The search follows the column**: one more clause on `final_carrier_name`, so
+  a carrier a reader can see is a carrier they can type.
+
 ## 2026-09-17 - Pin the Cloudflare worker name; deploys had been going to the wrong worker
 
 `npm run build && npx wrangler deploy` reported **success** while the live site

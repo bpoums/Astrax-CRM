@@ -70,6 +70,29 @@ normalization, duplicate grouping — see
   "protects nothing." This is the one place in the app where a full card
   number and CVV are ever rendered outside a validator's own open review.
 
+## Derived columns (fixed 2026-09-17)
+
+`ingest_sheet_lead` used to insert **no** `draft_date`, `future_draft_date` or
+`ssn_normalized` — only `submit_form_internal` ever derived them — so every
+uploaded lead had all three null. The visible effects: a blank Draft Date column
+in the CX pipeline, no uploaded lead ever appearing on the By Draft Date desk,
+and none of them visible to `check_duplicate_ssn`. `update_payload_field` had
+the same gap in reverse: correcting the text by hand wrote `payload` and left
+the column null, so the correction changed nothing a filter could see.
+
+Both now derive the three columns through `parse_lead_date()` and
+`normalize_ssn()`. Uploaded leads mostly state a *recurrence* rather than a date
+("3rd of the month", "3rd wed of the month" — 26 of the 33 that carry any draft
+text), which is resolved to its next real occurrence and rolled forward nightly
+by the `roll-recurring-draft-dates` cron job; see
+[decisions/0006](../decisions/0006-recurring-draft-dates-resolved.md) for why
+that was chosen over keeping the rule and interpreting it at read time. Text
+that resolves to no single date — `Every 2nd Friday` — stays null, and the CX
+pipeline shows the wording itself rather than an empty cell.
+
+The backfill filled 31 of 44 uploaded leads' `draft_date` and all 44
+`ssn_normalized`.
+
 ## Known limitations
 - **`npm test` currently fails 1 of 140 tests** (`review-columns.test.ts`,
   "does not lose the card columns when the only card number is cleared").
