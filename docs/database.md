@@ -244,19 +244,57 @@ Edge Function, and Edge Function → Apps Script.
    own handler upserts by `Submission ID` — re-sending a submission can never
    create a duplicate row.
 
-**Retry mechanism**: every sync attempt (from the trigger, or from a retry)
-logs a row to `sheet_sync_attempts` with the `pg_net` `request_id`. The
-`retry-sheet-sync` cron job (below) resolves attempts whose response came
-back `200`, retries anything still unresolved after a 3-minute grace period
-(up to 3 attempts total), and marks anything that exhausts its retries as
-`gave_up` rather than retrying forever. A newer sync event for the same
-submission immediately supersedes any older, still-unresolved attempt for
-that row, so the retry job never chases a stale state.
+**SUPERSEDED 2026-09-17 by a durable queue** (`20260917100000`,
+`20260917110000`). The retry mechanism described below no longer runs; its cron
+job `retry-sheet-sync` is unscheduled. `sync_submission_to_sheet()` and
+`retry_failed_sheet_syncs()` remain defined but unused, so the change can be
+reverted by pointing `notify_sheet_sync` back at the former.
 
-Neither fix recovers rows already missing from the sheet before 2026-09-10
-— that is a separate, not-yet-done backfill (discussed as a manual export,
-not an automated reconciliation, since nothing in this app reads the sheet
-back to diff against it).
+**Why it was replaced.** Fire-on-trigger could not survive concurrency. Measured
+on this project, firing N syncs at once failed ~20% of the time at N=5, ~30% at
+N=20 and **~61% at N=59** — Google rejects concurrent requests to an Apps Script
+web app (as 404s, or as HTTP 200 carrying an HTML error page), and the script
+serialises itself on a 30-second `LockService` lock regardless. Thirteen leads
+had never reached Sheets at all, four of them completed sales. The retry made it
+worse in two ways: it abandoned a row permanently after 3 attempts (`gave_up`,
+surfaced to nobody), and it retried by looping over every pending attempt firing
+each one — recreating the burst that caused the failure. `pg_net` batches its
+dispatch, so this could not be paced from SQL: `pg_sleep` between calls does
+nothing, because the worker collects whatever is queued and fires it together.
+
+**The queue** (`sheet_sync_queue`, keyed by `submission_id`):
+- `notify_sheet_sync()` no longer makes HTTP calls. Every guard about *whether*
+  to sync is unchanged; it upserts into the queue instead. The primary key is
+  load-bearing — a lead whose status changes four times before the drain runs
+  collapses into **one** row and **one** write carrying the final state.
+- `drain_sheet_sync_queue(p_limit)` (cron `drain-sheet-sync`, every minute)
+  sends up to 25 rows as **one** `net.http_post` (120s timeout), not 25
+  requests. `sheet-sync` v13 accepts `{rows:[...]}` and walks them
+  **sequentially**, so Apps Script only ever sees one request at a time. It
+  refuses to start a second batch while one is in flight — added in
+  `20260917110000` after the first live burst showed a 25-row batch outrunning
+  the 60-second cron interval, letting two batches overlap and reintroducing the
+  very concurrency the design removes.
+- `resolve_sheet_syncs()` (cron `resolve-sheet-sync`, every minute) reads the
+  per-row `results` array back, so one bad row in a batch of 25 retries one row
+  rather than 25. A row is **only ever deleted on confirmed success**; anything
+  else gets `attempts + 1` and exponential backoff (30s, 1m, 2m … capped at 1h).
+  **There is no give-up path** — a permanently abandoned row is precisely the
+  silent loss this replaced. A stuck row stays visible in the queue instead.
+- `sheet_sync_backlog` (view, `select` granted to `authenticated`) exposes
+  depth, in-flight count, rows at `attempts >= 5`, and the age of the oldest
+  item. Counts only, never lead data. A queue nobody watches is the same failure
+  as a silent drop.
+
+**Verified live on rollout**: a 60-lead burst — the scenario that previously
+lost ~60% — drained to zero with no permanent failures, including six rows that
+failed to the overlapping-batch bug and recovered on retry.
+
+`sheet_sync_attempts` is retained for history; nothing writes to it now.
+
+Rows missing from the sheet before 2026-09-10 are still a separate, not-yet-done
+backfill (discussed as a manual export, not an automated reconciliation, since
+nothing in this app reads the sheet back to diff against it).
 
 ## Scheduled jobs (`pg_cron`)
 

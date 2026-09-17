@@ -1,5 +1,51 @@
 # Changelog
 
+## 2026-09-17 - Sheets sync moved to a durable queue; leads can no longer be dropped
+
+Fire-on-trigger sync could not survive concurrency, and it was losing leads.
+Measured on this project, firing N syncs at once failed ~20% of the time at
+N=5, ~30% at N=20 and **~61% at N=59** - Google rejects concurrent requests to
+an Apps Script web app (as 404s, or as HTTP 200 carrying an HTML error page),
+and the script serialises itself on a 30-second LockService lock regardless.
+**Thirteen leads had never reached Sheets at all, four of them completed
+sales.** With ~100 closers and validators submitting at once this becomes
+routine data loss.
+
+The old retry made it worse rather than better: it abandoned a row permanently
+after 3 attempts (`gave_up`, surfaced to nobody), and it retried by looping
+over every pending attempt firing each one - recreating the very burst that
+caused the failure. `pg_net` batches its dispatch, so this could not be paced
+from SQL; `pg_sleep` between calls does nothing, because the worker collects
+whatever is queued and fires it together.
+
+`notify_sheet_sync()` now enqueues into `sheet_sync_queue` instead of making an
+HTTP call. Every guard about *whether* to sync is unchanged. The queue is keyed
+by `submission_id`, which is load-bearing: a lead whose status changes four
+times before the drain runs collapses into one row and one write carrying the
+final state.
+
+`drain_sheet_sync_queue()` sends up to 25 rows as **one** request rather than
+25, and `sheet-sync` v13 walks a batch **sequentially**, so Apps Script only
+ever sees one request at a time - the fix for the concurrency failure, achieved
+without touching the Apps Script, whose deployment we do not own.
+`resolve_sheet_syncs()` reads per-row results back, so one bad row in a batch
+retries one row rather than 25, and **a row is only ever deleted on confirmed
+success**; anything else backs off exponentially (30s, 1m, 2m ... capped at 1h)
+and is never abandoned. `sheet_sync_backlog` exposes queue depth and age.
+
+A follow-up migration (`20260917110000`) stops the drain starting a second
+batch while one is in flight. The first live burst showed a 25-row batch
+outrunning the 60-second cron interval, so two batches overlapped and six rows
+came back with the same concurrency error the design exists to remove. They
+were retried and delivered rather than lost - which was the point - but the
+overlap is now prevented outright.
+
+Verified on rollout: a 60-lead burst, the scenario that previously lost ~60%,
+drained to zero with no permanent failures. The only rows left queued are the
+13 blocked on the **Astrax Uploader Feed** permission error, which is an Apps
+Script access problem for its owner to fix - they now retry safely until then
+instead of being dropped.
+
 ## 2026-09-16 — The manager can see why CX sent a lead back, read its history, and find it
 
 **No database change.** Three gaps on the Operations queue, all reported from
