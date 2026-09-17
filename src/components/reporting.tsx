@@ -1122,13 +1122,13 @@ export function SubmissionsExplorer() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Source</TableHead>
+                {/* <TableHead>Source</TableHead> */}
                 <TableHead>Center</TableHead>
                 <TableHead>Customer</TableHead>
                 {/* <TableHead>Carrier Name</TableHead> */}
                 <TableHead>Closer</TableHead>
                 <TableHead>Validator</TableHead>
-                <TableHead>Application Duration</TableHead>
+                <TableHead>Application Date</TableHead>
                 <TableHead>Validation Status</TableHead>
                 <TableHead>Disposition</TableHead>
                 {showArchived ? <TableHead className="text-right">Action</TableHead> : null}
@@ -1137,9 +1137,9 @@ export function SubmissionsExplorer() {
             <TableBody>
               {filteredLive.map((row) => (
                 <TableRow key={row.id} className="cursor-pointer" onClick={() => setOpenId(row.id)}>
-                  <TableCell>
+                  {/* <TableCell>
                     <OriginBadge row={row} />
-                  </TableCell>
+                  </TableCell> */}
                   {/* The stamped name, not a join: a lead keeps the centre it
                       was taken in even after that centre is renamed or the
                       closer is moved to another one. */}
