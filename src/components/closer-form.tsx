@@ -109,6 +109,7 @@ export const SECTIONS: Section[] = [
     title: "Banking",
     fields: [
       { label: "Draft Date", type: "date", required: true },
+      { label: "Future Draft Date", type: "date"},
       { label: "Bank Draft", type: "radio", required: true, options: ["Yes", "No"] },
       { label: "Account Title", type: "text", required: true },
       { label: "Bank Name", type: "text", required: true },
