@@ -866,6 +866,55 @@ export type Database = {
           },
         ]
       }
+      sheet_sync_queue: {
+        Row: {
+          attempts: number
+          enqueued_at: string
+          in_flight_request_id: number | null
+          last_error: string | null
+          next_attempt_at: string
+          submission_id: string
+        }
+        Insert: {
+          attempts?: number
+          enqueued_at?: string
+          in_flight_request_id?: number | null
+          last_error?: string | null
+          next_attempt_at?: string
+          submission_id: string
+        }
+        Update: {
+          attempts?: number
+          enqueued_at?: string
+          in_flight_request_id?: number | null
+          last_error?: string | null
+          next_attempt_at?: string
+          submission_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sheet_sync_queue_submission_id_fkey"
+            columns: ["submission_id"]
+            isOneToOne: true
+            referencedRelation: "cx_pipeline"
+            referencedColumns: ["submission_id"]
+          },
+          {
+            foreignKeyName: "sheet_sync_queue_submission_id_fkey"
+            columns: ["submission_id"]
+            isOneToOne: true
+            referencedRelation: "cx_untouched"
+            referencedColumns: ["submission_id"]
+          },
+          {
+            foreignKeyName: "sheet_sync_queue_submission_id_fkey"
+            columns: ["submission_id"]
+            isOneToOne: true
+            referencedRelation: "submissions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       submission_tags: {
         Row: {
           created_at: string
@@ -1322,6 +1371,16 @@ export type Database = {
           },
         ]
       }
+      sheet_sync_backlog: {
+        Row: {
+          in_flight: number | null
+          oldest_seconds: number | null
+          queued: number | null
+          sample_error: string | null
+          struggling: number | null
+        }
+        Relationships: []
+      }
       submission_declined_carriers: {
         Row: {
           decline_count: number | null
@@ -1711,6 +1770,7 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      drain_sheet_sync_queue: { Args: { p_limit?: number }; Returns: number }
       expire_stale_reviews: { Args: never; Returns: number }
       hold_submission: {
         Args: { p_sub: string }
@@ -1971,6 +2031,7 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      resolve_sheet_syncs: { Args: never; Returns: number }
       restore_to_cx_pipeline: { Args: { p_sub: string }; Returns: Json }
       retry_failed_sheet_syncs: { Args: never; Returns: number }
       return_lead_for_validation: {
@@ -2091,6 +2152,8 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      sheet_sync_backlog_status: { Args: never; Returns: Json }
+      sheet_sync_row: { Args: { p_sub: string }; Returns: Json }
       start_lead_import: {
         Args: { p_file_name: string; p_row_count: number }
         Returns: {

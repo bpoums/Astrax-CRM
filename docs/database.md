@@ -136,8 +136,27 @@ checking `my_role()` (or an equivalent ownership/assignment check) and raises
 Grouped by subsystem; see the matching `docs/features/*.md` for the workflow
 each supports.
 
+> ### ⚠ Write the role check as `is distinct from`, never `<>` or `NOT IN`
+>
+> `my_role()` returns **NULL** for a caller with no profile, no JWT, or an
+> **inactive** profile. `NULL <> 'admin'` is NULL — not true — so
+> `if my_role() <> 'admin' then raise` **never fires and the function returns
+> its data**. Same for `NOT IN`. The guard reads correctly and does nothing.
+>
+> Use `my_role() is distinct from 'admin'`, or
+> `my_role() is null or my_role() not in (...)`.
+>
+> Also revoke EXECUTE from `anon` by name where a function is not public:
+> Supabase's default privileges grant it to `anon` directly, and
+> `revoke ... from public` does **not** remove a direct grant.
+>
+> **~20 existing RPCs still have this bug**, including `admin_settings` and
+> `reporting_retention_status`, both verified returning data to `anon` with no
+> JWT on 2026-09-17. Listed and tracked in [TODO.md](TODO.md).
+> `sheet_sync_backlog_status()` is the reference for the correct shape.
+
 **Identity / bootstrap**
-- `my_role()` — `select role from profiles where id = auth.uid() and active`. The single point every other check reads through; an inactive profile resolves to no role.
+- `my_role()` — `select role from profiles where id = auth.uid() and active`. The single point every other check reads through; an inactive profile resolves to no role — i.e. **NULL**, which is why the `<>` / `NOT IN` warning above matters. RLS policies compare with `=` and so correctly deny a NULL role; the RPCs using `<>` do not.
 - `handle_new_user()` (trigger, on `auth.users` insert) — creates the matching `profiles` row. **Hardcodes** `role := 'admin'` when the new email is exactly `bpoums@gmail.com` (lowercased comparison), else `'closer'`. This is how the first admin account exists — there is no other bootstrap path.
 - `guard_last_admin()` (trigger, `BEFORE UPDATE` on `profiles`) — raises if the update would deactivate or demote the last active admin.
 
@@ -281,10 +300,20 @@ nothing, because the worker collects whatever is queued and fires it together.
   else gets `attempts + 1` and exponential backoff (30s, 1m, 2m … capped at 1h).
   **There is no give-up path** — a permanently abandoned row is precisely the
   silent loss this replaced. A stuck row stays visible in the queue instead.
-- `sheet_sync_backlog` (view, `select` granted to `authenticated`) exposes
-  depth, in-flight count, rows at `attempts >= 5`, and the age of the oldest
-  item. Counts only, never lead data. A queue nobody watches is the same failure
-  as a silent drop.
+- `sheet_sync_backlog` (view) exposes depth, in-flight count, rows at
+  `attempts >= 5`, the age of the oldest item, and a sample error. Counts and
+  an error string only, never lead data. A queue nobody watches is the same
+  failure as a silent drop.
+  **Corrected 2026-09-17 — this previously read "`select` granted to
+  `authenticated`", and that grant was a leak.** The view does not set
+  `security_invoker`, so it runs as its owner and bypasses the zero-policy RLS
+  on `sheet_sync_queue`; combined with Supabase's default grants it was
+  readable by **`anon`**, verified returning `queued = 13` with no JWT. Both
+  grants are now revoked and the view is SQL/ops-only.
+- `sheet_sync_backlog_status()` — **admin only**, the sole client path to those
+  numbers, backing the Overview card. Guarded with
+  `my_role() is distinct from 'admin'`, **not** `<>` — see the warning under
+  the RPC list.
 
 **Verified live on rollout**: a 60-lead burst — the scenario that previously
 lost ~60% — drained to zero with no permanent failures, including six rows that

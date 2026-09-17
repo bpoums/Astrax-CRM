@@ -77,6 +77,13 @@ writes.
   but it means somebody must watch `sheet_sync_backlog` — a silently growing
   queue is the same failure as a silent drop, just slower. The admin card is
   not optional decoration.
+  **Built 2026-09-17** (`20260917130000`): `SheetSyncBacklogCard` on the admin
+  Overview tab, fed by the admin-only `sheet_sync_backlog_status()` RPC. It
+  turns destructive when anything has failed 5+ times or the oldest item is
+  over 10 minutes old, and shows the Apps Script error verbatim. Building it
+  turned up that the `sheet_sync_backlog` view was readable by `anon` — it
+  bypasses the zero-policy RLS on the queue table and carried a default grant —
+  which is now revoked. See `docs/features/sheet-sync.md`.
 - **Throughput is bounded by Apps Script**, roughly 25 writes per minute with
   one batch at a time. That ceiling is inherent to a serialising web app and
   can only be raised by changing or replacing the far end.

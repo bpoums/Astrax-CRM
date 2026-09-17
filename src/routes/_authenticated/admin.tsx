@@ -18,6 +18,7 @@ import { DraftDateDesk } from "@/components/draft-date-desk";
 import { CenterAdmin } from "@/components/center-admin";
 import { CarrierDeclineReport } from "@/components/carrier-declines";
 import { ParkedLeads, PARKED_LEADS_KEY } from "@/components/parked-leads";
+import { SheetSyncBacklogCard } from "@/components/sheet-sync-backlog";
 import { Exports } from "@/components/exports";
 import { SalesBreakdown } from "@/components/sales-breakdown";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -160,6 +161,10 @@ function AdminPage() {
             {/* Rendered here rather than inside ReportingStats, which the
                 manager's Reporting tab also mounts — this card is admin-only. */}
             <CxCoverageCard />
+            {/* Whether leads are actually reaching Google Sheets. The queue in
+                decisions/0006 retries instead of dropping, which only works if
+                somebody sees a backlog that stops draining — this is that. */}
+            <SheetSyncBacklogCard />
             {/* Which carriers are turning leads away, and how often. */}
             {/* <CarrierDeclineReport /> */}
           </TabsContent>

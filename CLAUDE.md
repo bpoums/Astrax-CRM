@@ -313,11 +313,22 @@ in `requireRole()` only keeps someone off a screen that would show them nothing.
   `docs/features/cx-lifecycle.md`.
 
 `my_role()` reads `select role from profiles where id = auth.uid() and active`,
-so **an inactive profile resolves to no role at all**. Deactivation therefore
-cascades through every policy and every RPC in one write; there is no second
-place to revoke access, and no policy that needs an `active` check of its own.
-A trigger (`guard_last_admin`) refuses to deactivate or demote the last active
-admin, so that cascade cannot lock everyone out.
+so **an inactive profile resolves to no role at all** — NULL. Deactivation
+cascades through every **policy** in one write, because RLS compares with `=`
+and NULL never matches; there is no second place to revoke access, and no
+policy that needs an `active` check of its own. A trigger (`guard_last_admin`)
+refuses to deactivate or demote the last active admin, so that cascade cannot
+lock everyone out.
+
+**Corrected 2026-09-17: it does NOT currently cascade through every RPC.** A
+guard written `if my_role() <> 'admin'` (or `not in (...)`) does not fire on a
+NULL role — `NULL <> 'admin'` is NULL, not true — so the function returns its
+data to a caller with no profile, no JWT, or an inactive one. Verified live:
+`admin_settings()` and `reporting_retention_status()` both returned data to
+`anon`. **Write every new guard as `my_role() is distinct from 'admin'`**, and
+revoke EXECUTE from `anon` by name (revoking from `public` does not remove
+Supabase's direct grant). ~20 existing RPCs still need fixing — see
+`docs/TODO.md`.
 
 **In an RLS policy always write `(select my_role())`, never a bare
 `my_role()`** — same for `(select auth.uid())`. A bare call is evaluated once

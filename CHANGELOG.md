@@ -1,5 +1,62 @@
 # Changelog
 
+## 2026-09-17 - Sheets sync backlog card, and the view it reads stops leaking to anon
+
+ADR 0006 said plainly that the admin card was "not optional decoration": the
+queue's whole design is that a failed write accumulates instead of vanishing,
+which is only an improvement if somebody sees it. It was never built, so the
+queue was unwatched - and it currently holds **13 rows, 8 attempts each, 1.6h
+old**, all failing with the same Apps Script permission error. Nothing in the
+app said so.
+
+`SheetSyncBacklogCard` now sits on the admin Overview tab: queued, in flight,
+how many are failing, age of the oldest, and the Apps Script error verbatim.
+It reads destructive when anything has failed 5+ times **or** the oldest item
+is over 10 minutes old - a large queue that is moving is a busy morning, a
+small one that is not is a fault, and a count alone cannot tell those apart.
+Read-only: the cron drains every 60s and retries with backoff, so a button
+would mostly duplicate that.
+
+**Two security bugs found while building it, both of which fail open while
+looking like a working guard.**
+
+*The view was readable by `anon`.* `sheet_sync_queue` has RLS enabled with zero
+policies so the client cannot reach it - but `sheet_sync_backlog` is a view
+over it that does not set `security_invoker`, so it runs as its owner and
+bypasses RLS, and Supabase's default grants gave `SELECT` to `anon` and
+`authenticated`. Verified with no JWT at all:
+
+| as | `sheet_sync_queue` | `sheet_sync_backlog` |
+|---|---|---|
+| `anon` | 0 rows (RLS holds) | **`queued = 13`** |
+
+Both grants revoked; the view is SQL/ops-only. The admin reaches the numbers
+through `sheet_sync_backlog_status()`, a `SECURITY DEFINER` RPC that re-checks
+the caller's role - the pattern ADR 0001 requires.
+
+*`my_role() <> 'admin'` is not a guard.* `my_role()` returns NULL for a caller
+with no profile, no JWT, or an **inactive** profile, and `NULL <> 'admin'` is
+NULL rather than true - so the `IF` never fires and the function returns its
+data. The first version of this RPC had it, copied from the existing house
+style, and returned the backlog to a caller with no JWT. Fixed to
+`is distinct from`. Also: `revoke ... from public` does not remove `anon`'s
+EXECUTE, because Supabase grants it to `anon` directly - the role must be named.
+
+**~20 pre-existing RPCs share the second bug and are NOT fixed here**, including
+`admin_settings` and `reporting_retention_status`, both confirmed returning
+data to `anon` with no JWT. Several are writes (`archive_submission`,
+`assign_to_validator`, `set_admin_setting`, `approve_import_batch`). This also
+contradicts `CLAUDE.md`'s claim that deactivating a profile cascades through
+"every policy and every RPC" - it cascades through every policy, because RLS
+compares with `=`, but not through these. Catalogued in the new `docs/TODO.md`
+and corrected in `CLAUDE.md`; fixing them is its own change.
+
+- `supabase/migrations/20260917130000_sheet_sync_backlog_admin_only.sql`
+- `src/components/sheet-sync-backlog.tsx` (new), mounted in `admin.tsx`
+- `src/integrations/supabase/types.ts` (regenerated)
+- `docs/features/sheet-sync.md` (new), `docs/TODO.md` (new), `docs/database.md`,
+  `docs/decisions/0006-...md`, `CLAUDE.md`
+
 ## 2026-09-17 - RLS policies stop re-evaluating my_role() once per row
 
 The app had been getting slower as the database grew, and cloud Supabase was
