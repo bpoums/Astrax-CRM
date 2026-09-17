@@ -9,7 +9,9 @@ eventual consistency acceptable.
 ## Current status
 Live. Queue-based since 2026-09-17
 ([decisions/0006](../decisions/0006-sheet-sync-queue-not-fire-on-trigger.md)).
-Thirteen uploaded leads are currently stuck — see "Known limitations".
+The backlog is **empty**: the Apps Script permission failure that held 14 uploaded
+leads out of the Sheet was fixed by the script owner on 2026-09-18 and the
+queue drained to zero.
 
 ## Roles involved
 Nobody triggers a sync by hand. It is entirely server-side; the browser never
@@ -97,12 +99,21 @@ like a working guard**:
    does not touch a direct grant. Name `anon` explicitly.
 
 ## Known limitations
-- **13 uploaded leads are stuck right now**, failing with
-  `Exception: リクエストされたドキュメントにアクセスする権限がありません。（行 26…）`
-  — the Apps Script cannot open the Validation Feed spreadsheet. We do not own
-  that deployment, so this is blocked on the sheet's owner deploying the
-  updated script. They will flush automatically once it lands; the backoff is
-  capped at 1h, so nothing needs re-queuing by hand.
+- **Resolved 2026-09-18 — the Validation Feed permission failure.** For about
+  12 hours the Apps Script could not open the Validation Feed spreadsheet
+  (`Exception: リクエストされたドキュメントにアクセスする権限がありません。（行 26…）`),
+  and 14 uploaded leads accumulated in the queue at up to 21 attempts each. We
+  do not own that deployment, so it was blocked on the script's owner. Once
+  they deployed, all 14 flushed and the queue drained to zero. **Nothing was
+  lost** — which is the queue design working as intended: a failed write
+  accumulated instead of vanishing, and the leads were still there to send when
+  the far end came back. The pre-queue behaviour would have dropped all 14
+  silently.
+  The retry is capped at a 1h backoff, so a fixed far end clears itself within
+  the hour; to flush immediately instead, set `next_attempt_at = now()` on the
+  queue and call `drain_sheet_sync_queue(25)`, then `resolve_sheet_syncs()`
+  **after** the batch has actually answered — resolving too early records
+  `no response recorded` and costs the row an attempt.
 - **The Sheet is eventually consistent.** Under sustained peak it can lag by
   minutes. Accepted deliberately. If it ever needs to be immediate, the levers
   are batch size, cron frequency, then replacing Apps Script with the Sheets

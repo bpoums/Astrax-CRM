@@ -1,5 +1,34 @@
 # Changelog
 
+## 2026-09-18 — The stuck uploaded leads are in the Sheet; backlog drained to zero
+
+The Apps Script owner deployed, so the Validation Feed permission failure that
+had held uploaded leads out of Google Sheets for ~12 hours is gone. Confirmed
+by sending one stuck lead and reading the response rather than assuming from
+the stale error — `{"results":[{"submission_id":"fd8dd23f…","ok":true}]}`.
+
+The rest were then flushed in one sequential batch: **13 leads, every one
+`ok: true`**, and `sheet_sync_backlog` now reads **0 queued / 0 in flight /
+0 struggling**.
+
+Two live leads (one closer, one validator) were also in the queue from the
+minutes before, with the transient concurrency errors (`apps script http 404`,
+`apps script returned an HTML error page`) rather than the permission one.
+Those resolved on their own retry and needed nothing.
+
+**Nothing was lost, which is the whole point of ADR 0006.** A failed write
+accumulated instead of vanishing, so all 14 were still there to send when the
+far end came back. The pre-queue behaviour would have dropped them silently and
+there would have been nothing to flush.
+
+One operational note now recorded in `docs/features/sheet-sync.md`: when
+flushing by hand, call `resolve_sheet_syncs()` **after** the batch has actually
+answered. Called too early it records `no response recorded` and costs the row
+an attempt — which happened once here, on the probe lead, before the real send.
+
+- `docs/features/sheet-sync.md` (status + limitation rewritten, manual-flush
+  recipe added), `docs/TODO.md` (stuck-leads item removed)
+
 ## 2026-09-18 — Manual Submissions is searchable by its Type column
 
 The Manual tab's Type column prints "Validator" or "Upload" on every row, and

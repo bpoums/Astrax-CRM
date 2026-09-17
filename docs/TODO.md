@@ -94,9 +94,3 @@ last-write-wins vs `Array.find` first-match). Pre-existing, found in the
 Detail views render payload fields verbatim. Recorded in
 [features/closing-desk.md](features/closing-desk.md).
 
----
-
-## 13 uploaded leads stuck outside Google Sheets
-
-Blocked on the Apps Script owner deploying the updated script; they flush
-automatically once it lands. See [features/sheet-sync.md](features/sheet-sync.md).
