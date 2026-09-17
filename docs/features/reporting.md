@@ -51,6 +51,15 @@ card), `validation-timeline.tsx`, `payload-history.tsx`.
   (`payload->>Key ilike`) built in `lib/lead-search.ts` — never a client-side
   filter over an already-fetched page, since that would silently miss
   matches sitting on a different page.
+- **The search matches the Manual tab's Type column** (added 2026-09-18).
+  Type prints "Validator" or "Upload" per row, and both words now filter:
+  "validator" (or "manual") adds `submitted_by_role.eq.validator`, and
+  "upload"/"uploaded" adds `source.eq.sheet` — `matchesValidatorRole()` and
+  `matchesUploadKind()` in `reporting.tsx`. Before this, "upload" matched
+  **nothing at all**: no status, disposition or source alias contains the
+  word, so searching the term printed on screen returned an empty table. The
+  upload clause is harmless on the Live tab, which ANDs `source = 'live'` over
+  the whole `or` group.
 
 ## Business rules
 - **Two tabs, Live and Manual** (renamed/merged 2026-09-15 from three:

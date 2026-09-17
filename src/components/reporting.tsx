@@ -230,6 +230,27 @@ function matchesValidatorRole(term: string) {
 }
 
 /**
+ * The other half of the Type column.
+ *
+ * `matchesValidatorRole` above already makes "Validator" findable. "Upload"
+ * was not: the word is printed in the Type cell of every imported row, but it
+ * appeared in no clause anywhere — not a status, not a disposition, not a
+ * source alias — so searching for the thing on screen returned nothing at all.
+ *
+ * An uploaded lead is exactly `source = 'sheet'` on this tab. The Manual tab
+ * admits validator submissions and sheet imports, and `manualKind()` calls
+ * everything that is not a validator submission an Upload — confirmed against
+ * the live data, where every Upload row is 'sheet' and every Validator row is
+ * 'live'.
+ *
+ * "uploaded" is accepted alongside "upload" so the past tense finds them too;
+ * `"upload".includes("uploaded")` is false, so it needs saying separately.
+ */
+function matchesUploadKind(term: string) {
+  return "upload".includes(term) || "uploaded".includes(term);
+}
+
+/**
  * Everything a lead can be matched on, as one `or` group.
  *
  * Both sub-tabs use it, so a term behaves the same whichever one is open —
@@ -249,6 +270,9 @@ function leadSearchClauses(term: string, profileIds: string[]) {
   const sources = matchingSources(lower);
   if (sources.length > 0) clauses.push(`source.in.(${sources.join(",")})`);
   if (matchesValidatorRole(lower)) clauses.push("submitted_by_role.eq.validator");
+  // Harmless on the Live tab, which ANDs `source = 'live'` over this whole
+  // group, so the clause can only ever match on Manual where Type is shown.
+  if (matchesUploadKind(lower)) clauses.push("source.eq.sheet");
   return clauses;
 }
 
@@ -1028,8 +1052,11 @@ export function SubmissionsExplorer() {
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               // One search for both sub-tabs now that it runs in the
-              // database, so the hint no longer differs between them.
-              placeholder="Search customer, phone, closer, validator, status, source…"
+              // database, so the hint no longer differs between them. "type"
+              // earns its place in the list because the Manual tab's Type
+              // column is the one thing the merge could have lost, and an
+              // unadvertised filter is barely a filter.
+              placeholder="Search customer, phone, closer, validator, status, source, type…"
               className="field-input max-w-xs"
               aria-label="Search submissions"
             />

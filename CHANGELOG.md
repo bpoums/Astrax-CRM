@@ -1,5 +1,28 @@
 # Changelog
 
+## 2026-09-18 — Manual Submissions is searchable by its Type column
+
+The Manual tab's Type column prints "Validator" or "Upload" on every row, and
+searching for "upload" returned an **empty table**. Not a near-miss: no status,
+disposition or source alias contains that word, so the term matched no clause
+anywhere and the query came back with nothing. (The one profile whose name
+contains "upload", "Descom Uploader", has uploaded zero leads, so even the
+person-name clause found nothing.) "Validator" already worked, through
+`matchesValidatorRole()`.
+
+`matchesUploadKind()` now adds `source.eq.sheet` for "upload"/"uploaded" —
+verified against the live data, where every Upload row is `source = 'sheet'`
+and every Validator row is `'live'`, so the clause is exact rather than
+approximate. Searching "upload" returns all 33 unarchived uploads; no validator
+row's payload contains the word, so nothing extra is dragged in by the `or`
+group. The clause is inert on the Live tab, which ANDs `source = 'live'` over
+the whole group.
+
+The placeholder now says "…status, source, type…", because an unadvertised
+filter is barely a filter.
+
+- `src/components/reporting.tsx`, `docs/features/reporting.md`
+
 ## 2026-09-18 — Validator submissions from before the centers existed get their center back
 
 **Migration `20260918100000_backfill_validator_center.sql`.** The Center column
