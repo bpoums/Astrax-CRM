@@ -1,5 +1,50 @@
 # Changelog
 
+## 2026-09-18 — Validator submissions from before the centers existed get their center back
+
+**Migration `20260918100000_backfill_validator_center.sql`.** The Center column
+was blank on a batch of validator submissions in Submissions. Not a display
+bug: `center_id` and `center_name` were genuinely NULL on 40 rows.
+
+`submit_form_internal` stamps the center from the **submitter's profile at
+submission time** — a snapshot, and deliberately so, since a lead should keep
+the center it was taken in even if the person later moves. The side effect is
+that assigning a center to a profile never reaches rows already submitted. Six
+validators submitted between 2026-08-26 and 2026-08-29, before any validator
+had a center; everything from 2026-08-31 onward is stamped correctly. So this
+was historical, not an ongoing fault, and the migration is a no-op if re-run.
+
+Reported for two validators (Maha Waheed 4, Rabia Ahmed 29). Checking the whole
+table found four more with the identical problem in the identical window —
+Shahzaib Imtiaz 3, Waqas Ahmed 2, Sardar Ali 1, Syed Zubair Hussain Shah 1 —
+and all six were fixed together, 40 rows, 18 of them archived. The center is
+read from each submitter's own profile rather than hardcoded, so no generated
+id is baked into the migration.
+
+**Nothing moved except the blank column**, which was checked rather than
+assumed:
+
+- `submission_totals_by_center` joins only `submitted_by_role = 'closer' AND
+  source = 'live'`; every row touched here is validator-submitted, and a direct
+  count confirmed **zero** updated rows fall in that view's scope. The Leads by
+  Center figures did rise over the same period (UMS BPO 275 → 286, DESCOM
+  46 → 48) — that is 13 new closer leads submitted since, accounted for
+  exactly, not this backfill.
+- The `closing_manager` branch of `submissions read scoped` also requires
+  `submitted_by_role = 'closer'`, so no role can see a lead it could not see
+  before.
+
+**Deliberately left alone:** one uploaded lead (`source = 'sheet'`,
+2026-09-11) whose uploader also had no center at import time.
+`ingest_sheet_lead` stamps uploaded leads `submitted_by_role = 'closer'`, so
+giving that row a center *would* newly expose it to that center's
+closing_manager — a real visibility change, and its own decision rather than
+something to carry along with a cosmetic backfill.
+
+Documented the underlying trap in `docs/multi-tenancy.md`: set
+`profiles.center_id` **before** someone starts submitting, because afterwards
+only a backfill can repair it.
+
 ## 2026-09-17 — Uploaded leads finally have a draft date (and a normalised SSN)
 
 **Migrations `20260917150000_lead_date_parsing.sql` and

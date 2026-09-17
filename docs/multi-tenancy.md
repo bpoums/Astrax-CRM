@@ -41,6 +41,17 @@ Two columns carry the link, and they mean different things:
   center reads this stamped `center_name`, never `centers.name` through a
   live join.
 
+  **The sharp edge of that snapshot:** a submitter who has *no* `center_id`
+  when they submit leaves **both columns NULL on that lead permanently**, and
+  assigning them a center afterwards does not reach back. It can only be
+  repaired by a backfill migration. This has already happened once — six
+  validators submitted 40 leads between 2026-08-26 and 2026-08-29, before any
+  validator had been given a center, and every one of those rows read blank in
+  the Submissions Center column until
+  `20260918100000_backfill_validator_center.sql` filled them from each
+  submitter's profile. Worth knowing before onboarding a new center: set
+  `profiles.center_id` **before** the person starts submitting, not after.
+
 ## The one place scoping actually happens: the `submissions` RLS policy
 
 From the live policy (`submissions read scoped`, see
