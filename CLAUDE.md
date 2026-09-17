@@ -319,6 +319,14 @@ place to revoke access, and no policy that needs an `active` check of its own.
 A trigger (`guard_last_admin`) refuses to deactivate or demote the last active
 admin, so that cascade cannot lock everyone out.
 
+**In an RLS policy always write `(select my_role())`, never a bare
+`my_role()`** — same for `(select auth.uid())`. A bare call is evaluated once
+per candidate row; the subquery makes it an InitPlan evaluated once per query.
+Because `my_role()` is `SECURITY DEFINER` and hits `profiles`, the bare form
+cost ~6 µs per row per call site and made every query scale with table size —
+it was the entire reason the app slowed down as data grew (2026-09-17,
+`20260917120000`). The value is identical either way; only the timing changes.
+
 ### A refused read is not an empty result
 
 Every guard that raises `not authorized` must reach the user **as an

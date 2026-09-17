@@ -1,5 +1,80 @@
 # Changelog
 
+## 2026-09-17 - RLS policies stop re-evaluating my_role() once per row
+
+The app had been getting slower as the database grew, and cloud Supabase was
+the suspected cause. It was not. The database is **27 MB / 633 submissions** -
+small enough to sit entirely in cache - and on the manager queue query the
+index scan took **0.058 ms** while the whole query took **14.8 ms**. Finding
+the rows was free; **~99% of the time was the RLS filter**. Self-hosting would
+have moved the same policy onto a slower machine behind a worse network path
+and fixed nothing.
+
+The cause: policies called `my_role()` bare, so Postgres evaluated it **once
+per candidate row**. `my_role()` is `SECURITY DEFINER` and runs
+`select role from profiles where id = auth.uid() and active`, so every row
+scanned cost a `profiles` lookup plus a JWT parse. Being `STABLE` *permits*
+hoisting but does not force it - Postgres will not hoist a function call
+inside a `CASE` in a filter expression.
+
+Proven by A/B on the same query and rows, changing one call site only:
+
+| predicate | execution |
+|---|---|
+| `case my_role() ...` | 8.46 ms |
+| `case (select my_role()) ...` | 5.17 ms |
+
+**~6 us per row per call site**, linear in table size - which is exactly the
+reported symptom. At 633 rows that is ~4 ms per call site; at 60,000 it is
+~360 ms, and there were 20 call sites.
+
+All 20 policies across 15 tables were recreated with each bare `my_role()` and
+`auth.uid()` wrapped as a scalar subquery, which forces a single InitPlan
+evaluation. Nothing else in any predicate changed. The plan now reads
+`CASE (InitPlan 1).col1` with `loops=1`.
+
+| query | before | after |
+|---|---|---|
+| manager queue (`pending_manager`, 50) | 14.78 ms | **1.32 ms** |
+| manager `count(submissions)` | - | 2.74 ms |
+| manager `count(form_events)` (3,555 rows) | - | 1.59 ms |
+| closing_manager `count(submissions)` | - | 1.24 ms |
+| general_manager `count(submissions)` | - | 0.99 ms |
+
+**Verification, because this is the security boundary.** Before applying, a
+role x table matrix recorded the visible row count for **every one of the 58
+profiles** against all 19 RLS-protected tables - not one representative per
+role, so per-user scoping like `closing_manager`'s centre was covered too. The
+same matrix was recaptured afterwards and compared in SQL: **1,121 cells, 0
+differing.** The matrix is discriminating rather than uniformly zero (admin
+633, manager 622, general_manager 546, cxa 413, closing_manager 47,
+closer/validator/anon 0, `data_uploader` 0-26 varying per user), so an
+unchanged result is evidence and not an artefact. Writes were checked
+separately, since the matrix only covers reads: admin updates `profiles` (1
+row), a closer cannot (0 rows), a closer insert into `carriers` raises, and no
+test value leaked. `auth_rls_initplan` is gone from the advisor and no new
+security finding appeared.
+
+**Deliberately not done**, and worth knowing why: the advisor's 21 "unindexed
+foreign keys" were left alone - `submissions` already carries 17 indexes
+covering every column the app filters on, and the flagged columns
+(`archived_by`, `disposed_by`, `last_timeout_by`, ...) are only read through
+embedded profile joins that resolve against `profiles.id`, already the primary
+key. Twenty-one more indexes would add write cost on every insert for no
+measurable read gain. The 25 "multiple permissive policies" findings were also
+left: real, but on single-digit-row vocabulary tables, and merging two policies
+into one is a genuine change to the boundary rather than a timing fix - the
+wrong thing to bundle into a performance pass.
+
+Also corrected in `docs/database.md`: the zero-policy table list named only
+`app_config` and `payment_details`; `sheet_sync_attempts` and
+`sheet_sync_queue` are also zero-policy, confirmed live.
+
+- `supabase/migrations/20260917120000_rls_initplan_wrap_role_checks.sql`
+- `docs/database.md` (Row-Level Security summary)
+
+No application code changed - this is invisible to the client.
+
 ## 2026-09-17 - Sheets sync moved to a durable queue; leads can no longer be dropped
 
 Fire-on-trigger sync could not survive concurrency, and it was losing leads.

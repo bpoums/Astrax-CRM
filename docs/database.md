@@ -321,10 +321,22 @@ setting via the Supabase API:
 
 Every table has RLS **enabled**. Policy count per table, condensed:
 
+> **Every policy wraps its role check as `(select my_role())`, never a bare
+> `my_role()`** — likewise `(select auth.uid())`. This is not cosmetic. A bare
+> call in a policy predicate is executed **once per candidate row**; an
+> uncorrelated scalar subquery becomes an InitPlan evaluated once per query.
+> Since `my_role()` is `SECURITY DEFINER` and does a `profiles` lookup plus a
+> JWT parse, the bare form cost ~6 µs per row per call site and made every
+> query scale linearly with table size. Applied 2026-09-17 in
+> `20260917120000_rls_initplan_wrap_role_checks.sql`; the manager queue query
+> went from 14.8 ms to 1.3 ms. **Any new or edited policy must keep the
+> wrapping** — the check is that no policy body in `public` contains
+> `my_role()` or `auth.uid()` not immediately preceded by `SELECT`.
+
 - **Direct client write policy**: `profiles` only (`admin manages profiles`,
-  `FOR ALL`, `USING/CHECK my_role() = 'admin'`). Nothing else has one — see
-  [decisions/0002](decisions/0002-payload-writes-via-rpc.md).
-- **Read policies**, one per table, role-scoped via `my_role()`:
+  `FOR ALL`, `USING/CHECK (select my_role()) = 'admin'`). Nothing else has one
+  — see [decisions/0002](decisions/0002-payload-writes-via-rpc.md).
+- **Read policies**, one per table, role-scoped via `(select my_role())`:
   - `submissions` — the single most complex policy in the schema, one `CASE`
     per role (admin sees all; manager sees everything except `parked`;
     `closing_manager` sees only closer-originated, non-archived leads whose
@@ -342,9 +354,14 @@ Every table has RLS **enabled**. Policy count per table, condensed:
     `cx_status_history`, `submission_tags`) are readable by a fixed,
     hand-listed set of roles — no per-row scoping, since these describe
     vocabulary or an audit trail rather than a specific person's work.
-  - `lead_imports` — `uploaded_by = auth.uid() OR my_role() in (manager, admin)`.
+  - `lead_imports` — `uploaded_by = (select auth.uid()) OR (select my_role())
+    in (manager, admin)`.
 - **Zero policies at all** (deny-everything to the client, reachable only
-  through `SECURITY DEFINER` functions): `app_config`, `payment_details`.
+  through `SECURITY DEFINER` functions): `app_config`, `payment_details`,
+  and — corrected 2026-09-17, this list previously named only the first two —
+  `sheet_sync_attempts` and `sheet_sync_queue`. Verified live: an `authenticated`
+  session simulating every one of the 58 profiles reads 0 rows from all four,
+  the admin included.
 
 See [authentication.md](authentication.md) for how `my_role()` and profile
 `active` interact, and [multi-tenancy.md](multi-tenancy.md) for the
