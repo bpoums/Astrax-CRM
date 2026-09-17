@@ -10,7 +10,11 @@ old**, all failing with the same Apps Script permission error. Nothing in the
 app said so.
 
 `SheetSyncBacklogCard` now sits on the admin Overview tab: queued, in flight,
-how many are failing, age of the oldest, and the Apps Script error verbatim.
+how many are failing, and the age of the oldest. It deliberately does not print
+the Apps Script error - that comes back in the script owner's own locale, so it
+lands in whatever language that account is set to, and unreadable text under a
+red number is noise rather than a diagnosis. It stays available in SQL via
+`select sample_error from sheet_sync_backlog`.
 It reads destructive when anything has failed 5+ times **or** the oldest item
 is over 10 minutes old - a large queue that is moving is a busy morning, a
 small one that is not is a fault, and a count alone cannot tell those apart.

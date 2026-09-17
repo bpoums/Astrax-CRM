@@ -86,7 +86,12 @@ export function SheetSyncBacklogCard() {
     );
   }
 
-  const { queued, in_flight, struggling, oldest_seconds, sample_error } = backlog.data;
+  // `sample_error` is deliberately not rendered. Apps Script returns its
+  // exceptions in the script owner's own locale, so the string arrives in a
+  // language the admin reading this card may not speak — unreadable text under
+  // a red number is noise, not a diagnosis. The RPC still returns it for
+  // SQL/ops use, where whoever is debugging can translate it.
+  const { queued, in_flight, struggling, oldest_seconds } = backlog.data;
 
   const stalled = oldest_seconds >= STALLED_SECONDS;
   const bad = struggling > 0 || stalled;
@@ -128,15 +133,6 @@ export function SheetSyncBacklogCard() {
               : "Draining normally — about 25 a minute."}
           </span>
         )}
-
-        {/* The Apps Script message, verbatim. It names the actual cause (a
-            spreadsheet the script cannot open, a revoked authorisation) and
-            is what turns "13 stuck" into something someone can act on. */}
-        {sample_error ? (
-          <span className="mt-1 break-words text-[0.66rem] text-muted-foreground">
-            {sample_error}
-          </span>
-        ) : null}
       </div>
     </section>
   );

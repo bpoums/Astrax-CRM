@@ -47,11 +47,18 @@ a failure is recorded as a failure and retried rather than logged `ok`.
 `/admin?tab=overview` → `SheetSyncBacklogCard`
 (`src/components/sheet-sync-backlog.tsx`).
 
-Read-only: queued, in flight, how many are failing, the age of the oldest, and
-the verbatim Apps Script error. It turns destructive when anything has failed
-5+ times **or** the oldest item is over 10 minutes old — a big queue that is
-moving is a busy morning, a small one that is not is a fault, and a count alone
-cannot tell those apart.
+Read-only: queued, in flight, how many are failing, and the age of the oldest.
+It turns destructive when anything has failed 5+ times **or** the oldest item
+is over 10 minutes old — a big queue that is moving is a busy morning, a small
+one that is not is a fault, and a count alone cannot tell those apart.
+
+**The card deliberately does not show the Apps Script error.** Apps Script
+returns exceptions in the script owner's own locale, so the string arrives in
+whatever language that account is set to — unreadable text under a red number
+is noise rather than a diagnosis. `sheet_sync_backlog_status()` still returns
+`sample_error`, and `sheet_sync_backlog` still exposes it, for whoever is
+debugging in SQL. To read the current cause:
+`select sample_error from sheet_sync_backlog;`
 
 There is no "drain now" button: the cron drains every 60s and retries with
 exponential backoff (30s, 1m, 2m … capped at 1h), so a button would mostly

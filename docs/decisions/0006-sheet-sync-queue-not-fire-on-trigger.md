@@ -80,7 +80,9 @@ writes.
   **Built 2026-09-17** (`20260917130000`): `SheetSyncBacklogCard` on the admin
   Overview tab, fed by the admin-only `sheet_sync_backlog_status()` RPC. It
   turns destructive when anything has failed 5+ times or the oldest item is
-  over 10 minutes old, and shows the Apps Script error verbatim. Building it
+  over 10 minutes old. It deliberately does not print the Apps Script error —
+  that arrives in the script owner's locale, so it is often in a language the
+  reader does not speak; it stays available in SQL. Building it
   turned up that the `sheet_sync_backlog` view was readable by `anon` — it
   bypasses the zero-policy RLS on the queue table and carried a default grant —
   which is now revoked. See `docs/features/sheet-sync.md`.
