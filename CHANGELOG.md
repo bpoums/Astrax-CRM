@@ -1,5 +1,41 @@
 # Changelog
 
+## 2026-09-17 - Pin the Cloudflare worker name; deploys had been going to the wrong worker
+
+`npm run build && npx wrangler deploy` reported **success** while the live site
+kept serving the old build. The deploy was real - it was going to a different
+worker.
+
+Nitro auto-generates the worker name **from the git remote**:
+
+```js
+generateWorkerName() // remote.origin.url -> "owner/repo" -> slug
+```
+
+`bpoums/closerform` produced `bpoums-closerform`, which is the live site. When
+the GitHub repo was renamed to `bpoums/Astrax-CRM` the generated name became
+`bpoums-astrax-crm`, so every deploy since published a brand-new worker at a
+different address. Nothing in wrangler's output indicated a problem, because
+nothing was wrong from its point of view.
+
+Added `wrangler.json` at the repo root pinning `name` (Nitro's
+`readWranglerConfig` merges a user config over its defaults, and the auto-name
+only applies when `name` is unset). The deploy target no longer depends on what
+the repo is called.
+
+Pinned `compatibility_date` in the same file while there. It had been stamped
+with **today's date** on every build, and Cloudflare rejects a date it
+considers to be in the future - the reason every deploy had to pass
+`--compatibility-date` by hand and why deploys broke after ~7pm PKT. Builds are
+now deterministic and `npx wrangler deploy` is correct on its own.
+
+- `wrangler.json` (new), `CLAUDE.md` (deployment section corrected - the flag is
+  no longer required)
+
+**Leftover to clean up:** the accidental `bpoums-astrax-crm` worker is live and
+public, serving a full copy of the CRM against the same Supabase project. It
+should be deleted (`npx wrangler delete --name bpoums-astrax-crm`).
+
 ## 2026-09-17 - Sheets sync backlog card, and the view it reads stops leaking to anon
 
 ADR 0006 said plainly that the admin card was "not optional decoration": the
