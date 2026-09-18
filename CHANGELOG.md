@@ -1,5 +1,89 @@
 # Changelog
 
+## 2026-09-18 — Live and Manual, each with its own centres
+
+The all-origin fix earlier today made the Overview's centre rows count both
+origins, and in doing so destroyed the question the panel is actually opened
+with: **which centre did the uploaded leads come from.** A centre whose forty
+leads are all uploads and one whose two hundred are all validator submissions
+had looked identical.
+
+The intake panel is now two columns — **Live** with its centres beneath,
+**Manual** with its centres beneath — sharing one bar scale so the two sides can
+be compared rather than each normalising to its own busiest centre. On today's
+data that reads at a glance: CROSSNOTCH 0 live / 40 manual (all uploads),
+UMS BPO 303 live / 202 manual (all validator), DESCOM 58 / 1.
+
+**Migration `20260918170000_center_manual_submissions.sql`** adds
+`manual_submissions` to `submission_totals_by_center_range`. It could have been
+derived in the browser as `total_submissions_all - total_submissions`, which is
+exactly equal — it is a named column instead so that "manual leads from this
+centre" is something the database says rather than something the client infers.
+Verified against a direct count: 202 / 40 / 1, with
+`total_submissions + manual_submissions = total_submissions_all` on every row,
+and re-checked under a closing manager's JWT, where only their own centre
+reports figures.
+
+Two things went with it. The **Uploaded / Validator rows are gone** from this
+panel — that split now lives only on the Submissions tab's Type column, which
+names it per lead — and with them the `showValidatorRow` prop, whose only job
+was hiding the Validator row from a closing manager. **`LeadsByCenterPanel` is
+deleted**: with centres now shown per origin above it, a second list of the same
+centres over the same window was duplication rather than a record.
+
+- Database: **`supabase/migrations/20260918170000_center_manual_submissions.sql`**,
+  applied to `ozbpmrmndkemvvnlnudb`
+- Changed: `src/components/overview-panels.tsx` (the restructure),
+  `src/components/closing-overview.tsx`, `src/components/admin-overview.tsx`,
+  `src/components/reporting.tsx` (panel removed),
+  `src/integrations/supabase/types.ts` (regenerated)
+- Docs: `docs/database.md`, `docs/features/reporting.md`,
+  `docs/features/closing-desk.md`, `docs/TODO.md`
+
+## 2026-09-18 — The Overview counted only live leads as sold
+
+The product owner spotted the Submission Outcome panel reporting **183**
+Submitted where the business has sold **386**. The panel was faithful; the
+database was not. `submission_totals_range` had
+`submitted_by_role = 'closer' AND source = 'live'` hardcoded into its
+`approved`, `declined` and `pending` filters, while the intake columns beside
+them counted everything — so the panel showed live-only outcomes next to
+Live + Manual intake, and its acceptance ring read 74% where all origins give
+**84%**. The Sales Breakdown tab has always counted `accepted` with no origin
+filter, so the two admin screens disagreed and the Overview was the wrong one.
+
+The same hardcoded pair in `submission_totals_by_center_range`'s join was the
+only reason manual leads could not be grouped by centre — they always could:
+every manual lead carries a `center_id` (41/41 uploaded, 202/202 validator).
+
+**Migration `20260918160000_all_origin_totals.sql`** adds `approved_all`,
+`declined_all`, `pending_all` and `total_submissions_all` alongside the
+existing columns, which keep their exact previous meaning — so nothing that
+read them changed behaviour. All four exclude `pending_import_approval`, the
+rule `offline_submissions` already applied. Both functions were dropped and
+recreated because a changed return type cannot be `CREATE OR REPLACE`d, and the
+migration restores the EXECUTE grants that the drop removes.
+
+Verified against the live database, in one transaction against a direct count:
+`approved_all` 388 = 388, `declined_all` 74 = 74, and `approved` still 185 —
+unchanged. Re-checked under a closing manager's own JWT, where `approved_all`
+narrows to 26 and only their centre reports figures: **`SECURITY INVOKER` means
+this widened what is counted, never who may read it.** CROSSNOTCH, which had
+shown 0 leads on the Overview, turns out to have 40 — all of them manual, and
+invisible until now.
+
+The Overview's centre rows now cover both origins, with Uploaded and Validator
+kept underneath as the origin split, so the centre rows finally sum to total
+intake.
+
+- Database: **`supabase/migrations/20260918160000_all_origin_totals.sql`**,
+  applied to `ozbpmrmndkemvvnlnudb`
+- Changed: `src/components/overview-panels.tsx`, `src/components/reporting.tsx`,
+  `src/components/admin-overview.tsx`,
+  `src/integrations/supabase/types.ts` (regenerated — it was also four
+  functions behind the live schema)
+- Docs: `docs/database.md`, `docs/features/reporting.md`, `docs/TODO.md`
+
 ## 2026-09-18 — The Closing Desk stops fetching the validators table
 
 Found while checking what a deploy of the Overview work would actually change.

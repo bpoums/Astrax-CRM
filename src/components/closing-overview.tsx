@@ -70,12 +70,11 @@ export function ClosingOverview() {
         }
       />
 
-      <OverviewPanels
-        period={period}
-        stats={stats}
-        centers={centers}
-        showValidatorRow={!isClosingManager}
-      />
+      {/* Both columns carry only the centres this reader may see — for a
+          closing manager, their own. Their Manual column counts uploads: their
+          read policy excludes validator submissions, so the figure is narrowed
+          by RLS rather than by anything here. */}
+      <OverviewPanels period={period} stats={stats} centers={centers} />
     </>
   );
 }

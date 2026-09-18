@@ -303,11 +303,6 @@ export function ReportingStats({
 
   const perValidator = useMemo(() => validatorStats.data ?? [], [validatorStats.data]);
   const perCenter = useMemo(() => centerTotals.data ?? [], [centerTotals.data]);
-  // What every centre's bar is measured against, so the busiest one fills.
-  const centerMax = useMemo(
-    () => perCenter.reduce((most, center) => Math.max(most, center.total_submissions ?? 0), 0),
-    [perCenter],
-  );
   const totalsRow = totals.data ?? null;
 
   return (
@@ -344,23 +339,6 @@ export function ReportingStats({
         heading={heading}
         showReviewFailures={!showValidatorSubmissions}
       />
-
-      {/* A list rather than a table: two columns over a handful of rows is
-          less than a table earns, and the bar does the comparing that a second
-          numeric column would otherwise be needed for.
-
-          Gated on the same flag the strip above is — this is the admin
-          Overview's picture, and the manager's Reporting tab shows the queue
-          it works rather than a breakdown of the whole business. */}
-      {showValidatorSubmissions ? (
-        <LeadsByCenterPanel
-          centers={perCenter}
-          max={centerMax}
-          heading={heading}
-          loading={centerTotals.isLoading}
-          error={centerTotals.isError ? (centerTotals.error as Error).message : null}
-        />
-      ) : null}
 
       {showValidatorSubmissions ? null : (
         <>
@@ -1213,8 +1191,10 @@ export function TotalsPanel({
           label="Manual"
           value={(row?.offline_submissions ?? 0) + (row?.validator_submissions ?? 0)}
         />
-        <Total label={dispositionLabel("accepted")} value={row?.approved} />
-        <Total label={dispositionLabel("declined")} value={row?.declined} tone="destructive" />
+        {/* `_all`: the bare columns count live leads only — see the migration
+            20260918160000_all_origin_totals.sql. */}
+        <Total label={dispositionLabel("accepted")} value={row?.approved_all} />
+        <Total label={dispositionLabel("declined")} value={row?.declined_all} tone="destructive" />
         {showReviewFailures ? (
           <>
             <Total label="Timeouts" value={row?.timeouts} tone="destructive" />
@@ -1222,61 +1202,6 @@ export function TotalsPanel({
           </>
         ) : null}
       </dl>
-    </section>
-  );
-}
-
-/**
- * Volume per centre, over the selected window.
- *
- * A list rather than a table: two columns over a handful of rows is less than a
- * table earns, and the bar does the comparing that a second numeric column
- * would otherwise be needed for. Centres come from the RPC, so adding one in
- * Settings adds a row here and nothing in this file names one.
- */
-export function LeadsByCenterPanel({
-  centers,
-  max,
-  heading,
-  loading = false,
-  error = null,
-}: {
-  centers: CenterTotalsRow[];
-  /** What every bar is measured against, so the busiest centre fills. */
-  max: number;
-  heading: string;
-  loading?: boolean;
-  error?: string | null;
-}) {
-  const centerColorById = useCenterColorById();
-
-  return (
-    <section className="panel">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="panel-title">Leads by Center ({centers.length})</h2>
-        <span className="text-[0.66rem] text-muted-foreground">{heading}</span>
-      </div>
-      <ul className="flex flex-col gap-2.5">
-        {centers.map((center) => (
-          <li key={center.center_id ?? center.center_name} className="flex flex-col gap-1">
-            <div className="flex items-baseline justify-between gap-3">
-              <CenterBadge
-                name={center.center_name}
-                color={center.center_id ? centerColorById.get(center.center_id) : null}
-              />
-              <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                {center.total_submissions ?? 0}
-              </span>
-            </div>
-            <MetricBar value={center.total_submissions ?? 0} max={max} />
-          </li>
-        ))}
-        {centers.length === 0 ? (
-          <li className="text-xs text-muted-foreground">
-            {loading ? "Loading…" : (error ?? "No active centers.")}
-          </li>
-        ) : null}
-      </ul>
     </section>
   );
 }

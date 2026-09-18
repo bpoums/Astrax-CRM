@@ -35,21 +35,16 @@ export function OverviewPanels({
   period,
   stats,
   centers,
-  showValidatorRow = true,
 }: {
   period: ReturnType<typeof usePeriod>;
   stats: ReturnType<typeof useOverviewStats>;
   /**
-   * The centre rows to draw. Usually every row the RPC returned; the Closing
-   * Desk narrows it to the reader's own centre, because RLS leaves the others
-   * sitting at zero and a row that can never move is noise.
+   * The centre rows to draw, in both columns. Usually every row the RPC
+   * returned; the Closing Desk narrows it to the reader's own centre, because
+   * RLS leaves the others sitting at zero and a row that can never move is
+   * noise.
    */
   centers: CenterTotalsRow[];
-  /**
-   * Dropped for a closing manager, whose read policy excludes validator
-   * submissions outright — the figure is not low, it is structurally zero.
-   */
-  showValidatorRow?: boolean;
 }) {
   const { heading } = period;
   const { centerTotals, totals, openQueue } = stats;
@@ -57,31 +52,39 @@ export function OverviewPanels({
   const totalsRow = totals.data ?? null;
 
   const live = totalsRow?.closer_submissions ?? 0;
-  const uploaded = totalsRow?.offline_submissions ?? 0;
-  const validator = totalsRow?.validator_submissions ?? 0;
   /**
    * One Manual figure, not two.
    *
    * An uploaded lead and a validator's own submission arrive by completely
    * different paths but are the same thing to a reader: a lead nobody closed
    * live. The Submissions tab already merged them on exactly this reasoning
-   * (Closer/Validator/Manual became Live/Manual), and the two are broken back
-   * out a level down, in the source list below.
+   * (Closer/Validator/Manual became Live/Manual), and that tab's Type column is
+   * where the two are still told apart per lead.
    */
-  const manual = uploaded + validator;
+  const manual = (totalsRow?.offline_submissions ?? 0) + (totalsRow?.validator_submissions ?? 0);
 
-  // What every bar in the source list is measured against, so the busiest line
-  // fills. The Manual rows are in the scale rather than beside it — comparing
-  // five uploads against twelve live leads is the comparison the panel exists
-  // for.
+  /**
+   * ONE scale across both columns, not one per column.
+   *
+   * The whole point of standing Live and Manual side by side is comparing them;
+   * normalising each column to its own busiest centre would draw a centre's 40
+   * manual leads the same length as another's 303 live ones.
+   */
   const sourceMax = useMemo(
     () =>
       centers.reduce(
-        (most, center) => Math.max(most, center.total_submissions ?? 0),
-        Math.max(uploaded, showValidatorRow ? validator : 0),
+        (most, center) =>
+          Math.max(most, center.total_submissions ?? 0, center.manual_submissions ?? 0),
+        0,
       ),
-    [centers, uploaded, validator, showValidatorRow],
+    [centers],
   );
+
+  const emptyMessage = centerTotals.isLoading
+    ? "Loading…"
+    : centerTotals.isError
+      ? (centerTotals.error as Error).message
+      : "No active centers.";
 
   return (
     /* `items-stretch` alone is what makes the three panels equal height, so
@@ -96,68 +99,42 @@ export function OverviewPanels({
             the figures inside it. */}
         <h2 className="panel-title">{heading}</h2>
 
-        {/* The two origins, and only two. Everything below this line adds up
-            to one of them. */}
-        <dl className="grid grid-cols-2 gap-3">
-          <div className="flex min-w-0 flex-col gap-1">
-            <dt className="field-label">Live</dt>
-            <dd>
-              <FlipNumber value={live} size="hero" />
-            </dd>
-          </div>
-          <div className="flex min-w-0 flex-col gap-1">
-            <dt className="field-label">Manual</dt>
-            <dd>
-              <FlipNumber value={manual} size="hero" delayMs={80} />
-            </dd>
-          </div>
-        </dl>
+        {/* Two origins, two columns, each with its own centres underneath.
 
-        <div className="border-t border-border/60" />
-
-        {/* Where those leads came from. Centres carry the Live figure; the
-            rows under the separator carry the Manual one. */}
-        <ul className="flex flex-1 flex-col gap-2">
-          {centers.map((center) => (
-            <li key={center.center_id ?? center.center_name} className="flex flex-col gap-1">
-              <div className="flex items-baseline justify-between gap-3">
-                <CenterBadge
-                  name={center.center_name}
-                  color={center.center_id ? centerColorById.get(center.center_id) : null}
-                />
-                <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                  {center.total_submissions ?? 0}
-                </span>
-              </div>
-              <MetricBar value={center.total_submissions ?? 0} max={sourceMax} />
-            </li>
-          ))}
-          {centers.length === 0 ? (
-            <li className="text-xs text-muted-foreground">
-              {centerTotals.isLoading
-                ? "Loading…"
-                : centerTotals.isError
-                  ? (centerTotals.error as Error).message
-                  : "No active centers."}
-            </li>
-          ) : null}
-
-          {/* Origins with no centre behind them, so they are kept apart from
-              the centre rows while sharing their scale. */}
-          <li className="mt-1 border-t border-border/60 pt-2">
-            <SourceRow label="Uploaded" value={uploaded} max={sourceMax} />
-          </li>
-          {showValidatorRow ? (
-            <li>
-              <SourceRow label="Validator" value={validator} max={sourceMax} />
-            </li>
-          ) : null}
-        </ul>
+            They were one merged list until 2026-09-18, which answered "how big
+            is this centre" but destroyed the question the panel is actually
+            opened with: WHERE did the uploaded leads come from. A centre whose
+            forty leads are all uploads and one whose two hundred are all
+            validator submissions looked identical. */}
+        <div className="grid flex-1 grid-cols-1 gap-4 sm:grid-cols-2">
+          <OriginColumn
+            label="Live"
+            total={live}
+            centers={centers}
+            valueOf={(center) => center.total_submissions ?? 0}
+            max={sourceMax}
+            colorById={centerColorById}
+            empty={emptyMessage}
+          />
+          <OriginColumn
+            label="Manual"
+            total={manual}
+            delayMs={80}
+            centers={centers}
+            valueOf={(center) => center.manual_submissions ?? 0}
+            max={sourceMax}
+            colorById={centerColorById}
+            empty={emptyMessage}
+          />
+        </div>
       </section>
 
       <SubmissionOutcome
-        approved={totalsRow?.approved ?? 0}
-        declined={totalsRow?.declined ?? 0}
+        /* `_all`, not the bare columns: those count LIVE leads only, and this
+           panel sits beside intake that counts Live AND Manual. It read 183
+           Submitted against 386 actually sold until 2026-09-18. */
+        approved={totalsRow?.approved_all ?? 0}
+        declined={totalsRow?.declined_all ?? 0}
         heading={heading}
         loading={totals.isLoading}
       />
@@ -196,15 +173,60 @@ export function OverviewPanels({
   );
 }
 
-/** A Manual origin, drawn to match the centre rows above it. */
-function SourceRow({ label, value, max }: { label: string; value: number; max: number }) {
+/**
+ * One origin: its headline count, then every centre's share of it.
+ *
+ * Both columns are handed the same `centers` array and the same `max`, and
+ * differ only in which column of the row they read — so the two lists always
+ * carry the same centres in the same order, and their bars are on one scale.
+ */
+function OriginColumn({
+  label,
+  total,
+  centers,
+  valueOf,
+  max,
+  colorById,
+  empty,
+  delayMs = 0,
+}: {
+  label: string;
+  total: number;
+  centers: CenterTotalsRow[];
+  valueOf: (center: CenterTotalsRow) => number;
+  max: number;
+  /** Taken from the hook rather than restated, so the palette union stays
+   *  whatever `useCenterColorById` says it is. */
+  colorById: ReturnType<typeof useCenterColorById>;
+  /** Loading, error or "none" — whichever the centre query is saying. */
+  empty: string;
+  delayMs?: number;
+}) {
   return (
-    <div className="flex flex-col gap-1">
-      <div className="flex items-baseline justify-between gap-3">
-        <span className="field-label truncate">{label}</span>
-        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{value}</span>
+    <div className="flex min-w-0 flex-col gap-2">
+      <div className="flex min-w-0 flex-col gap-1">
+        <span className="field-label">{label}</span>
+        <FlipNumber value={total} size="hero" delayMs={delayMs} />
       </div>
-      <MetricBar value={value} max={max} />
+
+      <ul className="flex flex-col gap-2 border-t border-border/60 pt-2">
+        {centers.map((center) => {
+          const value = valueOf(center);
+          return (
+            <li key={center.center_id ?? center.center_name} className="flex flex-col gap-1">
+              <div className="flex items-baseline justify-between gap-2">
+                <CenterBadge
+                  name={center.center_name}
+                  color={center.center_id ? colorById.get(center.center_id) : null}
+                />
+                <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{value}</span>
+              </div>
+              <MetricBar value={value} max={max} />
+            </li>
+          );
+        })}
+        {centers.length === 0 ? <li className="text-xs text-muted-foreground">{empty}</li> : null}
+      </ul>
     </div>
   );
 }

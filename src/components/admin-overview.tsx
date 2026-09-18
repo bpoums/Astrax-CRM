@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { PeriodPicker } from "@/components/period-picker";
 import { OverviewPanels } from "@/components/overview-panels";
-import { LeadsByCenterPanel, TotalsPanel } from "@/components/reporting";
+import { TotalsPanel } from "@/components/reporting";
 import { usePeriod } from "@/lib/period-range";
 import { useOverviewStats } from "@/lib/overview-stats";
 
@@ -36,13 +36,6 @@ export function AdminOverview() {
   const perCenter = useMemo(() => centerTotals.data ?? [], [centerTotals.data]);
   const totalsRow = totals.data ?? null;
 
-  // The record panel below compares centres against each other only — it has no
-  // Manual rows to make room for, unlike the source list in the panels above.
-  const centerMax = useMemo(
-    () => perCenter.reduce((most, center) => Math.max(most, center.total_submissions ?? 0), 0),
-    [perCenter],
-  );
-
   return (
     <>
       <PeriodPicker
@@ -61,15 +54,7 @@ export function AdminOverview() {
 
       {/* The record. Deliberately quieter than the row above — true, worth
           having, and not what anybody opens this tab to find out. */}
-      <TotalsPanel row={totalsRow} heading={heading} />
-
-      <LeadsByCenterPanel
-        centers={perCenter}
-        max={centerMax}
-        heading={heading}
-        loading={centerTotals.isLoading}
-        error={centerTotals.isError ? (centerTotals.error as Error).message : null}
-      />
+      {/* <TotalsPanel row={totalsRow} heading={heading} /> */}
     </>
   );
 }

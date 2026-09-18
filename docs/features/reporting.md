@@ -71,14 +71,21 @@ The panels:
 1. **Intake** — titled with the selected window ("All time", "Last 7 days",
    "Today", or the custom range). It read the literal word "Today" whatever the
    chips said until 2026-09-18, which made the panel contradict the figures
-   inside it. `Live` and `Manual` as the two headline origins, then the
-   breakdown they are made of: one row per active centre (which is the Live
-   figure, since `submission_totals_by_center_range` filters
-   `submitted_by_role = 'closer' AND source = 'live'`), then `Uploaded` and
-   `Validator` under a separator (which are the Manual figure). Centre names
-   and colours come from the RPC and `useCenterColorById`; nothing in the file
-   names a centre.
-2. **Submission Outcome** — `Submitted` (`approved`) against `Declined`, as an
+   inside it.
+
+   **Two columns since 2026-09-18: Live and Manual, each with its own centre
+   list underneath** (`total_submissions` and `manual_submissions`). It was
+   briefly one merged centre list earlier that day, which answered "how big is
+   this centre" but destroyed the question the panel is actually opened with —
+   *where did the uploaded leads come from*. A centre whose forty leads are all
+   uploads and one whose two hundred are all validator submissions had looked
+   identical. Both columns share **one** bar scale, so they can be compared
+   rather than each normalising to its own busiest centre. Manual is uploads
+   plus validator submissions; which of the two a given lead is stays on the
+   Submissions tab's Type column.
+
+2. **Submission Outcome** — `Submitted` (`approved_all`) against `Declined`
+   (`declined_all`), **every origin**, as an
    inline SVG donut with the acceptance rate in the middle. No charting
    library. `pending` is deliberately absent: it is not an outcome, it is a
    lead back in the manager's queue, and it is counted in panel 3.

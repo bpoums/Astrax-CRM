@@ -44,19 +44,21 @@ Verified live by calling them under each role's JWT: a **general manager** sees
 figures an admin sees — while a **closing manager** sees 56 live / 1 uploaded /
 **0 validator**, all of it their own centre.
 
-Two things are therefore hidden from a closing manager, because RLS leaves them
-permanently dead rather than because they are secret:
-- **the other centres.** `submission_totals_by_center_range` left-joins from
-  `centers`, so the ones outside their scope come back present and zero rather
-  than absent. `ClosingOverview` filters the list to `profile.center_id` —
-  matched on the reader's own centre, not on "has any leads", so their centre
-  still shows when it is genuinely at zero.
-- **the Validator row.** Their read policy excludes `submitted_by_role =
-  'validator'` outright, so that figure cannot ever move.
+One thing is therefore hidden from a closing manager, because RLS leaves it
+permanently dead rather than because it is secret: **the other centres.**
+`submission_totals_by_center_range` left-joins from `centers`, so the ones
+outside their scope come back present and zero rather than absent.
+`ClosingOverview` filters the list to `profile.center_id` — matched on the
+reader's own centre, not on "has any leads", so their centre still shows when it
+is genuinely at zero.
 
-**Uploaded is not hidden**: a sheet-imported lead is written
-`submitted_by_role = 'closer'`, so it is inside a closing manager's scope when
-it carries their centre.
+Nothing else is filtered by the client. The panel's **Manual** column counts
+uploads for them, because their read policy excludes `submitted_by_role =
+'validator'` outright — the figure is narrowed by RLS, not by this screen. (A
+sheet-imported lead is written `submitted_by_role = 'closer'`, so it *is* inside
+their scope when it carries their centre.) Until 2026-09-18 this file described
+a `showValidatorRow` prop that hid a Validator row; that row no longer exists —
+the panel shows centres per origin instead.
 
 This tab also passes `includeValidatorStats: false` to `useOverviewStats`, so it
 never calls `validator_stats_range`. That RPC returns every validator's name and

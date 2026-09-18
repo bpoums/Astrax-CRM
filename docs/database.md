@@ -111,6 +111,31 @@ caller's own RLS) rather than selecting these views directly; the wrappers add
 an optional `p_days` window (via `reporting_since(p_days)`, which computes a
 Pacific-timezone day boundary) on top of the same underlying view logic.
 
+**All-origin outcome columns, added 2026-09-18**
+(`20260918160000_all_origin_totals.sql`). Every disposition count in these two
+functions was filtered to `submitted_by_role = 'closer' AND source = 'live'`,
+while the intake columns beside them counted everything — so the admin
+Overview reported 183 Submitted where the business had sold 386, and manual
+leads could not be grouped by centre at all even though every one of them
+carries a `center_id`. The originals are unchanged; new columns sit alongside:
+
+| Function | New column(s) | Meaning |
+|---|---|---|
+| `submission_totals_range` | `approved_all`, `declined_all`, `pending_all` | The same three dispositions over **every** origin |
+| `submission_totals_by_center_range` | `total_submissions_all` | That centre's leads of every origin, live and manual |
+| `submission_totals_by_center_range` | `manual_submissions` (added same day, `20260918170000`) | That centre's non-live leads — validator submissions plus approved uploads. `total_submissions + manual_submissions = total_submissions_all` by construction |
+
+All five exclude `status = 'pending_import_approval'`, so an unapproved import
+batch contributes nothing — the same rule `offline_submissions` already
+applied. `approved`, `declined`, `pending` and `total_submissions` still mean
+exactly what they meant before, so nothing that read them changed behaviour; in
+the centre function the origin test simply moved off the `left join` and into a
+`filter` on each existing column, because the join has to see manual rows for
+the new column to exist. Both functions were `DROP`ped and recreated (a
+changed return type is not something `CREATE OR REPLACE` can do), which drops
+their grants — the migration restores EXECUTE to `public`, `anon`,
+`authenticated` and `service_role` exactly as it found them.
+
 **Date-range filtering, added 2026-09-10**: all three `_range` RPCs also
 accept `p_start_date date` / `p_end_date date`, resolved through a new
 shared function `reporting_window(p_days, p_start_date, p_end_date) returns

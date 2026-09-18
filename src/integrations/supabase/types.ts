@@ -1961,6 +1961,15 @@ export type Database = {
         }[]
       }
       my_role: { Args: never; Returns: Database["public"]["Enums"]["app_role"] }
+      next_monthly_day: {
+        Args: { p_day: number; p_from?: string }
+        Returns: string
+      }
+      normalize_ssn: { Args: { p_text: string }; Returns: string }
+      parse_lead_date: {
+        Args: { p_from?: string; p_text: string }
+        Returns: string
+      }
       payment_summary: { Args: { p_sub: string }; Returns: Json }
       purge_old_reporting_leads: { Args: never; Returns: number }
       purge_payment_data: { Args: never; Returns: Json }
@@ -2105,6 +2114,7 @@ export type Database = {
       }
       review_settings: { Args: never; Returns: Json }
       review_window: { Args: never; Returns: string }
+      roll_recurring_draft_dates: { Args: never; Returns: number }
       set_admin_setting: {
         Args: { p_key: string; p_value: string }
         Returns: Json
@@ -2201,21 +2211,26 @@ export type Database = {
           center_id: string
           center_name: string
           declined: number
+          manual_submissions: number
           pending: number
           sort_order: number
           total_submissions: number
+          total_submissions_all: number
         }[]
       }
       submission_totals_range: {
         Args: { p_days?: number; p_end_date?: string; p_start_date?: string }
         Returns: {
           approved: number
+          approved_all: number
           awaiting_manager: number
           closer_submissions: number
           declined: number
+          declined_all: number
           in_review: number
           offline_submissions: number
           pending: number
+          pending_all: number
           rejections: number
           timeouts: number
           validator_submissions: number
