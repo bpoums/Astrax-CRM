@@ -17,13 +17,52 @@ Live, stable.
 (everything either can do, plus Parked Leads).
 
 ## Routes / screens
-`/closing` → `src/routes/_authenticated/closing.tsx` → `ClosingDesk` +
-(general_manager/admin only) a "Parked Leads" tab → `ParkedLeads`.
+`/closing` → `src/routes/_authenticated/closing.tsx`, three tabs:
+**Closing Desk** (`ClosingDesk`, the default), **Overview**
+(`ClosingOverview`, added 2026-09-18) and **Parked Leads** (`ParkedLeads`,
+general_manager/admin only). Before 2026-09-18 a closing manager got no tab
+bar at all — just the bare desk — because Parked Leads was the only other tab
+and it was not theirs; the Overview is offered to every role here, so the tab
+bar now renders for all of them.
 
 ## Important components
-`closing-desk.tsx`, `parked-leads.tsx`, `forwarded-leads.tsx` (the closer's
-side of the same park/release mechanism — see
-[closer-submission-and-forms.md](closer-submission-and-forms.md)).
+`closing-desk.tsx`, `closing-overview.tsx`, `parked-leads.tsx`,
+`forwarded-leads.tsx` (the closer's side of the same park/release mechanism —
+see [closer-submission-and-forms.md](closer-submission-and-forms.md)).
+
+## The Overview tab (added 2026-09-18)
+The same three panels the admin Overview and the manager's Reporting tab
+show — `OverviewPanels` in `overview-panels.tsx`: intake for the selected
+window, the Submitted/Declined outcome, and the live queue. See
+[reporting.md](reporting.md) for the panels themselves.
+
+**It adds no access.** Every figure comes from the `_range` RPCs, which are
+`SECURITY INVOKER` and read `submissions` directly, so each caller gets exactly
+their own slice of the `submissions read scoped` policy and nothing else.
+Verified live by calling them under each role's JWT: a **general manager** sees
+351 live / 41 uploaded / 202 validator across all three centres — the same
+figures an admin sees — while a **closing manager** sees 56 live / 1 uploaded /
+**0 validator**, all of it their own centre.
+
+Two things are therefore hidden from a closing manager, because RLS leaves them
+permanently dead rather than because they are secret:
+- **the other centres.** `submission_totals_by_center_range` left-joins from
+  `centers`, so the ones outside their scope come back present and zero rather
+  than absent. `ClosingOverview` filters the list to `profile.center_id` —
+  matched on the reader's own centre, not on "has any leads", so their centre
+  still shows when it is genuinely at zero.
+- **the Validator row.** Their read policy excludes `submitted_by_role =
+  'validator'` outright, so that figure cannot ever move.
+
+**Uploaded is not hidden**: a sheet-imported lead is written
+`submitted_by_role = 'closer'`, so it is inside a closing manager's scope when
+it carries their centre.
+
+This tab also passes `includeValidatorStats: false` to `useOverviewStats`, so it
+never calls `validator_stats_range`. That RPC returns every validator's name and
+performance, and three of its columns are counted from `form_events` and come
+back whole-business whatever the caller's centre — see the security entry in
+[TODO.md](../TODO.md). Nothing here renders it, so nothing here fetches it.
 
 ## Database
 Read: the same wide `submissions` select used elsewhere (`BASE_SELECT`),

@@ -4,6 +4,7 @@ import { requireRole, useAuth } from "@/lib/auth";
 import { supabase } from "@/integrations/supabase/client";
 import { AppHeader } from "@/components/ops";
 import { ClosingDesk } from "@/components/closing-desk";
+import { ClosingOverview } from "@/components/closing-overview";
 import { ParkedLeads, PARKED_LEADS_KEY } from "@/components/parked-leads";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -28,12 +29,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
  */
 
 const DESK_TAB = "desk";
+const OVERVIEW_TAB = "overview";
 const PARKED_TAB = "parked";
 
-type ClosingTab = typeof DESK_TAB | typeof PARKED_TAB;
+type ClosingTab = typeof DESK_TAB | typeof OVERVIEW_TAB | typeof PARKED_TAB;
 
 function isClosingTab(value: unknown): value is ClosingTab {
-  return value === DESK_TAB || value === PARKED_TAB;
+  return value === DESK_TAB || value === OVERVIEW_TAB || value === PARKED_TAB;
 }
 
 export const Route = createFileRoute("/_authenticated/closing")({
@@ -73,8 +75,9 @@ function ClosingPage() {
 
   const canMoveParked = profile?.role === "general_manager" || profile?.role === "admin";
   // A closing manager reaching ?tab=parked by a stale link gets the desk, not
-  // an empty tab whose trigger is not even on screen.
-  const active: ClosingTab = canMoveParked ? tab : DESK_TAB;
+  // an empty tab whose trigger is not even on screen. Overview is offered to
+  // every role here, so only the parked tab needs the fallback.
+  const active: ClosingTab = tab === PARKED_TAB && !canMoveParked ? DESK_TAB : tab;
 
   /**
    * Just the count, so it can sit on the "Parked Leads" tab trigger itself —
@@ -105,30 +108,45 @@ function ClosingPage() {
       <div className="mx-auto flex max-w-[1500px] flex-col gap-4 px-4 py-4 lg:px-8 lg:py-5">
         <AppHeader title="Closing Desk" subtitle="Closing" />
 
-        {canMoveParked ? (
-          <Tabs
-            value={active}
-            onValueChange={(value) => {
-              if (isClosingTab(value)) void navigate({ search: { tab: value } });
-            }}
-            className="flex flex-col gap-4"
-          >
-            <TabsList className="w-fit">
-              <TabsTrigger value={DESK_TAB}>Closing Desk</TabsTrigger>
+        {/* Tabs for every role here since 2026-09-18, where a closing manager
+            previously got the bare desk — they now get the Overview too. Parked
+            Leads stays gated: `move_to_validation` accepts only an admin or a
+            general manager, so offering a tab whose every button raises "not
+            authorized" would be worse than not offering it. */}
+        <Tabs
+          value={active}
+          onValueChange={(value) => {
+            if (isClosingTab(value)) void navigate({ search: { tab: value } });
+          }}
+          className="flex flex-col gap-4"
+        >
+          <TabsList className="w-fit">
+            {/* The desk stays first and stays the default: it is the screen
+                this role opens in order to work. The Overview is somewhere they
+                go, not a gate they pass through. */}
+            <TabsTrigger value={DESK_TAB}>Closing Desk</TabsTrigger>
+            <TabsTrigger value={OVERVIEW_TAB}>Overview</TabsTrigger>
+            {canMoveParked ? (
               <TabsTrigger value={PARKED_TAB}>Parked Leads ({parkedCount.data ?? "…"})</TabsTrigger>
-            </TabsList>
+            ) : null}
+          </TabsList>
 
-            <TabsContent value={DESK_TAB} className="flex flex-col gap-4">
-              <ClosingDesk />
-            </TabsContent>
+          <TabsContent value={DESK_TAB} className="flex flex-col gap-4">
+            <ClosingDesk />
+          </TabsContent>
 
+          {/* Radix leaves an inactive tab unmounted, so none of the reporting
+              RPCs run until somebody actually opens this. */}
+          <TabsContent value={OVERVIEW_TAB} className="flex flex-col gap-4">
+            <ClosingOverview />
+          </TabsContent>
+
+          {canMoveParked ? (
             <TabsContent value={PARKED_TAB} className="flex flex-col gap-4">
               <ParkedLeads />
             </TabsContent>
-          </Tabs>
-        ) : (
-          <ClosingDesk />
-        )}
+          ) : null}
+        </Tabs>
       </div>
     </main>
   );

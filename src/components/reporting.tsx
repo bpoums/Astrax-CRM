@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -34,8 +34,15 @@ import { CarrierDeclineList } from "@/components/carrier-declines";
 import { validationTimelineKey } from "@/components/validation-timeline";
 import { LeadHistoryDialog } from "@/components/lead-history-dialog";
 import { History } from "lucide-react";
-import { QueueFlow } from "@/components/queue-flow";
+import { OverviewPanels } from "@/components/overview-panels";
 import { MetricBar } from "@/components/metric-bar";
+import { PeriodPicker } from "@/components/period-picker";
+import { usePeriod } from "@/lib/period-range";
+import {
+  useOverviewStats,
+  type CenterTotalsRow,
+  type OverviewTotalsRow,
+} from "@/lib/overview-stats";
 import { ValidatorFields } from "@/components/validator-fields";
 import { useDeclinedCarrierMap } from "@/lib/carriers";
 import {
@@ -148,38 +155,15 @@ function manualKind(row: { source?: LeadSource | null; submitted_by_role?: strin
 }
 
 /**
- * The windows the record can be read over.
- *
- * `days` is what the RPCs take, and null means all time — the same value the
- * functions treat as "no filter", so All time returns exactly what the old
- * unscoped views did. The boundary itself is a Pacific calendar day computed in
- * `reporting_since`, not in the browser: "today" must mean the same day for a
- * reader in Lahore as for the business in Los Angeles.
+ * The windows the record can be read over, and the queries every figure comes
+ * from, both live in `lib/` now — the admin Overview offers the same chips over
+ * the same numbers, and a period or a count that means one thing on one
+ * dashboard and something else on the other would be worse than having neither.
+ * See `lib/period-range.ts` and `lib/overview-stats.ts`.
  */
-const PERIODS = [
-  { id: "today", label: "Today", days: 1, heading: "Today" },
-  { id: "7d", label: "7 days", days: 7, heading: "Last 7 days" },
-  { id: "30d", label: "30 days", days: 30, heading: "Last 30 days" },
-  { id: "all", label: "All time", days: null, heading: "All time" },
-] as const;
-
-type PeriodId = (typeof PERIODS)[number]["id"] | "custom";
-
-/**
- * All time by default, deliberately.
- *
- * Every figure on this page has been a lifetime total until now. Opening it to
- * a 30-day window would make each one appear to drop, which reads as data loss
- * rather than as a filter. The reader opts in.
- */
-const DEFAULT_PERIOD: PeriodId = "all";
 
 const SUBMISSIONS_KEY = ["reporting", "submissions"];
 const SUBMISSION_COUNTS_KEY = ["reporting", "submission-counts"];
-const TOTALS_KEY = ["reporting", "totals"];
-const VALIDATOR_STATS_KEY = ["reporting", "validator-stats"];
-const CENTER_TOTALS_KEY = ["reporting", "center-totals"];
-const ON_HOLD_KEY = ["reporting", "on-hold"];
 
 /**
  * Enums cannot be searched with ILIKE — Postgres has no such operator for them
@@ -312,165 +296,10 @@ export function ReportingStats({
 }: {
   showValidatorSubmissions?: boolean;
 }) {
-  const queryClient = useQueryClient();
-  const centerColorById = useCenterColorById();
-  const [periodId, setPeriodId] = useState<PeriodId>(DEFAULT_PERIOD);
-  // A specific day, or a from/to range — kept apart from the PERIODS chips
-  // because it needs two text inputs rather than one click. Left in place
-  // (not cleared) when a fixed period is picked instead — inert rather than
-  // gone, via the `isCustom &&` guards below, so re-opening "Custom" later
-  // remembers the last range rather than asking for it again.
-  const [customFrom, setCustomFrom] = useState("");
-  const [customTo, setCustomTo] = useState("");
-  const isCustom = periodId === "custom";
-  const period = PERIODS.find((entry) => entry.id === periodId) ?? PERIODS[3];
-  const days = isCustom ? null : period.days;
-  // Until a from-date is actually chosen, "Custom" behaves like "All time"
-  // rather than sending a half-filled range.
-  const startKey = isCustom && customFrom ? customFrom : null;
-  const endKey = isCustom && customFrom ? customTo || customFrom : null;
-  /**
-   * All time omits the argument rather than passing null.
-   *
-   * `p_days` has a SQL default, so the generated type is `p_days?: number` —
-   * and under exactOptionalPropertyTypes an explicit null is rejected. Omitting
-   * the key lets the default apply, which is the same "no filter" the functions
-   * read a null as. Same reasoning for `p_start_date`/`p_end_date`.
-   */
-  const range = startKey
-    ? { p_start_date: startKey, p_end_date: endKey ?? startKey }
-    : days === null
-      ? {}
-      : { p_days: days };
-  // What every heading below reads, instead of the fixed PERIODS label.
-  const heading = startKey
-    ? endKey && endKey !== startKey
-      ? `${startKey} – ${endKey}`
-      : startKey
-    : isCustom
-      ? "Custom range — pick a date"
-      : period.heading;
-
-  const validatorStats = useQuery({
-    queryKey: [...VALIDATOR_STATS_KEY, days, startKey, endKey],
-    queryFn: async () => {
-      // Ordered again here as well as in the function body: PostgREST makes no
-      // promise about preserving a function's own ORDER BY, and this table is
-      // meant to read alphabetically however it was fetched.
-      const { data, error } = await supabase
-        .rpc("validator_stats_range", range)
-        .order("validator_name");
-      if (error) throw error;
-      return data ?? [];
-    },
-  });
-
-  /**
-   * The same volume, split by centre.
-   *
-   * One row per ACTIVE centre, including the ones with nothing on them yet —
-   * the view left-joins from `centers`, so a centre that has taken no leads
-   * reports zeroes rather than dropping out of the table. Nothing here names a
-   * centre; adding one in Settings is all it takes to appear.
-   *
-   * `sort_order` is restated as an explicit order rather than trusted from the
-   * view: PostgREST makes no promise about the order rows come back in without
-   * one, and this table is meant to read in the same sequence as the Center
-   * picker.
-   */
-  const centerTotals = useQuery({
-    queryKey: [...CENTER_TOTALS_KEY, days, startKey, endKey],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .rpc("submission_totals_by_center_range", range)
-        .order("sort_order", { ascending: true })
-        .order("center_name", { ascending: true });
-      if (error) throw error;
-      return data ?? [];
-    },
-  });
-
-  const totals = useQuery({
-    queryKey: [...TOTALS_KEY, days, startKey, endKey],
-    queryFn: async () => {
-      const { data, error } = await supabase.rpc("submission_totals_range", range).maybeSingle();
-      if (error) throw error;
-      return data;
-    },
-  });
-
-  /**
-   * The two open stages `submission_totals` cannot publish, in one read.
-   *
-   * Being on hold is a SHAPE across four columns, and its last condition —
-   * `last_held_at` newer than `assigned_at` — is a column-to-column comparison
-   * PostgREST has no filter for. So the query narrows to the statuses it can
-   * express and the shape is applied here, over the open rows only.
-   *
-   * Held leads sit in `assigned`, so the two are separated rather than summed:
-   * a lead is counted once, in the stage it is actually in, and the flow strip
-   * above never adds up to more than the work that exists.
-   *
-   * `awaiting_manager` and `in_review` are NOT recomputed here — those the view
-   * publishes, and they are read from it. The open rows are still fetched, but
-   * only for the age of the oldest lead in each stage, which no view carries.
-   */
-  const openQueue = useQuery({
-    queryKey: ON_HOLD_KEY,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("submissions")
-        .select("status, created_at, claimed_at, assigned_at, last_held_at")
-        .in("status", ["pending_manager", "assigned", "in_review", "returned_timeout"])
-        .is("archived_at", null);
-      if (error) throw error;
-      const rows = data ?? [];
-      const held = rows.filter((row) => row.status === "assigned" && isOnHold(row));
-
-      /** The submission date of the oldest lead among these, or null. */
-      const oldest = (of: typeof rows) =>
-        of.reduce<string | null>(
-          (first, row) => (!first || row.created_at < first ? row.created_at : first),
-          null,
-        );
-
-      const byStatus = (status: string) => rows.filter((row) => row.status === status);
-      const assigned = byStatus("assigned").filter((row) => !isOnHold(row));
-
-      return {
-        // COUNTS for the two stages the view publishes are not taken from here
-        // — see the note above. These rows exist for the ages, and for the
-        // three counts submission_totals cannot express.
-        onHold: held.length,
-        assigned: assigned.length,
-        returned: byStatus("returned_timeout").length,
-        oldest: {
-          unassigned: oldest(byStatus("pending_manager")),
-          assigned: oldest(assigned),
-          inReview: oldest(byStatus("in_review")),
-          onHold: oldest(held),
-          returned: oldest(byStatus("returned_timeout")),
-        },
-      };
-    },
-  });
-
-  // Its own channel name: this half and the explorer can be mounted on
-  // different tabs, and two subscriptions may not share one name.
-  useEffect(() => {
-    const channel = supabase
-      .channel("reporting-stats")
-      .on("postgres_changes", { event: "*", schema: "public", table: "submissions" }, () => {
-        queryClient.invalidateQueries({ queryKey: TOTALS_KEY });
-        queryClient.invalidateQueries({ queryKey: VALIDATOR_STATS_KEY });
-        queryClient.invalidateQueries({ queryKey: CENTER_TOTALS_KEY });
-        queryClient.invalidateQueries({ queryKey: ON_HOLD_KEY });
-      })
-      .subscribe();
-    return () => {
-      void supabase.removeChannel(channel);
-    };
-  }, [queryClient]);
+  const period = usePeriod();
+  const { heading } = period;
+  const stats = useOverviewStats(period);
+  const { validatorStats, centerTotals, totals } = stats;
 
   const perValidator = useMemo(() => validatorStats.data ?? [], [validatorStats.data]);
   const perCenter = useMemo(() => centerTotals.data ?? [], [centerTotals.data]);
@@ -483,127 +312,38 @@ export function ReportingStats({
 
   return (
     <>
-      {/* The news, first and largest: open work, and which stage it is
-          sitting in. Everything below this is the record. */}
-      <QueueFlow
-        unassigned={{
-          value: totalsRow?.awaiting_manager ?? 0,
-          oldest: openQueue.data?.oldest.unassigned ?? null,
-        }}
-        assigned={{
-          value: openQueue.data?.assigned ?? 0,
-          oldest: openQueue.data?.oldest.assigned ?? null,
-        }}
-        inReview={{
-          value: totalsRow?.in_review ?? 0,
-          oldest: openQueue.data?.oldest.inReview ?? null,
-        }}
-        onHold={{
-          value: openQueue.data?.onHold ?? 0,
-          oldest: openQueue.data?.oldest.onHold ?? null,
-        }}
-        returned={{
-          value: openQueue.data?.returned ?? 0,
-          oldest: openQueue.data?.oldest.returned ?? null,
-        }}
-        loading={totals.isLoading || openQueue.isLoading}
+      {/* The chips sit ABOVE the panels since 2026-09-18, where they used to
+          sit between the queue strip and the totals. The first panel is now
+          titled with the window it is showing, and a control that changes a
+          heading has to be readable before that heading, not after it.
+
+          The window reaches everything except Operations: "where leads are
+          right now" is current state, and scoping it to a past week would
+          answer a question nobody asked. Said out loud beside the chips,
+          because a filter that silently leaves one panel out is worse than no
+          filter. */}
+      <PeriodPicker
+        period={period}
+        note={
+          <span className="inline-flex items-center gap-1.5">
+            <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />
+            Live · the window applies to the two panels and the record below
+          </span>
+        }
       />
 
-      {/* The window applies to everything BELOW it, never to the strip above:
-          "where leads are right now" is current state, and scoping it to a past
-          week would answer a question nobody asked. Said out loud beside the
-          chips, because a filter that silently leaves one panel out is worse
-          than no filter. */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-1.5">
-          {PERIODS.map((entry) => (
-            <button
-              key={entry.id}
-              type="button"
-              onClick={() => setPeriodId(entry.id)}
-              aria-pressed={entry.id === periodId}
-              className={`chip px-2.5 py-0.5 text-[0.66rem] ${
-                entry.id === periodId ? "chip-active" : ""
-              }`}
-            >
-              {entry.label}
-            </button>
-          ))}
-          <button
-            type="button"
-            onClick={() => setPeriodId("custom")}
-            aria-pressed={isCustom}
-            className={`chip px-2.5 py-0.5 text-[0.66rem] ${isCustom ? "chip-active" : ""}`}
-          >
-            Custom
-          </button>
-          {isCustom ? (
-            <>
-              <input
-                type="date"
-                value={customFrom}
-                onChange={(event) => setCustomFrom(event.target.value)}
-                aria-label="From date"
-                className="field-input h-6 w-32 py-0 text-[0.66rem]"
-              />
-              {/* Left blank, this filters exactly the one day above. */}
-              <input
-                type="date"
-                value={customTo}
-                onChange={(event) => setCustomTo(event.target.value)}
-                aria-label="To date (optional — leave blank for a single day)"
-                className="field-input h-6 w-32 py-0 text-[0.66rem]"
-              />
-              {customFrom || customTo ? (
-                <button
-                  type="button"
-                  className="chip px-2.5 py-0.5 text-[0.66rem]"
-                  onClick={() => {
-                    setCustomFrom("");
-                    setCustomTo("");
-                  }}
-                >
-                  Clear dates
-                </button>
-              ) : null}
-            </>
-          ) : null}
-        </div>
-        <span className="text-[0.66rem] text-muted-foreground">
-          Applies to the totals below. The queue above is always live.
-        </span>
-      </div>
+      {/* The news, first and largest: what came in, what happened to it, and
+          where the open work is sitting. Everything below this is the record.
+          The same row the admin Overview and the Closing Desk read — the
+          manager used to get the queue strip alone here, without the intake
+          and outcome either of those already showed. */}
+      <OverviewPanels period={period} stats={stats} centers={perCenter} />
 
-      {/* Deliberately quieter than the strip above. These are the record —
-          true, worth having, and not what anybody opens this tab to find out.
-          Eight of them as 3xl cards gave a number nobody can act on the same
-          weight as the queue that needs working today. */}
-      <section className="panel">
-        <h2 className="panel-title">{heading}</h2>
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 lg:grid-cols-6">
-          <Total label="Closer" value={totalsRow?.closer_submissions} />
-          {/* Uploaded leads that a manager has accepted. The view counts
-              `source = 'sheet'` excluding `pending_import_approval`, which is
-              the same rule the Manual Submissions tab uses — so a batch
-              contributes nothing here until it is approved, and there is no
-              client-side condition to keep in step with it. */}
-          <Total label="Manual" value={totalsRow?.offline_submissions} />
-          {/* Validator submissions are self-entered and auto-approved, so they
-              are named as their own figure rather than mixed into the review
-              outcomes beside them. */}
-          {showValidatorSubmissions ? (
-            <Total label="Validator" value={totalsRow?.validator_submissions} />
-          ) : null}
-          <Total label="Submitted" value={totalsRow?.approved} />
-          <Total label="Declined" value={totalsRow?.declined} tone="destructive" />
-          {showValidatorSubmissions ? null : (
-            <>
-              <Total label="Timeouts" value={totalsRow?.timeouts} tone="destructive" />
-              <Total label="Rejections" value={totalsRow?.rejections} tone="destructive" />
-            </>
-          )}
-        </dl>
-      </section>
+      <TotalsPanel
+        row={totalsRow}
+        heading={heading}
+        showReviewFailures={!showValidatorSubmissions}
+      />
 
       {/* A list rather than a table: two columns over a handful of rows is
           less than a table earns, and the bar does the comparing that a second
@@ -613,37 +353,13 @@ export function ReportingStats({
           Overview's picture, and the manager's Reporting tab shows the queue
           it works rather than a breakdown of the whole business. */}
       {showValidatorSubmissions ? (
-        <section className="panel">
-          <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <h2 className="panel-title">Leads by Center ({perCenter.length})</h2>
-            <span className="text-[0.66rem] text-muted-foreground">{heading}</span>
-          </div>
-          <ul className="flex flex-col gap-2.5">
-            {perCenter.map((center) => (
-              <li key={center.center_id ?? center.center_name} className="flex flex-col gap-1">
-                <div className="flex items-baseline justify-between gap-3">
-                  <CenterBadge
-                    name={center.center_name}
-                    color={center.center_id ? centerColorById.get(center.center_id) : null}
-                  />
-                  <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                    {center.total_submissions ?? 0}
-                  </span>
-                </div>
-                <MetricBar value={center.total_submissions ?? 0} max={centerMax} />
-              </li>
-            ))}
-            {perCenter.length === 0 ? (
-              <li className="text-xs text-muted-foreground">
-                {centerTotals.isLoading
-                  ? "Loading…"
-                  : centerTotals.isError
-                    ? (centerTotals.error as Error).message
-                    : "No active centers."}
-              </li>
-            ) : null}
-          </ul>
-        </section>
+        <LeadsByCenterPanel
+          centers={perCenter}
+          max={centerMax}
+          heading={heading}
+          loading={centerTotals.isLoading}
+          error={centerTotals.isError ? (centerTotals.error as Error).message : null}
+        />
       ) : null}
 
       {showValidatorSubmissions ? null : (
@@ -1458,7 +1174,113 @@ function RestoreButton({
   );
 }
 
-/** The totals view returns nullable counts, and is undefined until it loads. */
+/**
+ * The record for the selected window.
+ *
+ * Its tiles say exactly what the panels above it say, in the same words and
+ * with the same arithmetic — **Live** and **Manual**, where Manual is uploads
+ * plus validator submissions. It briefly did not: while the panels were merging
+ * the two and this strip was not, the manager's screen printed "Manual 243" and
+ * "Manual 41" one above the other, which is worse than either figure being
+ * wrong on its own.
+ *
+ * `showReviewFailures` is the only difference left between the two dashboards.
+ * Timeouts and rejections are the review desk's own failures, and they belong
+ * on the screen of the person who can do something about them; the admin
+ * Overview reads them from the Validators table instead.
+ */
+export function TotalsPanel({
+  row,
+  heading,
+  showReviewFailures = false,
+}: {
+  row: OverviewTotalsRow | null;
+  heading: string;
+  showReviewFailures?: boolean;
+}) {
+  return (
+    <section className="panel">
+      <h2 className="panel-title">{heading}</h2>
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 lg:grid-cols-6">
+        <Total label="Live" value={row?.closer_submissions} />
+        {/* Uploads plus validator submissions — everything nobody closed live.
+            The uploaded half counts `source = 'sheet'` excluding
+            `pending_import_approval`, which is the same rule the Manual
+            Submissions tab uses, so a batch contributes nothing here until it
+            is approved and there is no client-side condition to keep in step
+            with it. */}
+        <Total
+          label="Manual"
+          value={(row?.offline_submissions ?? 0) + (row?.validator_submissions ?? 0)}
+        />
+        <Total label={dispositionLabel("accepted")} value={row?.approved} />
+        <Total label={dispositionLabel("declined")} value={row?.declined} tone="destructive" />
+        {showReviewFailures ? (
+          <>
+            <Total label="Timeouts" value={row?.timeouts} tone="destructive" />
+            <Total label="Rejections" value={row?.rejections} tone="destructive" />
+          </>
+        ) : null}
+      </dl>
+    </section>
+  );
+}
+
+/**
+ * Volume per centre, over the selected window.
+ *
+ * A list rather than a table: two columns over a handful of rows is less than a
+ * table earns, and the bar does the comparing that a second numeric column
+ * would otherwise be needed for. Centres come from the RPC, so adding one in
+ * Settings adds a row here and nothing in this file names one.
+ */
+export function LeadsByCenterPanel({
+  centers,
+  max,
+  heading,
+  loading = false,
+  error = null,
+}: {
+  centers: CenterTotalsRow[];
+  /** What every bar is measured against, so the busiest centre fills. */
+  max: number;
+  heading: string;
+  loading?: boolean;
+  error?: string | null;
+}) {
+  const centerColorById = useCenterColorById();
+
+  return (
+    <section className="panel">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="panel-title">Leads by Center ({centers.length})</h2>
+        <span className="text-[0.66rem] text-muted-foreground">{heading}</span>
+      </div>
+      <ul className="flex flex-col gap-2.5">
+        {centers.map((center) => (
+          <li key={center.center_id ?? center.center_name} className="flex flex-col gap-1">
+            <div className="flex items-baseline justify-between gap-3">
+              <CenterBadge
+                name={center.center_name}
+                color={center.center_id ? centerColorById.get(center.center_id) : null}
+              />
+              <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                {center.total_submissions ?? 0}
+              </span>
+            </div>
+            <MetricBar value={center.total_submissions ?? 0} max={max} />
+          </li>
+        ))}
+        {centers.length === 0 ? (
+          <li className="text-xs text-muted-foreground">
+            {loading ? "Loading…" : (error ?? "No active centers.")}
+          </li>
+        ) : null}
+      </ul>
+    </section>
+  );
+}
+
 /**
  * One lifetime figure inside the all-time strip.
  *
@@ -1472,7 +1294,9 @@ function Total({
   value,
   tone,
 }: {
-  label: string;
+  /** A node, not a string, so a caller can pass `dispositionLabel(...)`
+   *  straight through rather than restating a word the app already spells. */
+  label: ReactNode;
   value: number | null | undefined;
   tone?: "destructive";
 }) {

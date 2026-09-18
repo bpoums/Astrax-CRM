@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { FlipNumber } from "@/components/flip-number";
 
 /**
  * Sheets sync queue health, for the admin Overview tab.
@@ -62,11 +63,9 @@ export function SheetSyncBacklogCard() {
 
   if (backlog.isPending) {
     return (
-      <section className="grid gap-3">
-        <div className="panel gap-1">
-          <span className="panel-title">Sheets sync</span>
-          <span className="text-xs text-muted-foreground">Loading…</span>
-        </div>
+      <section className="panel gap-1">
+        <h2 className="panel-title">Sheets sync</h2>
+        <span className="text-xs text-muted-foreground">Loading…</span>
       </section>
     );
   }
@@ -77,11 +76,9 @@ export function SheetSyncBacklogCard() {
   // and here the two would say opposite things about whether leads are stuck.
   if (backlog.isError) {
     return (
-      <section className="grid gap-3">
-        <div className="panel gap-1">
-          <span className="panel-title">Sheets sync</span>
-          <span className="text-xs text-destructive">{(backlog.error as Error).message}</span>
-        </div>
+      <section className="panel gap-1">
+        <h2 className="panel-title">Sheets sync</h2>
+        <span className="text-xs text-destructive">{(backlog.error as Error).message}</span>
       </section>
     );
   }
@@ -97,43 +94,38 @@ export function SheetSyncBacklogCard() {
   const bad = struggling > 0 || stalled;
 
   return (
-    <section className="grid gap-3 sm:grid-cols-3 xl:grid-cols-7">
-      <div className="panel gap-1 sm:col-span-2 xl:col-span-3">
-        <span className="panel-title">Sheets sync</span>
+    /* A panel, not a grid holding a panel — the Overview tab pairs this with
+       the CX coverage card and decides the width. */
+    <section className="panel gap-1">
+      <h2 className="panel-title">Sheets sync</h2>
 
-        <span
-          className={`font-display text-3xl font-semibold tabular-nums ${bad ? "text-destructive" : ""}`}
-        >
-          {queued}
-          <span className="text-base font-normal text-muted-foreground">
-            {" "}
-            queued
-            {in_flight > 0 ? ` · ${in_flight} sending` : ""}
-          </span>
+      <span className={`flex items-end gap-1.5 ${bad ? "text-destructive" : ""}`}>
+        <FlipNumber value={queued} size="hero" />
+        <span className="pb-0.5 text-base font-normal text-muted-foreground">
+          queued
+          {in_flight > 0 ? ` · ${in_flight} sending` : ""}
         </span>
+      </span>
 
-        {queued === 0 ? (
-          <span className="text-[0.66rem] text-muted-foreground">
-            Every lead has reached the Sheet.
-          </span>
-        ) : (
-          <span className="text-[0.66rem] text-muted-foreground">
-            {struggling > 0 ? (
-              <span className="text-destructive">
-                {struggling} failing after {STRUGGLING_ATTEMPTS}+ attempts.{" "}
-              </span>
-            ) : null}
-            {/* Age is the tell a count alone misses: a big queue that is moving
-                is just a busy morning, a small one that is not is a fault. */}
-            <span className={stalled && struggling === 0 ? "text-destructive" : ""}>
-              Oldest {age(oldest_seconds)}.
-            </span>{" "}
-            {bad
-              ? "These leads are not in the Sheet yet."
-              : "Draining normally — about 25 a minute."}
-          </span>
-        )}
-      </div>
+      {queued === 0 ? (
+        <span className="text-[0.66rem] text-muted-foreground">
+          Every lead has reached the Sheet.
+        </span>
+      ) : (
+        <span className="text-[0.66rem] text-muted-foreground">
+          {struggling > 0 ? (
+            <span className="text-destructive">
+              {struggling} failing after {STRUGGLING_ATTEMPTS}+ attempts.{" "}
+            </span>
+          ) : null}
+          {/* Age is the tell a count alone misses: a big queue that is moving
+              is just a busy morning, a small one that is not is a fault. */}
+          <span className={stalled && struggling === 0 ? "text-destructive" : ""}>
+            Oldest {age(oldest_seconds)}.
+          </span>{" "}
+          {bad ? "These leads are not in the Sheet yet." : "Draining normally — about 25 a minute."}
+        </span>
+      )}
     </section>
   );
 }

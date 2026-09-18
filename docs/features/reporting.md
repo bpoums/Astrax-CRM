@@ -11,21 +11,103 @@ history are all reporting-UI refinements (period selector, queue-age
 display, visual separation of waiting stages), see [CHANGELOG.md](../../CHANGELOG.md).
 
 ## Roles involved
-**admin** (Overview + Submissions tabs, with the fuller `showValidatorSubmissions`
-view), **manager** (the same dashboard via the Reporting tab, narrower view).
+**admin** (Overview + Submissions tabs — Overview is its own screen since
+2026-09-18, see below), **manager** (`ReportingStats` via the Reporting tab,
+narrower view), and since 2026-09-18 **closing_manager** / **general_manager**
+(the three panels only, on the Closing Desk's Overview tab).
 
 ## Routes / screens
-- `/admin?tab=overview`, `/admin?tab=submissions` → `src/components/reporting.tsx`'s
-  `ReportingStats` and `SubmissionsExplorer`, mounted on separate tabs so
-  only one queries at a time.
-- `/manager` → Reporting tab → `ReportingDashboard` (both combined, since
-  there's no second tab to split them across there).
+- `/admin?tab=overview` → `src/components/admin-overview.tsx`'s `AdminOverview`
+  (**redesigned 2026-09-18**; it used to be `ReportingStats
+  showValidatorSubmissions`).
+- `/admin?tab=submissions` → `src/components/reporting.tsx`'s
+  `SubmissionsExplorer`, on its own tab so only one of the two queries at a
+  time.
+- `/manager` → Reporting tab → `ReportingDashboard` (`ReportingStats` +
+  `SubmissionsExplorer` combined, since there's no second tab to split them
+  across there). It gained the same three panels on 2026-09-18, in place of the
+  standalone queue strip it used to show.
+- `/closing` → Overview tab → `closing-overview.tsx`'s `ClosingOverview`
+  (2026-09-18) — the same panels for a closing or general manager, scoped by
+  their own RLS. See [closing-desk.md](closing-desk.md).
 
 ## Important components
-`reporting.tsx` (all three exports), `queue-flow.tsx` (`QueueFlow` — the
-proportional "where leads are right now" bar), `metric-bar.tsx` (`MetricBar`
-— a generic single-track comparator bar, also reused by the CX coverage
-card), `validation-timeline.tsx`, `payload-history.tsx`.
+`reporting.tsx` (`ReportingStats`, `SubmissionsExplorer`, `ReportingDashboard`,
+plus `TotalsPanel` and `LeadsByCenterPanel`, which both dashboards render),
+`admin-overview.tsx` (the admin Overview screen), `overview-panels.tsx`
+(`OverviewPanels` — the three-panel row all three screens render),
+`closing-overview.tsx` (the Closing Desk's copy, role-adapted), `queue-flow.tsx` (`QueueFlow`
+— the proportional "where leads are right now" bar), `metric-bar.tsx`
+(`MetricBar` — a generic single-track comparator bar, also reused by the CX
+coverage card), `submission-outcome.tsx` (the Submitted/Declined donut),
+`flip-number.tsx` (the split-flap counter), `period-picker.tsx` +
+`lib/period-range.ts` (the window chips and the one derivation behind them),
+`lib/overview-stats.ts` (every figure both dashboards are built from, fetched
+once), `validation-timeline.tsx`, `payload-history.tsx`.
+
+## The three panels (`overview-panels.tsx`)
+One row, three questions, on **three screens**: the admin Overview, the
+manager's Reporting tab and the Closing Desk's Overview tab. One component
+rather than three copies, because it is the business's own picture of itself
+and three copies would start disagreeing within a month.
+
+`OverviewPanels` is **given** its data and never fetches any. `useOverviewStats`
+opens a realtime channel, two Supabase subscriptions may not share one name, and
+`ReportingStats` already calls that hook on the manager's tab — so a second call
+inside the panels would mount the same channel twice on one screen. Each parent
+calls `usePeriod()` and `useOverviewStats()` once and passes both down: one
+window, one fetch, one channel per screen. The Closing Desk passes its own
+channel name (`closing-overview`) through the hook's existing `channel` option.
+
+Nothing in the component is gated on a role. Every figure arrives already scoped
+by the caller's RLS, so a closing manager reads their centre's numbers through
+the identical code an admin reads the whole business through; its two
+presentational props (`centers`, `showValidatorRow`) are about what is worth
+drawing, never about what a role may know. See
+[closing-desk.md](closing-desk.md) for what that means there.
+
+The panels:
+
+1. **Intake** — titled with the selected window ("All time", "Last 7 days",
+   "Today", or the custom range). It read the literal word "Today" whatever the
+   chips said until 2026-09-18, which made the panel contradict the figures
+   inside it. `Live` and `Manual` as the two headline origins, then the
+   breakdown they are made of: one row per active centre (which is the Live
+   figure, since `submission_totals_by_center_range` filters
+   `submitted_by_role = 'closer' AND source = 'live'`), then `Uploaded` and
+   `Validator` under a separator (which are the Manual figure). Centre names
+   and colours come from the RPC and `useCenterColorById`; nothing in the file
+   names a centre.
+2. **Submission Outcome** — `Submitted` (`approved`) against `Declined`, as an
+   inline SVG donut with the acceptance rate in the middle. No charting
+   library. `pending` is deliberately absent: it is not an outcome, it is a
+   lead back in the manager's queue, and it is counted in panel 3.
+3. **L.A. Operations** — the same `QueueFlow` strip the manager works from,
+   with `orientation="rows"` and `flip` set. Never windowed by the period
+   chips, and the panel says so.
+
+**Where each screen puts them:**
+- **admin** `/admin?tab=overview` — the row, then `TotalsPanel` and
+  `LeadsByCenterPanel` as the record for the selected window, and finally a
+  two-column closing row of health checks: `CxCoverageCard` and
+  `SheetSyncBacklogCard`. Both are plain panels placed by `admin.tsx`; before
+  2026-09-18 each positioned itself and so sat alone on a mostly empty row.
+- **manager** `/manager` → Reporting — the row **in place of the standalone
+  queue strip** it used to show there (2026-09-18), then the same period chips,
+  totals strip, Validators Team Dashboard and explorer as before. The chips also
+  moved ABOVE the row in the same change: the first panel is now titled with the
+  window, and a control that changes a heading has to be readable before that
+  heading, not after it.
+- **closing_manager / general_manager** `/closing` → Overview — the chips and
+  the row, nothing below.
+
+Counts flip over like a split-flap board when they change (`FlipNumber`).
+A digit animates only when that digit actually changes, once, over 400ms;
+nothing idles or loops, and `prefers-reduced-motion: reduce` swaps the value
+outright — checked in JS as well as CSS, because with `animation: none` the
+`animationend` that retires the moving flaps never fires. Pure CSS 3D in
+`styles.css` (`@keyframes flip-fall`/`flip-rise`, `.flip-card` and friends);
+no animation library was added.
 
 ## Database
 - RPCs: `submission_totals_range`, `submission_totals_by_center_range`,
@@ -103,11 +185,23 @@ card), `validation-timeline.tsx`, `payload-history.tsx`.
   [closer-submission-and-forms.md](closer-submission-and-forms.md) for the
   two-concept model. `exports.tsx` keeps its single combined carrier box for
   now; giving it the same treatment is an open follow-up.
-- **The Overview stat strip still reads Closer/Manual/Validator**, unmerged,
-  because those are `submission_totals` view columns and merging them
-  properly needs a view migration rather than a client-side sum (see
-  [database.md](../database.md) on not recomputing a view's numbers).
-  A known inconsistency with the chips, left for a follow-up.
+- **Every reporting screen now reads Live/Manual, merged** (2026-09-18), closing
+  the inconsistency with the Live/Manual chips that this file recorded as an
+  open follow-up. Manual is `offline_submissions + validator_submissions`,
+  added in the client — the two are disjoint by construction (a row is exactly
+  one of closer / uploaded / validator), so this adds two aggregates the view
+  already publishes rather than re-deriving either from rows. No filter rule is
+  restated client-side and no lead can be counted twice, which is the thing
+  [database.md](../database.md) is guarding against; a view migration would
+  produce the identical number. The Uploaded/Validator split survives one level
+  down, in the Overview's own source breakdown and in the Submissions tab's
+  Type column. The manager's record strip was merged in the same pass, and had
+  to be: with the panels merging and the strip not, one screen printed
+  "Manual 243" and "Manual 41" one above the other, which is worse than either
+  figure being wrong on its own. Its only remaining difference from the admin's
+  is `TotalsPanel`'s `showReviewFailures` — the Timeouts and Rejections tiles,
+  which are the review desk's own failures and belong on the screen of the
+  person who can act on them.
 - **Archived and non-archived never mix** — the toggle switches which set
   you see; there is no combined view.
 - Realtime invalidation on `SubmissionsExplorer` only invalidates the
@@ -115,9 +209,14 @@ card), `validation-timeline.tsx`, `payload-history.tsx`.
   every page on every change would send an idle reader's view back to the
   network for pages nobody is looking at.
 - The period selector (today/7d/30d/all-time/**custom**) applies only to the
-  totals panel and the two RPC-backed breakdowns — `QueueFlow` above it is
-  deliberately never windowed, since "leads open right now" has no
-  meaningful time boundary.
+  totals panel and the two RPC-backed breakdowns — `QueueFlow` is deliberately
+  never windowed, since "leads open right now" has no meaningful time boundary.
+  Since 2026-09-18 the chips are one component (`PeriodPicker`) over one
+  derivation (`usePeriod` in `lib/period-range.ts`), and the four queries
+  behind both dashboards are one hook (`useOverviewStats` in
+  `lib/overview-stats.ts`) with the query keys unchanged — so the admin
+  Overview and the manager's Reporting tab share a cache entry and cannot
+  drift apart.
 - **Custom date filtering, added 2026-09-10**: a "Custom" chip on the
   Overview tab reveals From/To date inputs (To optional — a single day
   filters exactly that day); `SubmissionsExplorer` on the Submissions tab

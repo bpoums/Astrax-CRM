@@ -78,6 +78,48 @@ grant to `anon`; name the role.
 
 ---
 
+## SECURITY — `validator_stats_range` hands every validator's record to any caller
+
+**Found 2026-09-18. Not fixed. Database-side; the client door is now shut.**
+
+`validator_stats_range()` is `SECURITY INVOKER`, but only three of its columns
+are actually scoped by the caller's RLS. `assigned`, `approved`, `declined` and
+`pending` come from `submissions` and narrow correctly. **`timed_out`,
+`rejected` and `holds` are counted from `form_events`**, whose read policy does
+not scope the same way — so they come back whole-business for anyone.
+
+Verified live under a closing manager's own JWT (`set local role authenticated`
++ `request.jwt.claims`), a role whose `submissions` policy is limited to their
+own centre's closer-originated leads:
+
+```
+Samia Aslam   assigned 16  approved 11  rejected  2  timed_out 5  holds 103
+Saad Waheed   assigned  8  approved  3  rejected 13  timed_out 4  holds  78
+Rabia Ahmed   assigned  7  approved  2  rejected  4  timed_out 10 holds 123
+```
+
+Thirteen rows: every validator's `full_name`, `staff_id` and performance. The
+holds counts (103, 123) against 7–16 assigned leads are the tell — those are not
+that centre's numbers.
+
+Anyone who can sign in can call this directly over PostgREST, so the exposure
+does not depend on a screen rendering it. The Closing Desk's Overview was
+briefly going to fetch it automatically on every visit; that call was removed
+before it shipped (`includeValidatorStats` in `lib/overview-stats.ts`), which
+closes the app's door but not the database's.
+
+**Fix** is server-side and needs a migration, so it has not been applied:
+scope the three `form_events` subqueries the way the `submissions` join is
+scoped, or restrict EXECUTE to the roles that have any business reading a
+validators table (admin, manager) and name the roles rather than relying on
+`revoke ... from public` — see the RPC finding above for why that is not enough.
+
+**Verify by** calling `validator_stats_range()` under a closing manager's and a
+general manager's JWT and confirming the counts match the leads that role can
+actually read, and that a role with no business there cannot execute it at all.
+
+---
+
 ## `npm test` fails 1 of 140
 
 `src/lib/normalize/review-columns.test.ts` — "does not lose the card columns

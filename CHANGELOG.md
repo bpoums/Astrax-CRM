@@ -1,5 +1,165 @@
 # Changelog
 
+## 2026-09-18 — The Closing Desk stops fetching the validators table
+
+Found while checking what a deploy of the Overview work would actually change.
+`ClosingOverview` called `useOverviewStats`, which fetches all four queries —
+including `validator_stats_range`, which that screen never renders. Run as a
+closing manager it returns thirteen rows: every validator's name, staff id and
+performance, with `timed_out`, `rejected` and `holds` counted from
+`form_events` rather than `submissions` and therefore **not** scoped to their
+centre (holds of 103 and 123 against 7–16 assigned leads).
+
+`useOverviewStats` now takes `includeValidatorStats`, and the Closing Desk
+passes `false`. A screen that does not draw the validators table no longer pulls
+it into the reader's browser.
+
+**This closes the app's door, not the database's.** The RPC is executable by any
+authenticated caller, so anyone who can sign in can still request it directly
+over PostgREST. That fix is server-side and needs a migration, so it is recorded
+in `docs/TODO.md` rather than quietly patched here.
+
+- Changed: `src/lib/overview-stats.ts`, `src/components/closing-overview.tsx`
+- Docs: `docs/TODO.md` (new security entry), `docs/features/closing-desk.md`
+- Database: **none** — the underlying gap is still open, deliberately and on the
+  record
+
+## 2026-09-18 — The Overview's last two cards join the redesign
+
+**CX coverage** and **Sheets sync** were the only things left on the admin
+Overview still drawn the old way. Each wrapped *itself* in a grid and claimed
+about two sevenths of it, so each sat alone on a full-width row with dead space
+beside it, reading as two loose strips under the new panels rather than part of
+them.
+
+Both now return a plain panel and let the page place them: the Overview tab
+pairs them in one two-column row, full width and equal height, as the closing
+row of the screen. A component that decides where it sits on someone else's page
+cannot be placed by that page.
+
+Their leading figures flip like every other number on the screen — both move on
+their own (CX coverage off the realtime subscription, the backlog off its own
+30-second refetch), so the motion is the same cue it is everywhere else rather
+than decoration.
+
+**Nothing either card reports changed**: same RPCs, same `STRUGGLING_ATTEMPTS`
+and `STALLED_SECONDS` thresholds, same wording, same red for a struggling or
+stalled queue. The Sheets sync refusal path was re-checked by forcing a 403 at
+the network layer — it still prints "not authorized" in destructive red rather
+than a healthy-looking zero, which is the whole point of that branch.
+
+- Changed: `src/components/cx-status-breakdown.tsx` (`CxCoverageCard` only),
+  `src/components/sheet-sync-backlog.tsx` (all three branches — loading, error
+  and loaded), `src/routes/_authenticated/admin.tsx` (pairs the two)
+- Docs: `docs/features/reporting.md`
+- Database: **none**
+
+## 2026-09-18 — The Overview panels reach the Manager and the Closing Desk
+
+The three panels built for the admin Overview earlier today are now the same
+three panels on the **manager's Reporting tab** and on a new **Overview tab on
+the Closing Desk**, extracted into one shared `OverviewPanels` rather than
+copied. They are the business's own picture of itself; three copies of it would
+start disagreeing within a month.
+
+**Fixed: the first panel lied about its own window.** Its heading was the
+literal word "Today" whatever the period chips were set to, while the figures
+underneath were All time or Last 7 days. It now carries the selected window,
+and the duplicate small label it used to print on the right is gone. On the
+manager's tab the chips also moved above the panels — a control that changes a
+heading has to be readable before that heading, not after it.
+
+**No new access, and no database change.** The `_range` RPCs are all
+`SECURITY INVOKER` reading `submissions` directly, so every figure was already
+scoped by the caller's own RLS before any of this. Verified by calling them
+under each role's own JWT rather than as admin:
+
+| Role | Live | Uploaded | Validator | Scope |
+|---|---|---|---|---|
+| general_manager | 351 | 41 | 202 | every centre — same as admin |
+| closing_manager | 56 | 1 | **0** | own centre only |
+
+So a **closing manager** loses two things from the shared panel, because their
+policy leaves both permanently dead rather than because either is secret: the
+other centres (the per-centre RPC left-joins from `centers`, so they come back
+present and zero) and the Validator row (their policy excludes that role
+outright). Their own centre still shows even when it is genuinely at zero, and
+Uploaded stays — a sheet-imported lead is written `submitted_by_role = 'closer'`
+and is squarely inside their scope.
+
+**The Closing Desk has a tab bar for every role now.** A closing manager used to
+get the bare desk, because Parked Leads was the only other tab and it is not
+theirs. Parked Leads is still gated on `move_to_validation`'s own rule; the
+Overview is not. The desk stays first and stays the default — it is the screen
+the role opens in order to work — and Radix leaves the Overview unmounted until
+it is opened, so none of the reporting RPCs run before then.
+
+**The manager's record strip was merged too, and had to be.** With the panels
+merging uploads and validator submissions into one Manual and the strip beneath
+them not, that screen printed "Manual 243" and "Manual 41" one above the other
+— worse than either figure being wrong on its own. Both now say Live and Manual
+in the same words with the same arithmetic; the only difference left between the
+two dashboards' strips is the Timeouts and Rejections tiles, which stay on the
+manager's, being the review desk's own failures.
+
+- New: `src/components/overview-panels.tsx`, `src/components/closing-overview.tsx`
+- Changed: `src/components/admin-overview.tsx` and `src/components/reporting.tsx`
+  (both render the extracted row; `TotalsPanel`'s `variant` became
+  `showReviewFailures`), `src/routes/_authenticated/closing.tsx`
+  (tabs for every role, plus the new tab)
+- Docs: `docs/features/reporting.md`, `docs/features/closing-desk.md`
+- Database: **none** — no migration, no RPC, no policy touched
+
+## 2026-09-18 — The admin Overview, redesigned: three panels and a split-flap board
+
+The Overview tab was a single column of stacked panels. It is now three panels
+across the top — **Today**, **Submission Outcome**, **L.A. Operations** — over
+the record it always carried, following a layout sketched by the business.
+The top row answers *what is happening now*; everything below it answers *what
+happened over the selected window*.
+
+**No database change.** Every figure already existed in
+`submission_totals_range` and `submission_totals_by_center_range`; nothing was
+added, replaced or recomputed. Verified against the live database: the centre
+rows sum to Live exactly, because the centre RPC filters
+`submitted_by_role = 'closer' AND source = 'live'`.
+
+**Live and Manual, merged.** The headline origins are two, not three — Manual
+is uploads plus validator submissions, the same merge the Submissions tab made
+on 2026-09-15 when Closer/Validator/Manual became Live/Manual. The split is not
+lost: Uploaded and Validator are their own rows in the panel's source
+breakdown, and the Submissions tab's Type column still names each lead. This
+closes an inconsistency `docs/features/reporting.md` had recorded as an open
+follow-up.
+
+**Counts flip like a departure board when they change.** A digit animates only
+when that digit actually changes, once, over 400ms — nothing idles, nothing
+loops, and a board that has not moved is completely still. These figures are
+already re-fetched by a realtime subscription, so the flip is the cue that a
+number moved while the reader was looking elsewhere. `prefers-reduced-motion:
+reduce` swaps the value outright, checked in JS as well as in CSS because with
+`animation: none` the `animationend` that retires the moving flaps would never
+fire. Pure CSS 3D — **no animation library was added**.
+
+**The manager's Reporting tab is unchanged**, which was the constraint on the
+refactor and was verified by screenshotting the tab before and after. The
+shared parts moved rather than being copied: one period derivation
+(`usePeriod`), one chips component (`PeriodPicker`), one query layer
+(`useOverviewStats`, query keys unchanged so both dashboards share a cache
+entry), and the two record panels (`TotalsPanel`, `LeadsByCenterPanel`) are now
+rendered by both screens instead of living inside one.
+
+- New: `src/components/admin-overview.tsx`, `flip-number.tsx`,
+  `submission-outcome.tsx`, `period-picker.tsx`, `src/lib/period-range.ts`,
+  `src/lib/overview-stats.ts`
+- Changed: `src/components/reporting.tsx` (consumes the extracted layers;
+  exports `TotalsPanel`/`LeadsByCenterPanel`), `queue-flow.tsx` (optional
+  `title`/`orientation`/`flip`/`className`, all defaulting to today's
+  behaviour), `src/styles.css` (the split-flap utilities and keyframes; no new
+  colour token), `src/routes/_authenticated/admin.tsx` (mounts `AdminOverview`)
+- Docs: `docs/features/reporting.md`
+- Database: **none**
+
 ## 2026-09-18 — The stuck uploaded leads are in the Sheet; backlog drained to zero
 
 The Apps Script owner deployed, so the Validation Feed permission failure that

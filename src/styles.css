@@ -328,3 +328,137 @@
     transform: none;
   }
 }
+
+/**
+ * The split-flap counter — see `components/flip-number.tsx`.
+ *
+ * One digit is four stacked layers inside `.flip-card`: two static halves that
+ * hold the resting state, and two flaps that only exist while a digit is
+ * changing. The falling flap carries the OLD digit's top half down over the
+ * card; the rising flap brings the NEW digit's bottom half up behind it, half a
+ * beat later. Together that reads as one card turning over.
+ *
+ * Colour comes entirely from the existing semantic variables — the card is
+ * `--color-card` over `--color-border`, exactly like `.panel`, and the seam is
+ * a `color-mix` of the same border, which is how `.table-head-band` is built.
+ * Nothing new is introduced.
+ */
+
+@utility flip-card {
+  position: relative;
+  display: inline-block;
+  width: var(--flip-w);
+  height: var(--flip-h);
+  perspective: 240px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--flip-size);
+  line-height: 1;
+}
+
+/** One half of a card. Clips the full-height glyph inside it to its own half. */
+@utility flip-face {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 50%;
+  overflow: hidden;
+  background: color-mix(in oklab, var(--color-card) 88%, var(--color-foreground) 6%);
+  backface-visibility: hidden;
+}
+
+@utility flip-face-top {
+  top: 0;
+  border-radius: 0.28rem 0.28rem 0 0;
+  border-bottom: 1px solid color-mix(in oklab, var(--color-border) 70%, transparent);
+  transform-origin: bottom;
+}
+
+@utility flip-face-bottom {
+  bottom: 0;
+  border-radius: 0 0 0.28rem 0.28rem;
+  transform-origin: top;
+}
+
+/**
+ * The numeral itself, always drawn at the FULL height of the card inside a half
+ * that shows only its share of it. That is what makes the two halves line up
+ * into one glyph rather than into two shrunken ones.
+ */
+@utility flip-glyph {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: var(--flip-h);
+  line-height: var(--flip-h);
+  text-align: center;
+}
+
+@utility flip-glyph-top {
+  top: 0;
+}
+
+@utility flip-glyph-bottom {
+  bottom: 0;
+}
+
+@keyframes flip-fall {
+  from {
+    transform: rotateX(0deg);
+  }
+  to {
+    transform: rotateX(-90deg);
+  }
+}
+
+@keyframes flip-rise {
+  from {
+    transform: rotateX(90deg);
+  }
+  to {
+    transform: rotateX(0deg);
+  }
+}
+
+@utility flip-fall {
+  z-index: 2;
+  animation: flip-fall 200ms ease-in var(--flip-delay, 0ms) both;
+}
+
+/* Starts where the falling flap finishes, so the two read as one movement. */
+@utility flip-rise {
+  z-index: 2;
+  animation: flip-rise 200ms ease-out calc(var(--flip-delay, 0ms) + 200ms) both;
+}
+
+/** The three sizes the counter is used at. */
+@utility flip-hero {
+  --flip-w: 1.55rem;
+  --flip-h: 2.6rem;
+  --flip-size: 1.9rem;
+}
+
+@utility flip-tile {
+  --flip-w: 1.1rem;
+  --flip-h: 1.8rem;
+  --flip-size: 1.3rem;
+}
+
+@utility flip-row {
+  --flip-w: 0.82rem;
+  --flip-h: 1.35rem;
+  --flip-size: 0.95rem;
+}
+
+/**
+ * Reduced motion gets the number, not the theatre. `flip-number.tsx` makes the
+ * same check in JS and never mounts the flaps at all — this is the second half
+ * of that guarantee, not the whole of it.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .flip-fall,
+  .flip-rise {
+    animation: none;
+  }
+}

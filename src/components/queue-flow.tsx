@@ -1,4 +1,5 @@
 import { relativeTime, STATUS_LABEL, useNow } from "@/components/ops";
+import { FlipNumber } from "@/components/flip-number";
 
 /**
  * Where the open work actually is, as one bar.
@@ -54,6 +55,10 @@ export function QueueFlow({
   onHold,
   returned,
   loading = false,
+  title = "Where leads are right now",
+  orientation = "grid",
+  flip = false,
+  className = "",
 }: {
   unassigned: StageCount;
   /** Assigned and NOT on hold — the two are exclusive here, never double-counted. */
@@ -62,6 +67,20 @@ export function QueueFlow({
   onHold: StageCount;
   returned: StageCount;
   loading?: boolean;
+  /** The panel heading. The admin Overview calls this strip "L.A. Operations". */
+  title?: string;
+  /**
+   * Five across, or five down. The grid is what the manager's full-width
+   * Reporting tab has always used; the admin Overview stands this panel in a
+   * third of the page beside two others, where five columns would be five
+   * slivers.
+   */
+  orientation?: "grid" | "rows";
+  /** Draw the counts as split-flap cards. See `flip-number.tsx`. */
+  flip?: boolean;
+  /** Placement only — the admin Overview sits this panel in a grid cell it has
+   *  to fill. Empty by default, so the manager's strip is untouched. */
+  className?: string;
 }) {
   // A minute is plenty: these ages are read in days and hours, and a faster
   // clock would re-render the whole strip for nothing.
@@ -116,9 +135,9 @@ export function QueueFlow({
   const total = stages.reduce((sum, stage) => sum + stage.value, 0);
 
   return (
-    <section className="panel">
+    <section className={`panel ${className}`}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="panel-title">Where leads are right now</h2>
+        <h2 className="panel-title">{title}</h2>
         {/* Said here rather than only beside the period chips below, where it
             was missed: this strip is current state and the window does not
             touch it. */}
@@ -145,13 +164,33 @@ export function QueueFlow({
         )}
       </div>
 
-      <ul className="grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-3 lg:grid-cols-5">
-        {stages.map((stage) => (
-          <li key={stage.key} className="flex min-w-0 flex-col gap-0.5">
-            <span className="flex min-w-0 items-center gap-1.5">
-              <span aria-hidden className={`h-1.5 w-1.5 shrink-0 rounded-full ${stage.fill}`} />
-              <span className="field-label truncate">{stage.label}</span>
-            </span>
+      <ul
+        className={
+          orientation === "rows"
+            ? // Spread down the panel rather than bunching at the top: in the
+              // admin Overview this sits in a full-height grid cell beside two
+              // taller panels.
+              "flex flex-1 flex-col justify-between gap-1.5"
+            : "grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-3 lg:grid-cols-5"
+        }
+      >
+        {stages.map((stage, index) => {
+          const dot = (
+            <span aria-hidden className={`h-1.5 w-1.5 shrink-0 rounded-full ${stage.fill}`} />
+          );
+          // Only where there is something to age. An empty stage saying
+          // "oldest —" is noise, and the count already says it is empty.
+          const age =
+            stage.value > 0 && stage.oldest ? (
+              <span className="truncate text-[0.62rem] text-muted-foreground">
+                oldest {relativeTime(stage.oldest, now)}
+              </span>
+            ) : null;
+          const count = flip ? (
+            // Dealt in top to bottom, a beat apart, so the strip reads as one
+            // board settling rather than five numbers arriving at once.
+            <FlipNumber value={stage.value} size="tile" delayMs={index * 70} />
+          ) : (
             <span
               className={`font-display text-2xl font-semibold tabular-nums ${
                 stage.value === 0 ? "text-muted-foreground" : ""
@@ -159,15 +198,30 @@ export function QueueFlow({
             >
               {stage.value}
             </span>
-            {/* Only where there is something to age. An empty stage saying
-                "oldest —" is noise, and the count already says it is empty. */}
-            {stage.value > 0 && stage.oldest ? (
-              <span className="truncate text-[0.62rem] text-muted-foreground">
-                oldest {relativeTime(stage.oldest, now)}
+          );
+
+          return orientation === "rows" ? (
+            <li key={stage.key} className="flex min-w-0 items-center justify-between gap-3">
+              <span className="flex min-w-0 flex-col gap-0.5">
+                <span className="flex min-w-0 items-center gap-1.5">
+                  {dot}
+                  <span className="field-label truncate">{stage.label}</span>
+                </span>
+                {age}
               </span>
-            ) : null}
-          </li>
-        ))}
+              {count}
+            </li>
+          ) : (
+            <li key={stage.key} className="flex min-w-0 flex-col gap-0.5">
+              <span className="flex min-w-0 items-center gap-1.5">
+                {dot}
+                <span className="field-label truncate">{stage.label}</span>
+              </span>
+              {count}
+              {age}
+            </li>
+          );
+        })}
       </ul>
 
       {total === 0 && !loading ? (

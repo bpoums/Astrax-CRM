@@ -1,6 +1,7 @@
 import { STATUS_TONE_CLASS, CATEGORY_LABEL, CX_CATEGORIES } from "@/lib/cx-status";
 import { useCxCoverage, useCxStatusSummary } from "@/lib/cx-overview";
 import { MetricBar } from "@/components/metric-bar";
+import { FlipNumber } from "@/components/flip-number";
 
 /**
  * Where the submitted leads are right now, per dimension.
@@ -120,20 +121,24 @@ export function CxCoverageCard() {
   const coverage = useCxCoverage();
 
   return (
-    <section className="grid gap-3 sm:grid-cols-3 xl:grid-cols-7">
-      <div className="panel gap-1 sm:col-span-2">
-        <span className="panel-title">CX coverage</span>
-        <span className="font-display text-3xl font-semibold tabular-nums">
-          {coverage.inCx}
-          <span className="text-base font-normal text-muted-foreground"> / {coverage.total}</span>
+    /* A panel, not a grid holding a panel: where this card sits is the calling
+       page's business, and while it placed itself it could only ever occupy two
+       sevenths of its own full-width row. See the Overview tab in `admin.tsx`,
+       which pairs it with the Sheets sync card. */
+    <section className="panel gap-1">
+      <h2 className="panel-title">CX coverage</h2>
+      <span className="flex items-end gap-1.5">
+        <FlipNumber value={coverage.inCx} size="hero" />
+        <span className="pb-0.5 text-base font-normal text-muted-foreground">
+          / {coverage.total}
         </span>
-        <span className="text-[0.66rem] text-muted-foreground">
-          Submitted leads that have entered CX.{" "}
-          <span className={coverage.untouched > 0 ? "text-destructive" : ""}>
-            {coverage.untouched} untouched.
-          </span>
+      </span>
+      <span className="text-[0.66rem] text-muted-foreground">
+        Submitted leads that have entered CX.{" "}
+        <span className={coverage.untouched > 0 ? "text-destructive" : ""}>
+          {coverage.untouched} untouched.
         </span>
-      </div>
+      </span>
     </section>
   );
 }

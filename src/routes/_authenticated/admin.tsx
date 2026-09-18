@@ -3,7 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import { requireRole } from "@/lib/auth";
 import { supabase } from "@/integrations/supabase/client";
 import { AppHeader } from "@/components/ops";
-import { ReportingStats, SubmissionsExplorer } from "@/components/reporting";
+import { SubmissionsExplorer } from "@/components/reporting";
+import { AdminOverview } from "@/components/admin-overview";
 import { CustomersPipeline, RemovedFromPipeline } from "@/components/customers-pipeline";
 import { CxStatusBreakdown, CxCoverageCard } from "@/components/cx-status-breakdown";
 import { UserAdmin } from "@/components/user-admin";
@@ -157,14 +158,19 @@ function AdminPage() {
           </TabsList>
 
           <TabsContent value="overview" className="flex flex-col gap-4">
-            <ReportingStats showValidatorSubmissions />
-            {/* Rendered here rather than inside ReportingStats, which the
-                manager's Reporting tab also mounts — this card is admin-only. */}
-            <CxCoverageCard />
-            {/* Whether leads are actually reaching Google Sheets. The queue in
-                decisions/0006 retries instead of dropping, which only works if
-                somebody sees a backlog that stops draining — this is that. */}
-            <SheetSyncBacklogCard />
+            <AdminOverview />
+            {/* The closing row: two health checks, side by side. Rendered here
+                rather than inside ReportingStats, which the manager's Reporting
+                tab also mounts — both cards are admin-only. Each is a plain
+                panel and is placed from here, so neither sits alone on a
+                two-sevenths-wide row of its own as they both used to. */}
+            <div className="grid gap-4 md:grid-cols-2">
+              <CxCoverageCard />
+              {/* Whether leads are actually reaching Google Sheets. The queue in
+                  decisions/0006 retries instead of dropping, which only works if
+                  somebody sees a backlog that stops draining — this is that. */}
+              <SheetSyncBacklogCard />
+            </div>
             {/* Which carriers are turning leads away, and how often. */}
             {/* <CarrierDeclineReport /> */}
           </TabsContent>
