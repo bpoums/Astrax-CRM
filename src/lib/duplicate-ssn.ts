@@ -1,9 +1,8 @@
-import { useState } from "react";
+import { createElement, Fragment, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { relativeTime } from "@/components/ops";
+import { dispositionLabel, relativeTime } from "@/components/ops";
 import { digitsOf } from "@/lib/normalize/text";
-import type { FieldWarning } from "@/lib/form-warnings";
 
 /**
  * "Has this SSN been sold before?", asked live on the intake forms.
@@ -16,8 +15,11 @@ import type { FieldWarning } from "@/lib/form-warnings";
  *
  * It lives here rather than in `form-warnings.ts` because that file is
  * deliberately pure: no I/O, no React, every rule shared with the uploader. This
- * one is a round trip and a hook, so it stays out of there and only borrows the
- * `FieldWarning` shape so both kinds of hint render through the same code.
+ * one is a round trip and a hook, so it stays out of there. Its hint shape
+ * mirrors `FieldWarning` (`{ tone, text }`) so both kinds render through the
+ * same code in `closer-form.tsx`, but `text` here is a `ReactNode` rather than
+ * a plain string — it needs to colour the outcome word (Submitted/Declined)
+ * inside the sentence, which a pure string can't do.
  *
  * `check_duplicate_ssn` returns the collapsed status and nothing else — no
  * name, no phone, no lead id. That is the design, not an omission: a closer
@@ -39,6 +41,22 @@ const STATUSES: DuplicateStatus[] = ["accepted", "declined", "in_progress"];
 
 function isStatus(value: unknown): value is DuplicateStatus {
   return typeof value === "string" && STATUSES.includes(value as DuplicateStatus);
+}
+
+export type DuplicateSsnHint = { tone: "warn" | "danger"; text: ReactNode };
+
+/**
+ * The outcome word inside the sentence, coloured the same way the rest of the
+ * app marks that outcome: emerald for Submitted (the one hardcoded exception
+ * to amber-only, shared with `DispositionBadge` in `ops.tsx`), destructive
+ * red for Declined — that token already exists, so no new colour is added.
+ */
+function outcomeWord(label: string, tone: "submitted" | "declined") {
+  return createElement(
+    "span",
+    { className: tone === "submitted" ? "text-emerald-600" : "text-destructive" },
+    label,
+  );
 }
 
 /**
@@ -70,7 +88,10 @@ function readHit(data: unknown): DuplicateHit | null {
  * `relativeTime` measures the gap between two instants, so unlike a calendar
  * date it needs no Pacific conversion to be true.
  */
-export function duplicateSsnWarning(hit: DuplicateHit | null, now: number): FieldWarning | null {
+export function duplicateSsnWarning(
+  hit: DuplicateHit | null,
+  now: number,
+): DuplicateSsnHint | null {
   if (!hit) return null;
   const when = relativeTime(hit.submittedAt, now);
 
@@ -78,17 +99,29 @@ export function duplicateSsnWarning(hit: DuplicateHit | null, now: number): Fiel
     case "accepted":
       return {
         tone: "danger",
-        text: `⚠ This SSN already belongs to an accepted lead (submitted ${when}). This may be a duplicate sale.`,
+        text: createElement(
+          Fragment,
+          null,
+          "⚠ This SSN already belongs to a lead marked ",
+          outcomeWord(dispositionLabel("accepted") ?? "Submitted", "submitted"),
+          ` (submitted ${when}). This may be a duplicate sale.`,
+        ),
       };
     case "declined":
       return {
         tone: "warn",
-        text: `This SSN was previously declined (${when}). You may still proceed — a different carrier may accept it.`,
+        text: createElement(
+          Fragment,
+          null,
+          "This SSN was previously marked ",
+          outcomeWord(dispositionLabel("declined") ?? "Declined", "declined"),
+          ` (${when}). You may still proceed — a different carrier may accept it.`,
+        ),
       };
     case "in_progress":
       return {
         tone: "warn",
-        text: `This SSN is already on a lead currently in progress (${when}).`,
+        text: `This SSN is already on a lead currently marked In Progress (${when}).`,
       };
   }
 }

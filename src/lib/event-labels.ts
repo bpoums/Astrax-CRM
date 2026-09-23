@@ -127,8 +127,16 @@ export function presentEvent(event: TimelineEvent): EventPresentation {
       // where 'accepted' renders as "Submitted".
       return plain("Sale closed");
 
-    case "parked":
-      return plain("Parked for external transfer", "accent");
+    case "parked": {
+      // The client is on every transfer parked since clients existed; the
+      // leads parked before that keep the original wording rather than
+      // printing a placeholder for something that was never recorded.
+      const client = text(detail, "client");
+      return plain(
+        client ? `Parked for external transfer — ${client}` : "Parked for external transfer",
+        "accent",
+      );
+    }
 
     case "moved_to_validation":
       return plain("Moved to validation");

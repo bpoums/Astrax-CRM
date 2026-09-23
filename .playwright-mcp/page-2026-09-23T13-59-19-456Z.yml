@@ -1,0 +1,42 @@
+- generic [ref=f2e1]:
+  - main [ref=f2e2]:
+    - generic [ref=f2e3]:
+      - generic [ref=f2e4]:
+        - img "ASTRAX" [ref=f2e7]
+        - generic [ref=f2e8]:
+          - link "Manager View" [ref=f2e9] [cursor=pointer]:
+            - /url: /manager
+          - link "Closer Form" [ref=f2e10] [cursor=pointer]:
+            - /url: /closer
+          - link "Validator Form" [ref=f2e11] [cursor=pointer]:
+            - /url: /validator-form
+          - generic [ref=f2e12]: admin@ums.com · admin
+          - button "Sign out" [ref=f2e13] [cursor=pointer]
+      - generic [ref=f2e14]:
+        - tablist [ref=f2e15]:
+          - tab "Overview" [ref=f2e16] [cursor=pointer]
+          - tab "Submissions" [ref=f2e17] [cursor=pointer]
+          - tab "Parked Leads (15)" [ref=f2e18] [cursor=pointer]
+          - tab "Customer Pipeline" [ref=f2e19] [cursor=pointer]
+          - tab "By Draft Date" [ref=f2e20] [cursor=pointer]
+          - tab "Exports" [ref=f2e21] [cursor=pointer]
+          - tab "Sales Breakdown" [ref=f2e22] [cursor=pointer]
+          - tab "Users" [ref=f2e23] [cursor=pointer]
+          - tab "Uploads" [ref=f2e24] [cursor=pointer]
+          - tab "Settings" [ref=f2e25] [cursor=pointer]
+          - tab "Voice Clone" [selected] [ref=f2e26] [cursor=pointer]
+        - tabpanel "Voice Clone" [ref=f2e27]:
+          - generic [ref=f2e28]:
+            - generic [ref=f2e29]:
+              - heading "Voice Clone Studio" [level=2] [ref=f2e30]
+              - generic [ref=f2e31]: Proxied through the server — the external tool is never called from your browser directly.
+            - generic [ref=f2e32]:
+              - generic [ref=f2e33]:
+                - generic [ref=f2e34]: Voice sample *
+                - button "Voice sample *" [active] [ref=f2e35]
+              - generic [ref=f2e36]:
+                - generic [ref=f2e37]: Text to speak *
+                - textbox "Text to speak *" [ref=f2e38]:
+                  - /placeholder: What should the cloned voice say?
+              - button "Clone & speak" [disabled] [ref=f2e39]
+  - region "Notifications alt+T"

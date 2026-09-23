@@ -76,8 +76,13 @@ and `20260915121000` (the Sheet's `Final Carrier` column now falls back to
   (CX statuses toned `destructive`/`warning` on the closer's own leads).
 
 ## Database
-- Write: `submit_form(p_payload)` (both roles), `submit_form_parked(p_payload)`
-  (closer's "External Transfer" button only).
+- Write: `submit_form(p_payload)` (both roles),
+  `submit_form_parked(p_payload, p_client)` (closer's "External Transfer"
+  button only). `p_client` is a `transfer_clients.id` and is **required** —
+  the RPC raises `select a client to transfer to` on a null and
+  `client is not available` on one that is missing or deactivated.
+- Read: `transfer_clients` (every role, under RLS) — the list the transfer
+  dialog offers.
 - Read (closer's own leads only): `my_forwarded_leads()` RPC, plus the
   `closer_lead_alerts` view.
 - See [database.md](../database.md) for full column/RPC detail.
@@ -90,6 +95,25 @@ and `20260915121000` (the Sheet's `Final Carrier` column now falls back to
 - **External Transfer** (`submit_form_parked`) only has an effect for a
   closer-originated result — a validator submission passes through
   unchanged (nothing to park; it's already closed).
+- **A transfer names its client.** Added 2026-09-19. The button opens
+  `TransferClientDialog` (`src/components/transfer-client-dialog.tsx`)
+  instead of submitting; nothing is sent until an active client is chosen.
+  The required-field check runs *before* the dialog opens, so a closer is
+  never asked which client to transfer to only to be told afterwards that a
+  field is blank. The RPC stamps `transfer_client_id` and
+  `transfer_client_name` on the lead and records the client name in the
+  `'parked'` `form_events` detail, so who parked what and to whom is on the
+  row, in the timeline, and on the closer's own Forwarded Leads.
+  The client is stored in **columns, never in `payload`** — `payload` is what
+  sheet-sync pushes to Google Sheets, so a key there would become a new Sheet
+  column. A refusal rolls the whole submission back: verified live that a
+  null client leaves no `submissions` row and no `form_events` row behind.
+- **The client list is admin-managed**, in Admin → Settings
+  (`TransferClientAdmin`). Deactivating one takes it out of the closer's
+  dialog and changes nothing about the leads already transferred to it;
+  renaming one is safe, because each lead keeps the stamped
+  `transfer_client_name` it was parked under. There is no delete — parked
+  leads point at the row.
 - Draft date / future draft date and a digits-only SSN are parsed out of the
   payload at submission time into real `submissions` columns
   (`draft_date`, `future_draft_date`, `ssn_normalized`) — this is what makes
@@ -97,7 +121,10 @@ and `20260915121000` (the Sheet's `Final Carrier` column now falls back to
   jsonb scan.
 - Duplicate-SSN warnings (`check_duplicate_ssn` RPC) are **advisory only** —
   never block submission — because a repeat SSN is often a legitimate
-  re-write after a decline.
+  re-write after a decline. The warning text states the matched lead's
+  current outcome using the app's own terminology (`dispositionLabel()` from
+  `ops.tsx`: "Submitted" / "Declined") plus "In Progress" for a lead that
+  hasn't been disposed yet — see `src/lib/duplicate-ssn.ts`.
 
 ## Known limitations
 - Field labels doubling as payload keys, Sheet columns, *and* import target

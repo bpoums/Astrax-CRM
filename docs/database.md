@@ -36,6 +36,7 @@ Row counts are a snapshot at audit time, for scale intuition only.
 | `carriers` | 7 | Vocabulary table: `name`, `active`, `sort_order`, `aliases text[]`. Admin-writable directly (no RPC — see `centers.ts` comment pattern, same reasoning applies to carriers). |
 | `carrier_declines` | 76 | One row per (submission, carrier) decline, written only by `decline_with_carriers`. |
 | `centers` | 2 | The two call centers (UMS BPO, DESCOM). Admin-writable directly. |
+| `transfer_clients` | 0 | Added 2026-09-19. Vocabulary table: `name` (unique), `active`, `sort_order`. The external parties a closer transfers a lead to with **External Transfer**. Admin-writable directly, readable by every role (the closer's transfer dialog reads it). Referenced by `submissions.transfer_client_id`, so there is no delete — deactivate instead. |
 | `cx_status_options` | 26 | The configurable vocabulary for the four CX categories. `category` check-constrained to `policy|premium|commission|chargeback`. `tone` check-constrained to `muted|accent|positive|destructive|warning`. |
 | `cx_lead_status` | 2 | One row per submission (PK is `submission_id`), four independent status-option pointers (`policy_status_id`, `premium_status_id`, `commission_status_id`, `chargeback_status_id`) each with its own free-text `_reason`. |
 | `cx_status_history` | 4 | Append-only log of every `set_cx_status` change: `from_code`/`to_code`/`reason`/`actor_id`. |
@@ -87,7 +88,17 @@ never cleared, so it stays as a permanent trace on that row, and as of
 2026-09-16 it is also what keeps the lead on the CX pipeline while it is away),
 `cx_removed_at`/`cx_removed_by` (added 2026-09-16, written by
 `remove_from_cx_pipeline`/`restore_to_cx_pipeline` — a CX-workspace-only
-dismissal, invisible to every other queue and report).
+dismissal, invisible to every other queue and report),
+`transfer_client_id`/`transfer_client_name` (added 2026-09-19, written only by
+`submit_form_parked` — which external client a parked lead was transferred to.
+The **name is a frozen copy** taken at park time, the way `center_name` is, so
+renaming a client never rewrites the history of leads already handed over;
+`transfer_client_id` is what Parked Leads filters its per-client chips on.
+Both are null on the 11 leads parked before clients existed, and a
+`submissions_transfer_client_parked_idx` partial index covers
+`transfer_client_id where status = 'parked'`. Deliberately **columns, not
+payload keys**: `payload` is what sheet-sync pushes to Google Sheets, so a key
+there would become a new Sheet column).
 
 ## Views
 
@@ -193,9 +204,11 @@ each supports.
 **Closer / validator submission**
 - `submit_form_internal(p_payload jsonb, p_status sub_status)` — **not a client-facing RPC**; `EXECUTE` is revoked from `anon`/`authenticated` (added 2026-09-12). Holds the actual insert logic shared by the two public wrappers below: stamps `ID` (staff_id) and `Submitted By Role` into the payload, parses `Draft Date`/`Future Draft Date` into real date columns and a digits-only SSN into `ssn_normalized`, and inserts the row with `status = p_status` (or `'pending_manager'` if `p_status` is null) — except a **validator's own submission always auto-closes** regardless of `p_status`: `status='closed'`, `disposition='accepted'`, `disposed_by/at` = self, immediately, in the same insert. Kept unreachable directly so a client can never pass an arbitrary `p_status` and skip the normal `pending_manager` review start state.
 - `submit_form(p_payload jsonb)` — closer or validator only. Thin wrapper: `submit_form_internal(p_payload, null)`.
-- `submit_form_parked(p_payload)` — closer or validator only. Thin wrapper: `submit_form_internal(p_payload, 'parked')`, then (only for a closer-originated result) writes the `'parked'`/`external_transfer` `form_events` row. A validator submission passes through unchanged (already closed by `submit_form_internal`), since there is nothing to park.
+- `submit_form_parked(p_payload jsonb, p_client uuid)` — closer or validator only. Thin wrapper: `submit_form_internal(p_payload, 'parked')`, then (only for a closer-originated result) resolves `p_client` against `transfer_clients`, stamps `transfer_client_id`/`transfer_client_name` on the row, and writes the `'parked'`/`external_transfer` `form_events` row with the client name in `detail`. A validator submission passes through unchanged (already closed by `submit_form_internal`), since there is nothing to park.
+  **Changed 2026-09-19** (`20260919100000_external_transfer_clients.sql`): `p_client` was added and is **required** for a closer's transfer — the RPC raises `select a client to transfer to` on a null and `client is not available` on an id that is missing or deactivated. The one-argument `submit_form_parked(jsonb)` was **dropped**, not kept alongside, because leaving it would have been a way to park a lead against no client at all. A refusal aborts the whole call: verified live that a null client leaves neither a `submissions` row nor a `form_events` row behind.
   **Fixed 2026-09-12**: this used to call `submit_form()` (one INSERT, status `pending_manager`) and then `UPDATE ... SET status='parked'` on the same row — two separate writes, each firing its own `sheet_sync_*` trigger, dispatching two outbound HTTP requests to Apps Script within the same transaction with no guaranteed ordering. Apps Script upserts by `Submission ID`, so whichever of the two concurrent requests it finished processing *last* won — occasionally the stale `pending_manager` one — leaving the Sheet showing a status Supabase had already moved past. Routing both `submit_form`/`submit_form_parked` through one shared, single-INSERT `submit_form_internal` means a parked lead now fires exactly one sync, carrying its final status from the start.
-- `move_to_validation(p_sub)` — admin or `general_manager` only. Releases a `'parked'` lead back to `'pending_manager'`.
+- `move_to_validation(p_sub)` — admin or `general_manager` only. Releases a `'parked'` lead back to `'pending_manager'`. The client stays stamped on the row; releasing a lead does not clear it, because it is a record of what happened rather than a queue pointer.
+- `parked_client_counts()` — admin or `general_manager` only (added 2026-09-19). Returns `(client_id, client_name, lead_count)` over unarchived `'parked'` leads, including a **null-id row** for the ones with no client, ordered with that row last. Drives the per-client chips above the Parked Leads table; it exists because that table is paginated, so the counts cannot be derived from the one page of rows on screen. Guard written `my_role() is distinct from ...` — see the NULL-role note in `CLAUDE.md` — and `EXECUTE` revoked from **both** `public` and `anon` (revoking from one alone leaves the other's grant in place; verified live that `anon` cannot execute it and `authenticated` can).
 - `check_duplicate_ssn(p_ssn)` — closer/validator/manager/admin. Looks up `ssn_normalized` (excluding archived rows), returns the most relevant existing match's bucket (`accepted`/`declined`/`in_progress`) and `submitted_at`, or `{exists:false}`. Advisory only — never blocks a submission.
 
 **Manager queue**
@@ -235,7 +248,7 @@ each supports.
 - `ingest_sheet_lead(p_payload, p_source_ref, p_uploaded_by?, p_import_id?, p_flags?, p_payment?)` — idempotent on `source_ref` (returns the existing row if already ingested rather than duplicating). Inserts with `status='pending_import_approval'`, `source='sheet'`, `closer_id=null`. Writes `payment_details` in the same call if `p_payment` is given. **As of 2026-09-17 it also derives `draft_date`, `future_draft_date` (via `parse_lead_date`) and `ssn_normalized` (via `normalize_ssn`)** — it set none of the three before, which is why every uploaded lead had a blank Draft Date column, never appeared on the By Draft Date desk, and was invisible to `check_duplicate_ssn`.
 - `bump_import_skipped(p_import_id, p_count)` — increments a batch's `skipped_count`.
 - `approve_import_batch(p_import_id, p_reject_ids[]?)` / `reject_import_batch(p_import_id, p_reason?)` — manager/admin. Approve moves every non-rejected row in the batch to `pending_manager`; any explicitly rejected ids (or, for `reject_import_batch`, the whole batch) are archived instead.
-- `my_forwarded_leads()` — returns the calling closer's own leads with every sensitive payload key stripped (`SSN Number`, `Routing Number`, `Account Number`, `Card Number`, `CVC`, `CVV`, `Exp Date`) — stripped in SQL, not in the client, so there is no path for those keys to reach the browser for this screen even by mistake.
+- `my_forwarded_leads()` — returns the calling closer's own leads with every sensitive payload key stripped (`SSN Number`, `Routing Number`, `Account Number`, `Card Number`, `CVC`, `CVV`, `Exp Date`) — stripped in SQL, not in the client, so there is no path for those keys to reach the browser for this screen even by mistake. **Changed 2026-09-19**: gained `transfer_client_name`, so a closer can see which client their own External Transfer went to. The stripping is untouched. Because the return type changed, the function is dropped and recreated rather than replaced.
 - `resolve_carrier(p_input text)` — `STABLE`, matches free text against `carriers.name` or `.aliases`, case/punctuation-insensitive. (Whether this is actually invoked from the client's own normalizer or only from server-side ingestion was not confirmed in this audit — the client-side `src/lib/normalize/` is documented as pure/no-I/O, so if it duplicates this matching logic in JS rather than calling this RPC, the two could in principle drift. Flagged for follow-up.)
 
 **Settings / admin**
@@ -371,15 +384,17 @@ nothing in this app reads the sheet back to diff against it).
 
 ## Edge Functions
 
-Three, all deployed; source is **not** in this repository (only visible
-server-side in Supabase). Confirmed to exist and their JWT-verification
-setting via the Supabase API:
+Four, all deployed; source for the first three is **not** in this repository
+(only visible server-side in Supabase) — `voice-clone-proxy`'s source lives
+in this repo at `supabase/functions/voice-clone-proxy/index.ts`. Confirmed to
+exist and their JWT-verification setting via the Supabase API:
 
 | Function | `verify_jwt` | Called from |
 |---|---|---|
 | `invite-user` | `true` | `src/components/user-admin.tsx` (`supabase.functions.invoke("invite-user", ...)`) |
 | `ingest-sheet-lead` | `false` | Not called from this client codebase at all — invoked externally (the batch-of-50/200 ceiling described in `CLAUDE.md` implies an external importer or Apps Script calls this directly with the service key, then it presumably calls the `ingest_sheet_lead` RPC per row). Not independently confirmed in this audit. |
 | `sheet-sync` | `false` | Not called from the client; reached only via `sync_submission_to_sheet()`'s `net.http_post` (called from the `notify_sheet_sync()` trigger and from `retry_failed_sheet_syncs()`). **Source read directly 2026-09-10**: it validates `x-sync-secret`, reshapes the payload, then itself calls out to an Apps Script web app URL (`APPS_SCRIPT_URL`/`APPS_SCRIPT_SECRET` env vars) with no timeout of its own, and only responds to Postgres once that call resolves. Apps Script's own `doPost` (source also confirmed directly) upserts by a `Submission ID` field and holds a lock for up to 30s under concurrent requests — see the `notify_sheet_sync` entry under Triggers. **v12, 2026-09-15 — a 200 from Apps Script does not mean the row was written.** An Apps Script web app answers `200` even when `doPost` threw, with its HTML error page as the body instead of the `'ok'` the handler returns on success. Checking `res.ok` alone therefore logged every exception as a successful sync, wrote `resolved_status = 'ok'` to `sheet_sync_attempts`, and left the retry job with nothing to retry — which is how uploaded leads went missing silently. `appsScriptFailure()` now inspects the body for the three failure shapes that arrive as 200 (an HTML page, any `Exception:` text, or the literal `unauthorized` on a secret mismatch) and returns `502`, so the attempt is recorded honestly and `retry_failed_sheet_syncs` picks it up. It also logs just the extracted `Exception:` line rather than ~8KB of Google's CSP shim. |
+| `voice-clone-proxy` | `true` | `src/components/voice-clone-studio.tsx` (`supabase.functions.invoke("voice-clone-proxy", ...)`), admin tab only. Added 2026-09-23. Checks the caller's own `profiles.role` is `admin` (same pattern as `invite-user`), then forwards the request as-is to `POST {VOICE_CLONE_TOOL_URL}/api/clone-speak` — an external, unauthenticated, plain-HTTP tool at a bare IP. This function is that tool's entire access boundary; see `docs/features/voice-clone-studio.md`. |
 
 ## Row-Level Security summary
 
@@ -397,9 +412,13 @@ Every table has RLS **enabled**. Policy count per table, condensed:
 > wrapping** — the check is that no policy body in `public` contains
 > `my_role()` or `auth.uid()` not immediately preceded by `SELECT`.
 
-- **Direct client write policy**: `profiles` only (`admin manages profiles`,
-  `FOR ALL`, `USING/CHECK (select my_role()) = 'admin'`). Nothing else has one
-  — see [decisions/0002](decisions/0002-payload-writes-via-rpc.md).
+- **Direct client write policies** (corrected 2026-09-19 against the live
+  policies — this previously read "`profiles` only", which was not true):
+  `profiles`, plus the three admin-only vocabulary tables `carriers`,
+  `centers` and `transfer_clients`. Each is `FOR ALL` with
+  `USING/CHECK (select my_role()) = 'admin'`. No *lead* table has one —
+  `submissions` has zero write policies of any kind, see
+  [decisions/0002](decisions/0002-payload-writes-via-rpc.md).
 - **Read policies**, one per table, role-scoped via `(select my_role())`:
   - `submissions` — the single most complex policy in the schema, one `CASE`
     per role (admin sees all; manager sees everything except `parked`;
@@ -413,7 +432,7 @@ Every table has RLS **enabled**. Policy count per table, condensed:
     "accepted only", so a lead sent back for re-validation stays visible to
     the CX team); everyone else, nothing).
   - Most reference/config/audit tables (`carriers`, `centers`,
-    `cx_status_options`, `cx_tags`, `carrier_declines`, `form_events`,
+    `transfer_clients`, `cx_status_options`, `cx_tags`, `carrier_declines`, `form_events`,
     `payload_edits`, `settings_audit`, `card_access_log`, `cx_lead_status`,
     `cx_status_history`, `submission_tags`) are readable by a fixed,
     hand-listed set of roles — no per-row scoping, since these describe

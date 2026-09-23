@@ -1,5 +1,108 @@
 # Changelog
 
+## 2026-09-23 — Voice Clone Studio, proxied into a new admin tab
+
+A new admin-only tab (`/admin?tab=voice-clone`) wraps an existing external
+tool that clones a voice from a sample clip and speaks arbitrary text in it.
+That tool runs on plain HTTP at a bare IP with no authentication of its own,
+so it isn't embedded directly — a new `voice-clone-proxy` edge function
+(`supabase/functions/voice-clone-proxy/index.ts`) is the actual boundary:
+it re-checks the caller is an admin (same pattern as `invite-user`) before
+forwarding the request server-side, so the browser only ever talks HTTPS to
+Supabase and the tool's address/lack of auth never reaches the client. See
+`docs/features/voice-clone-studio.md` for the response-shape caveat (the
+tool's own OpenAPI spec doesn't document what `clone-speak` returns) and the
+limitation that admin-only gating here only controls access *through this
+CRM* — the tool itself remains reachable directly by anyone who has its IP.
+
+## 2026-09-22 — Duplicate-SSN warning states the lead's actual outcome
+
+The closer form's duplicate-SSN warning said a matched lead was "accepted" —
+the one word the app is never supposed to show, since `accepted` is
+displayed everywhere else as "Submitted" (`dispositionLabel()` in
+`ops.tsx`). The warning now uses that same helper, so a closer sees
+"marked Submitted" / "marked Declined" / "marked In Progress" — consistent
+with every queue, badge, and report in the app. The outcome word itself is
+now colour-coded within the sentence too: Submitted in emerald (the same
+hardcoded exception `DispositionBadge` already uses), Declined in the
+existing `text-destructive` token — so the closer catches the outcome at a
+glance, not just on a careful read. `duplicateSsnWarning()`'s hint text is
+now a `ReactNode` instead of a plain string to allow the inline colour;
+both the closer and validator forms (`closer-form.tsx`, `validator-form.tsx`)
+key their hint list by index now instead of by hint text for the same
+reason. Still advisory, still no new data from `check_duplicate_ssn`.
+
+## 2026-09-19 — External Transfer names its client
+
+**External Transfer** parked a lead and recorded nothing about where it went.
+Parked Leads was therefore one undifferentiated list — 11 rows, no way to tell
+one external party's transfers from another's — and the only thing the row said
+about the handover was that it had happened.
+
+A closer now picks the client before anything is sent. The button opens
+`TransferClientDialog` instead of submitting; the required-field check runs
+first, so nobody is asked which client to transfer to and only then told that
+Full Name is blank. Parked Leads gained a chip per client above the table
+(`All · each client · No client`, with counts) and a **Client** column beside
+the existing Closer column, so a row reads who parked it and to whom. The
+filter is applied server-side in the same query, so search and pagination keep
+working exactly as they did.
+
+Who parked what, to whom, is now recorded three times over with no new column
+for it: `closer_id` and `transfer_client_id` sit on the same row, the `parked`
+`form_events` row carries the actor and the client name in `detail`, and
+`my_forwarded_leads()` returns the client so the closer sees it on their own
+screen.
+
+**Migration `20260919100000_external_transfer_clients.sql`** adds the
+`transfer_clients` vocabulary table (admin-writable directly, readable by every
+role — the same shape as `carriers`/`centers`), `transfer_client_id` and
+`transfer_client_name` on `submissions`, and `parked_client_counts()` for the
+chip counts, which the paginated table cannot derive from one page of rows.
+`submit_form_parked` takes a required `p_client`, and the one-argument version
+was **dropped** rather than kept alongside — leaving it would have been a way
+to park a lead against no client at all, which is the thing this change exists
+to stop.
+
+Two deliberate choices worth stating. The client lives in **columns, never in
+`payload`**: `payload` is what sheet-sync pushes to Google Sheets, so a key
+there becomes a new Sheet column, and `center_id`/`center_name` already set the
+precedent. And `transfer_client_name` is a **frozen copy** taken at park time,
+so renaming a client moves the label on the picker without rewriting what
+history says about leads already handed over — which is also why the admin
+screen offers deactivate and not delete.
+
+Verified live against `ozbpmrmndkemvvnlnudb`, every probe rolled back: a closer
+parking with a real client gets `status='parked'`, both stamped columns, their
+own `closer_id`, and a `parked` event reading
+`{"via":"external_transfer","client":"…"}`; a null client raises
+`select a client to transfer to` and leaves **no** `submissions` row and **no**
+`form_events` row behind (694/4021 before and after). `parked_client_counts()`
+answers an admin (the 11 existing leads, under a null-id "No client" row) and
+raises `not authorized` for a closer, who can still read `transfer_clients`.
+`EXECUTE` is revoked from both `public` and `anon` on all three new/changed
+functions — revoking from either alone leaves the other's grant standing, which
+the first attempt here demonstrated.
+
+- Database: **`supabase/migrations/20260919100000_external_transfer_clients.sql`**,
+  applied to `ozbpmrmndkemvvnlnudb`
+- Added: `src/lib/transfer-clients.ts`,
+  `src/components/transfer-client-dialog.tsx`,
+  `src/components/transfer-client-admin.tsx`
+- Changed: `src/components/closer-form.tsx` (the dialog, and a park now carries
+  its client through a discriminated argument rather than an optional one),
+  `src/components/parked-leads.tsx` (chips, Client column, filtered query),
+  `src/components/forwarded-leads.tsx`, `src/lib/event-labels.ts`,
+  `src/routes/_authenticated/admin.tsx` (Settings tab),
+  `src/integrations/supabase/types.ts` (regenerated)
+- Docs: `docs/database.md`, `docs/features/closer-submission-and-forms.md`,
+  `docs/features/admin-settings-and-config.md`
+
+While updating `docs/database.md`, one pre-existing claim was corrected against
+the live policies: "Direct client write policy: `profiles` only" was not true —
+`carriers` and `centers` already had admin `FOR ALL` policies of their own, and
+`transfer_clients` now makes three.
+
 ## 2026-09-18 — Live and Manual, each with its own centres
 
 The all-origin fix earlier today made the Overview's centre rows count both

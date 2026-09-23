@@ -1018,6 +1018,8 @@ export type Database = {
           status: Database["public"]["Enums"]["sub_status"]
           submitted_by_role: Database["public"]["Enums"]["app_role"] | null
           timeout_count: number
+          transfer_client_id: string | null
+          transfer_client_name: string | null
           uploaded_by: string | null
         }
         Insert: {
@@ -1058,6 +1060,8 @@ export type Database = {
           status?: Database["public"]["Enums"]["sub_status"]
           submitted_by_role?: Database["public"]["Enums"]["app_role"] | null
           timeout_count?: number
+          transfer_client_id?: string | null
+          transfer_client_name?: string | null
           uploaded_by?: string | null
         }
         Update: {
@@ -1098,6 +1102,8 @@ export type Database = {
           status?: Database["public"]["Enums"]["sub_status"]
           submitted_by_role?: Database["public"]["Enums"]["app_role"] | null
           timeout_count?: number
+          transfer_client_id?: string | null
+          transfer_client_name?: string | null
           uploaded_by?: string | null
         }
         Relationships: [
@@ -1256,6 +1262,13 @@ export type Database = {
             referencedColumns: ["validator_id"]
           },
           {
+            foreignKeyName: "submissions_transfer_client_id_fkey"
+            columns: ["transfer_client_id"]
+            isOneToOne: false
+            referencedRelation: "transfer_clients"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "submissions_uploaded_by_fkey"
             columns: ["uploaded_by"]
             isOneToOne: false
@@ -1270,6 +1283,30 @@ export type Database = {
             referencedColumns: ["validator_id"]
           },
         ]
+      }
+      transfer_clients: {
+        Row: {
+          active: boolean
+          created_at: string
+          id: string
+          name: string
+          sort_order: number
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          name: string
+          sort_order?: number
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          name?: string
+          sort_order?: number
+        }
+        Relationships: []
       }
     }
     Views: {
@@ -1526,6 +1563,8 @@ export type Database = {
           status: Database["public"]["Enums"]["sub_status"]
           submitted_by_role: Database["public"]["Enums"]["app_role"] | null
           timeout_count: number
+          transfer_client_id: string | null
+          transfer_client_name: string | null
           uploaded_by: string | null
         }
         SetofOptions: {
@@ -1575,6 +1614,8 @@ export type Database = {
           status: Database["public"]["Enums"]["sub_status"]
           submitted_by_role: Database["public"]["Enums"]["app_role"] | null
           timeout_count: number
+          transfer_client_id: string | null
+          transfer_client_name: string | null
           uploaded_by: string | null
         }
         SetofOptions: {
@@ -1630,6 +1671,8 @@ export type Database = {
           status: Database["public"]["Enums"]["sub_status"]
           submitted_by_role: Database["public"]["Enums"]["app_role"] | null
           timeout_count: number
+          transfer_client_id: string | null
+          transfer_client_name: string | null
           uploaded_by: string | null
         }
         SetofOptions: {
@@ -1679,6 +1722,8 @@ export type Database = {
           status: Database["public"]["Enums"]["sub_status"]
           submitted_by_role: Database["public"]["Enums"]["app_role"] | null
           timeout_count: number
+          transfer_client_id: string | null
+          transfer_client_name: string | null
           uploaded_by: string | null
         }
         SetofOptions: {
@@ -1729,6 +1774,8 @@ export type Database = {
           status: Database["public"]["Enums"]["sub_status"]
           submitted_by_role: Database["public"]["Enums"]["app_role"] | null
           timeout_count: number
+          transfer_client_id: string | null
+          transfer_client_name: string | null
           uploaded_by: string | null
         }
         SetofOptions: {
@@ -1781,6 +1828,8 @@ export type Database = {
           status: Database["public"]["Enums"]["sub_status"]
           submitted_by_role: Database["public"]["Enums"]["app_role"] | null
           timeout_count: number
+          transfer_client_id: string | null
+          transfer_client_name: string | null
           uploaded_by: string | null
         }
         SetofOptions: {
@@ -1832,6 +1881,8 @@ export type Database = {
           status: Database["public"]["Enums"]["sub_status"]
           submitted_by_role: Database["public"]["Enums"]["app_role"] | null
           timeout_count: number
+          transfer_client_id: string | null
+          transfer_client_name: string | null
           uploaded_by: string | null
         }
         SetofOptions: {
@@ -1888,6 +1939,8 @@ export type Database = {
           status: Database["public"]["Enums"]["sub_status"]
           submitted_by_role: Database["public"]["Enums"]["app_role"] | null
           timeout_count: number
+          transfer_client_id: string | null
+          transfer_client_name: string | null
           uploaded_by: string | null
         }
         SetofOptions: {
@@ -1937,6 +1990,8 @@ export type Database = {
           status: Database["public"]["Enums"]["sub_status"]
           submitted_by_role: Database["public"]["Enums"]["app_role"] | null
           timeout_count: number
+          transfer_client_id: string | null
+          transfer_client_name: string | null
           uploaded_by: string | null
         }
         SetofOptions: {
@@ -1958,6 +2013,7 @@ export type Database = {
           rejection_count: number
           status: Database["public"]["Enums"]["sub_status"]
           timeout_count: number
+          transfer_client_name: string
         }[]
       }
       my_role: { Args: never; Returns: Database["public"]["Enums"]["app_role"] }
@@ -1966,6 +2022,14 @@ export type Database = {
         Returns: string
       }
       normalize_ssn: { Args: { p_text: string }; Returns: string }
+      parked_client_counts: {
+        Args: never
+        Returns: {
+          client_id: string
+          client_name: string
+          lead_count: number
+        }[]
+      }
       parse_lead_date: {
         Args: { p_from?: string; p_text: string }
         Returns: string
@@ -2013,6 +2077,8 @@ export type Database = {
           status: Database["public"]["Enums"]["sub_status"]
           submitted_by_role: Database["public"]["Enums"]["app_role"] | null
           timeout_count: number
+          transfer_client_id: string | null
+          transfer_client_name: string | null
           uploaded_by: string | null
         }
         SetofOptions: {
@@ -2103,6 +2169,8 @@ export type Database = {
           status: Database["public"]["Enums"]["sub_status"]
           submitted_by_role: Database["public"]["Enums"]["app_role"] | null
           timeout_count: number
+          transfer_client_id: string | null
+          transfer_client_name: string | null
           uploaded_by: string | null
         }
         SetofOptions: {
@@ -2173,6 +2241,8 @@ export type Database = {
           status: Database["public"]["Enums"]["sub_status"]
           submitted_by_role: Database["public"]["Enums"]["app_role"] | null
           timeout_count: number
+          transfer_client_id: string | null
+          transfer_client_name: string | null
           uploaded_by: string | null
         }
         SetofOptions: {
@@ -2276,6 +2346,8 @@ export type Database = {
           status: Database["public"]["Enums"]["sub_status"]
           submitted_by_role: Database["public"]["Enums"]["app_role"] | null
           timeout_count: number
+          transfer_client_id: string | null
+          transfer_client_name: string | null
           uploaded_by: string | null
         }
         SetofOptions: {
@@ -2328,6 +2400,8 @@ export type Database = {
           status: Database["public"]["Enums"]["sub_status"]
           submitted_by_role: Database["public"]["Enums"]["app_role"] | null
           timeout_count: number
+          transfer_client_id: string | null
+          transfer_client_name: string | null
           uploaded_by: string | null
         }
         SetofOptions: {
@@ -2338,7 +2412,7 @@ export type Database = {
         }
       }
       submit_form_parked: {
-        Args: { p_payload: Json }
+        Args: { p_client: string; p_payload: Json }
         Returns: {
           agent_name: string | null
           archived_at: string | null
@@ -2377,6 +2451,8 @@ export type Database = {
           status: Database["public"]["Enums"]["sub_status"]
           submitted_by_role: Database["public"]["Enums"]["app_role"] | null
           timeout_count: number
+          transfer_client_id: string | null
+          transfer_client_name: string | null
           uploaded_by: string | null
         }
         SetofOptions: {
@@ -2427,6 +2503,8 @@ export type Database = {
           status: Database["public"]["Enums"]["sub_status"]
           submitted_by_role: Database["public"]["Enums"]["app_role"] | null
           timeout_count: number
+          transfer_client_id: string | null
+          transfer_client_name: string | null
           uploaded_by: string | null
         }
         SetofOptions: {

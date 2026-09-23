@@ -17,6 +17,8 @@ import { CxStatusAdmin } from "@/components/cx-status-admin";
 import { CarrierAdmin } from "@/components/carrier-admin";
 import { DraftDateDesk } from "@/components/draft-date-desk";
 import { CenterAdmin } from "@/components/center-admin";
+import { TransferClientAdmin } from "@/components/transfer-client-admin";
+import { VoiceCloneStudio } from "@/components/voice-clone-studio";
 import { CarrierDeclineReport } from "@/components/carrier-declines";
 import { ParkedLeads, PARKED_LEADS_KEY } from "@/components/parked-leads";
 import { SheetSyncBacklogCard } from "@/components/sheet-sync-backlog";
@@ -41,6 +43,7 @@ const TABS = [
   // { id: "imports", label: "Imports" },
   { id: "settings", label: "Settings" },
   // { id: "audit", label: "Audit" },
+  { id: "voice-clone", label: "Voice Clone" },
 ] as const;
 
 type AdminTab = (typeof TABS)[number]["id"];
@@ -228,6 +231,7 @@ function AdminPage() {
           <TabsContent value="settings" className="flex flex-col gap-4">
             <AdminSettings />
             <CenterAdmin />
+            <TransferClientAdmin />
             <CarrierAdmin />
             <CxStatusAdmin />
           </TabsContent>
@@ -236,6 +240,10 @@ function AdminPage() {
             <CardAccessLog />
             <SettingsAudit />
           </TabsContent> */}
+
+          <TabsContent value="voice-clone" className="flex flex-col gap-4">
+            <VoiceCloneStudio />
+          </TabsContent>
         </Tabs>
       </div>
     </main>

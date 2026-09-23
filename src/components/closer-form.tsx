@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { roleHome, useAuth } from "@/lib/auth";
@@ -15,6 +15,7 @@ import { useCarriers } from "@/lib/carriers";
 import type { Carrier } from "@/lib/carriers";
 import { AppHeader } from "./ops";
 import { BrandLogo } from "./brand-logo";
+import { TransferClientDialog } from "./transfer-client-dialog";
 
 /**
  * `carrier` renders the same chip toggles as `radio`, but its options are the
@@ -148,6 +149,8 @@ export function CloserForm({ readOnly = false }: { readOnly?: boolean } = {}) {
   const [values, setValues] = useState<Record<string, string>>(emptyForm);
   const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [message, setMessage] = useState("");
+  /** Open while the closer is picking which client to transfer to. */
+  const [transferOpen, setTransferOpen] = useState(false);
 
   // Age is derived from the date of birth but stays a normal field, so a closer
   // can correct it when the customer disputes the arithmetic.
@@ -173,40 +176,64 @@ export function CloserForm({ readOnly = false }: { readOnly?: boolean } = {}) {
     setValues((prev) => ({ ...prev, [label]: value }));
 
   /**
+   * The required fields, checked here because chip groups are buttons and the
+   * browser never validates those for us. Reported before the transfer dialog
+   * opens, so a closer is never asked which client to transfer to only to be
+   * told afterwards that Full Name is blank.
+   */
+  function reportMissingField() {
+    const missing = ALL_FIELDS.find((field) => field.required && !values[field.label]?.trim());
+    if (!missing) return false;
+    setStatus("error");
+    setMessage(`${missing.label} is required.`);
+    return true;
+  }
+
+  /**
    * Both buttons, which differ only in which RPC they call.
    *
    * `submit_form` lands the lead in the manager's queue as it always has.
-   * `submit_form_parked` writes the same lead in `parked` — it still reaches
-   * Google Sheets and the admin's Submissions listing, but no manager sees it
-   * until a general manager releases it from Parked Leads. Validation, the
-   * reset and the messaging are identical, so they live here once.
+   * `submit_form_parked` writes the same lead in `parked`, against the client
+   * it was transferred to — it still reaches Google Sheets and the admin's
+   * Submissions listing, but no manager sees it until a general manager
+   * releases it from Parked Leads. The client is required and is picked in
+   * `TransferClientDialog` before this runs. Validation, the reset and the
+   * messaging are identical either way, so they live here once.
    */
-  async function submitWith(mode: "queue" | "park") {
+  async function submitWith(
+    // A park always carries a client and a queue submission never does, so
+    // the two travel together rather than as a mode plus an optional id that
+    // the compiler cannot tell apart.
+    target: { mode: "queue" } | { mode: "park"; client: { id: string; name: string } },
+  ) {
     // Belt and suspenders: the controls are already hidden/disabled in
     // read-only mode, but nothing here should ever reach the network.
     if (readOnly) return;
-    // Chip groups are buttons, so the browser never validates them for us.
-    const missing = ALL_FIELDS.find((field) => field.required && !values[field.label]?.trim());
-    if (missing) {
-      setStatus("error");
-      setMessage(`${missing.label} is required.`);
-      return;
-    }
+    if (reportMissingField()) return;
 
     setStatus("sending");
     setMessage("");
     try {
-      const { error } = await supabase.rpc(mode === "park" ? "submit_form_parked" : "submit_form", {
-        p_payload: values,
-      });
+      const { error } =
+        target.mode === "park"
+          ? await supabase.rpc("submit_form_parked", {
+              p_payload: values,
+              p_client: target.client.id,
+            })
+          : await supabase.rpc("submit_form", { p_payload: values });
       if (error) throw new Error(error.message);
       setStatus("sent");
       setMessage(
-        mode === "park" ? "Transferred and saved to the sheet." : "Submission saved to the sheet.",
+        target.mode === "park"
+          ? `Transferred to ${target.client.name} and saved to the sheet.`
+          : "Submission saved to the sheet.",
       );
+      setTransferOpen(false);
       setValues(emptyForm());
       window.setTimeout(() => setStatus("idle"), 4000);
     } catch (error) {
+      // The dialog stays open on failure, so the closer can retry or pick a
+      // different client without re-entering the whole form.
       setStatus("error");
       setMessage(error instanceof Error ? error.message : "Could not submit.");
     }
@@ -214,7 +241,7 @@ export function CloserForm({ readOnly = false }: { readOnly?: boolean } = {}) {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await submitWith("queue");
+    await submitWith({ mode: "queue" });
   }
 
   return (
@@ -257,12 +284,18 @@ export function CloserForm({ readOnly = false }: { readOnly?: boolean } = {}) {
                 </button>
                 {/* A chip, not a second amber button: this is the alternative
                     path, and the form keeps one emphasis. `type="button"` so it
-                    never triggers the form's own submit. */}
+                    never triggers the form's own submit. It opens the client
+                    picker rather than submitting — nothing is parked until a
+                    client is named. */}
                 <button
                   type="button"
                   className="chip"
                   disabled={status === "sending"}
-                  onClick={() => void submitWith("park")}
+                  onClick={() => {
+                    if (reportMissingField()) return;
+                    setMessage("");
+                    setTransferOpen(true);
+                  }}
                 >
                   External Transfer
                 </button>
@@ -307,6 +340,17 @@ export function CloserForm({ readOnly = false }: { readOnly?: boolean } = {}) {
           </div>
         </fieldset>
       </form>
+
+      {/* Outside the <form> on purpose: the dialog renders in a portal anyway,
+          and nothing inside it should be reachable by the form's own submit. */}
+      {readOnly ? null : (
+        <TransferClientDialog
+          open={transferOpen}
+          busy={status === "sending"}
+          onOpenChange={setTransferOpen}
+          onConfirm={(client) => void submitWith({ mode: "park", client })}
+        />
+      )}
     </main>
   );
 }
@@ -492,7 +536,7 @@ function FieldControl({
     if (field.label === SSN_FIELD) duplicate.check(closed);
   }
 
-  type Hint = { tone: "info" | "warn" | "danger" | "ok"; text: string };
+  type Hint = { tone: "info" | "warn" | "danger" | "ok"; text: ReactNode };
   const hints = (() => {
     const out: Hint[] = [];
     if (isZip) {
@@ -604,9 +648,9 @@ function FieldControl({
         />
       )}
 
-      {hints.map((hint) => (
+      {hints.map((hint, i) => (
         <span
-          key={hint.text}
+          key={i}
           className={`text-[0.68rem] font-semibold ${
             hint.tone === "danger"
               ? "text-destructive"

@@ -50,9 +50,31 @@ import {
  * The row set is NOT scoped here. `move_to_validation` refuses anyone but an
  * admin or a general manager, and the read policy decides what comes back; a
  * `status = 'parked'` filter is all this query adds.
+ *
+ * Leads are grouped by the client they were transferred to — a chip per client
+ * above the table, filtering the one list rather than splitting it into
+ * several. The filter is applied server-side, in the same query, so search and
+ * pagination keep working exactly as they do unfiltered. The counts come from
+ * `parked_client_counts` rather than from the rows on screen, because only one
+ * page of those is ever fetched.
  */
 
 export const PARKED_LEADS_KEY = ["parked-leads"] as const;
+export const PARKED_CLIENT_COUNTS_KEY = ["parked-leads", "client-counts"] as const;
+
+/**
+ * Which client's leads the table is showing: every client, one client, or the
+ * leads that have none — the leads parked before clients existed, and the only
+ * way a parked lead can now have no client at all.
+ */
+type ClientFilter = { kind: "all" } | { kind: "none" } | { kind: "client"; id: string };
+
+const ALL_CLIENTS: ClientFilter = { kind: "all" };
+
+/** A stable, serialisable form of the filter, for the query key. */
+function filterKey(filter: ClientFilter) {
+  return filter.kind === "client" ? `client:${filter.id}` : filter.kind;
+}
 
 const PAGE_SIZE = LEAD_PAGE_SIZE;
 
@@ -64,6 +86,10 @@ const SELECT = [
   "center_name",
   "center_id",
   "closer_id",
+  // The client the lead was transferred to. The NAME is the stamped one, so a
+  // client renamed since does not rewrite what this lead was parked under.
+  "transfer_client_id",
+  "transfer_client_name",
   // Null on an uploaded lead, which has no closer at all — rendered as a dash
   // rather than left to print "undefined".
   "closer:profiles!submissions_closer_id_fkey(full_name)",
@@ -78,6 +104,8 @@ type ParkedRow = {
   center_name: string | null;
   center_id: string | null;
   closer_id: string | null;
+  transfer_client_id: string | null;
+  transfer_client_name: string | null;
   closer: { full_name: string | null } | null;
   uploader: { full_name: string | null; org_name?: string | null } | null;
 };
@@ -92,11 +120,28 @@ export function ParkedLeads() {
   const [movingId, setMovingId] = useState<string | null>(null);
   /** The lead whose detail panel is open, or null. */
   const [openId, setOpenId] = useState<string | null>(null);
+  /** Which client's transfers are on screen. Every client, to start. */
+  const [clientFilter, setClientFilter] = useState<ClientFilter>(ALL_CLIENTS);
 
   const term = search.trim();
 
+  /**
+   * One row per client with parked leads, plus a null-id row for the ones with
+   * none. `parked_client_counts` refuses anyone but an admin or a general
+   * manager, and a refusal is shown as a refusal rather than as an empty chip
+   * row — see the error branch where the chips render.
+   */
+  const clientCounts = useQuery({
+    queryKey: PARKED_CLIENT_COUNTS_KEY,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("parked_client_counts");
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
   const leads = useQuery({
-    queryKey: [...PARKED_LEADS_KEY, page, term],
+    queryKey: [...PARKED_LEADS_KEY, page, term, filterKey(clientFilter)],
     queryFn: async () => {
       const profileIds = term ? await matchingProfileIds(term) : [];
 
@@ -105,6 +150,14 @@ export function ParkedLeads() {
         .select(SELECT, { count: "exact" })
         .eq("status", "parked")
         .is("archived_at", null);
+
+      // Server-side, so `total` and the pagination below count the filtered
+      // set rather than every parked lead.
+      if (clientFilter.kind === "client") {
+        query = query.eq("transfer_client_id", clientFilter.id);
+      } else if (clientFilter.kind === "none") {
+        query = query.is("transfer_client_id", null);
+      }
 
       if (term) {
         const clauses = [...payloadSearchClauses(term)];
@@ -135,7 +188,9 @@ export function ParkedLeads() {
       // The lead leaves this list the moment it moves, so a panel left open
       // would be sitting over a row that no longer exists.
       setOpenId(null);
-      // It has left this list and joined the manager's queue, so both go.
+      // It has left this list and joined the manager's queue, so both go. The
+      // counts key sits under the PARKED_LEADS_KEY prefix, so the chip the
+      // lead was counted under is refreshed by the same call.
       queryClient.invalidateQueries({ queryKey: PARKED_LEADS_KEY });
       queryClient.invalidateQueries({ queryKey: ["manager", "submissions"] });
     },
@@ -144,6 +199,15 @@ export function ParkedLeads() {
 
   const rows = leads.data?.rows ?? [];
   const total = leads.data?.total ?? 0;
+  const counts = clientCounts.data ?? [];
+  /** Every parked lead, across all clients — what the "All" chip counts. */
+  const grandTotal = counts.reduce((sum, row) => sum + Number(row.lead_count), 0);
+
+  /** Changing which client is shown starts again at the first page. */
+  function pickClient(filter: ClientFilter) {
+    setClientFilter(filter);
+    setPage(0);
+  }
   // Only ever a row on the page in front of the reader, which is the only row
   // they can have clicked.
   const selected = rows.find((row) => row.id === openId) ?? null;
@@ -156,6 +220,50 @@ export function ParkedLeads() {
           External transfers. They stay here until someone moves one into validation, and a lead
           nobody moves stays indefinitely.
         </p>
+
+        {/* One chip per client, and one for the leads with none. A refused
+            read is not an empty list: printing nothing over an authorisation
+            error would read as "no transfers" to someone who simply cannot
+            see them. */}
+        {clientCounts.isError ? (
+          <p className="text-xs text-destructive">{(clientCounts.error as Error).message}</p>
+        ) : (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              className={clientFilter.kind === "all" ? "chip chip-active" : "chip"}
+              onClick={() => pickClient(ALL_CLIENTS)}
+            >
+              All ({grandTotal})
+            </button>
+            {counts.map((row) =>
+              row.client_id === null ? (
+                <button
+                  key="no-client"
+                  type="button"
+                  className={clientFilter.kind === "none" ? "chip chip-active" : "chip"}
+                  onClick={() => pickClient({ kind: "none" })}
+                  title="Parked before clients were recorded"
+                >
+                  No client ({Number(row.lead_count)})
+                </button>
+              ) : (
+                <button
+                  key={row.client_id}
+                  type="button"
+                  className={
+                    clientFilter.kind === "client" && clientFilter.id === row.client_id
+                      ? "chip chip-active"
+                      : "chip"
+                  }
+                  onClick={() => pickClient({ kind: "client", id: row.client_id as string })}
+                >
+                  {row.client_name ?? "—"} ({Number(row.lead_count)})
+                </button>
+              ),
+            )}
+          </div>
+        )}
 
         <div className="flex items-center gap-2">
           <input
@@ -177,6 +285,7 @@ export function ParkedLeads() {
               <TableHead className="w-32">Center</TableHead>
               <TableHead>Customer</TableHead>
               <TableHead className="w-32">Closer</TableHead>
+              <TableHead className="w-32">Client</TableHead>
               <TableHead className="w-24">Source</TableHead>
               <TableHead className="w-28">Parked</TableHead>
               <TableHead className="w-40 text-right">Action</TableHead>
@@ -193,6 +302,11 @@ export function ParkedLeads() {
                 </TableCell>
                 <TableCell className="font-medium">{customerName(row.payload)}</TableCell>
                 <TableCell className="truncate text-muted-foreground">{closerName(row)}</TableCell>
+                {/* The stamped name, beside the closer who transferred it, so
+                    the row reads "who parked this, and to whom". */}
+                <TableCell className="truncate">
+                  {row.transfer_client_name ?? <span className="text-muted-foreground">—</span>}
+                </TableCell>
                 <TableCell title={sourceLabel(row)}>
                   <OriginBadge row={row} />
                 </TableCell>
@@ -218,14 +332,16 @@ export function ParkedLeads() {
             ))}
             {rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center text-muted-foreground">
+                <TableCell colSpan={7} className="text-center text-muted-foreground">
                   {leads.isLoading
                     ? "Loading…"
                     : leads.isError
                       ? (leads.error as Error).message
                       : term
                         ? "No parked leads match that search."
-                        : "No parked leads."}
+                        : clientFilter.kind === "all"
+                          ? "No parked leads."
+                          : "No parked leads for this client."}
                 </TableCell>
               </TableRow>
             ) : null}
@@ -259,6 +375,7 @@ export function ParkedLeads() {
                 <SheetDescription>
                   {closerName(selected)} · {sourceLabel(selected)} · parked{" "}
                   {relativeTime(selected.created_at, now)}
+                  {selected.transfer_client_name ? ` · to ${selected.transfer_client_name}` : ""}
                 </SheetDescription>
               </SheetHeader>
 

@@ -122,8 +122,24 @@ type ForwardedLead = {
   timeout_count: number;
   hold_count: number;
   rejection_count: number;
+  /** The client this lead was transferred to; null unless it was parked. */
+  transfer_client_name: string | null;
   payload: Record<string, unknown>;
 };
+
+/**
+ * The status in words, naming the client on a lead the closer transferred.
+ *
+ * Only `parked` gets the suffix: it is the one status on this screen the
+ * closer caused themselves, and the client is the thing they would be trying
+ * to remember. A lead parked before clients were recorded keeps the plain
+ * wording rather than printing a placeholder.
+ */
+function statusText(lead: ForwardedLead) {
+  const base = STATUS_TEXT[lead.status];
+  if (lead.status !== "parked" || !lead.transfer_client_name) return base;
+  return `${base} — ${lead.transfer_client_name}`;
+}
 
 export function ForwardedLeads() {
   const now = useNow();
@@ -221,6 +237,14 @@ export function ForwardedLeads() {
                   <TableCell>
                     <div className="flex flex-wrap items-center gap-2">
                       <StatusBadge status={row.status} />
+                      {/* The badge says "Parked"; this says who to. Beside it
+                          rather than inside it, because StatusBadge is shared
+                          with every other screen. */}
+                      {row.status === "parked" && row.transfer_client_name ? (
+                        <span className="text-[0.66rem] text-muted-foreground">
+                          → {row.transfer_client_name}
+                        </span>
+                      ) : null}
                       {/* A lead bouncing back into the queue is the one thing a
                           closer can act on, so it is called out here. */}
                       {row.rejection_count > 0 ? (
@@ -272,7 +296,7 @@ export function ForwardedLeads() {
                     components used in the table cannot go in here. */}
                 <SheetDescription>
                   Forwarded {relativeTime(selected.created_at, now)} ·{" "}
-                  {dispositionLabel(selected.disposition) ?? STATUS_TEXT[selected.status]}
+                  {dispositionLabel(selected.disposition) ?? statusText(selected)}
                 </SheetDescription>
               </SheetHeader>
 
