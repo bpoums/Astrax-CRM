@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-09-24 — Closing Desk shows when a lead was disposed, not just submitted
+
+The Closing Desk (`general_manager`/`closing_manager`, `/closing`) only
+showed `created_at` ("Submitted") per lead. Added a "Disposed" column and a
+matching line in the detail sheet's subtitle, both reading `disposed_at` —
+already an existing `submissions` column, stamped by the existing
+`dispose_submission` RPC every time a validator (or manager/admin) records
+an outcome, and `null` until then. No schema, RPC, or migration change; the
+column was simply not yet selected or rendered on this screen. See
+`docs/features/closing-desk.md`.
+
 ## 2026-09-23 — Voice Clone Studio, proxied into a new admin tab
 
 A new admin-only tab (`/admin?tab=voice-clone`) wraps an existing external

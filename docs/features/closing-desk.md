@@ -69,6 +69,13 @@ back whole-business whatever the caller's centre — see the security entry in
 ## Database
 Read: the same wide `submissions` select used elsewhere (`BASE_SELECT`),
 plus the `CX_LEAD_STATUS_SELECT` embed for the four read-only CX columns.
+`BASE_SELECT` also carries `disposed_at`, shown as its own "Disposed" table
+column (and in the detail sheet's subtitle) next to "Submitted"
+(`created_at`) — `created_at` is when the lead was first submitted,
+`disposed_at` is when a disposition (Submit/Declined/Pending) was last
+recorded on it. Stamped by `dispose_submission` every time it runs, whether
+called by a validator inside their review or by a manager/admin; `null`
+until a disposition has actually been recorded.
 Write: `update_payload_field` for in-place edits, `set_validator_fields`,
 `decline_with_carriers`/`dispose_submission` are **not** available here —
 this desk edits the payload and can view outcomes but does not itself

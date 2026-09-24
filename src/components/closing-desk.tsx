@@ -118,6 +118,10 @@ const BASE_SELECT = [
   "timeout_by:profiles!submissions_last_timeout_by_fkey(full_name)",
   "rejected_by:profiles!submissions_last_rejected_by_fkey(full_name)",
   "created_at",
+  // Set by dispose_submission every time a validator (or a manager/admin)
+  // records an outcome. Null until then — distinct from created_at, which
+  // is stamped once at the original closer/validator submission.
+  "disposed_at",
   "source",
   // The review's own outcome, shown and edited in the ValidatorFields section.
   "submitted_by_role",
@@ -152,6 +156,7 @@ type ClosingRow = {
   timeout_by: { full_name: string | null } | null;
   rejected_by: { full_name: string | null } | null;
   created_at: string;
+  disposed_at: string | null;
   source: LeadSource;
   submitted_by_role: "closer" | "validator" | null;
   final_carrier_id: string | null;
@@ -531,8 +536,9 @@ export function ClosingDesk() {
               <TableHead className="w-32">Customer</TableHead>
               <TableHead className="w-32">Submitted By</TableHead>
               <TableHead className="w-28">Source</TableHead>
-              <TableHead className="w-28">Submitted</TableHead>
-              <TableHead className="w-55">Validation</TableHead>
+              <TableHead className="w-28">SaleMade On</TableHead>
+              <TableHead className="w-55">Validation Status</TableHead>
+              <TableHead className="w-28">Submitted On</TableHead>
               <TableHead className="w-24">Disposition</TableHead>
               {CX_CATEGORIES.map((category) => (
                 <TableHead key={category} className="w-40">
@@ -579,13 +585,21 @@ export function ClosingDesk() {
                   <TableCell className="whitespace-nowrap text-muted-foreground">
                     {formatDate(row.created_at)}
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="overflow-hidden">
                     {/* The same chain the Operations queue draws, so a lead
-                        that came back declined reads the same in both. */}
+                        that came back declined reads the same in both.
+                        overflow-hidden: some of its badges carry a
+                        max-w-[18rem] declined-carrier summary wider than this
+                        column, which table-fixed does not clip on its own —
+                        without it the badge visually spills into the next
+                        cell instead of truncating. */}
                     <QueueStatusBadge
                       row={row}
                       declinedCarriers={declinedMap.data?.get(row.id) ?? []}
                     />
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap text-muted-foreground">
+                    {row.disposed_at ? formatDate(row.disposed_at) : "—"}
                   </TableCell>
                   <TableCell>
                     <DispositionBadge disposition={row.disposition} onHold={isOnHold(row)} />
@@ -604,7 +618,7 @@ export function ClosingDesk() {
             })}
             {rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={11} className="text-center text-muted-foreground">
+                <TableCell colSpan={12} className="text-center text-muted-foreground">
                   {leads.isLoading
                     ? "Loading…"
                     : noCenter
@@ -645,6 +659,9 @@ export function ClosingDesk() {
                 <SheetDescription>
                   {closerName(selected)} · {sourceLabel(selected)} · submitted{" "}
                   {formatDate(selected.created_at)}
+                  {selected.disposed_at
+                    ? ` · disposed ${formatDate(selected.disposed_at)}`
+                    : ""}
                 </SheetDescription>
               </SheetHeader>
 
