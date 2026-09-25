@@ -453,6 +453,7 @@ export type Database = {
       cx_tags: {
         Row: {
           active: boolean
+          allows_duplicate_ssn: boolean
           created_at: string
           id: string
           label: string
@@ -461,6 +462,7 @@ export type Database = {
         }
         Insert: {
           active?: boolean
+          allows_duplicate_ssn?: boolean
           created_at?: string
           id?: string
           label: string
@@ -469,6 +471,7 @@ export type Database = {
         }
         Update: {
           active?: boolean
+          allows_duplicate_ssn?: boolean
           created_at?: string
           id?: string
           label?: string

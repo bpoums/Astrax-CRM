@@ -25,7 +25,14 @@ lead out of the import gate).
 `/manager`'s "Pending Imports" tab → `src/components/pending-imports.tsx`.
 
 ## Important components
-`data-uploader.tsx`, `upload-review.tsx`, `import-history.tsx`,
+`data-uploader.tsx`, `upload-review.tsx`, `import-history.tsx` (added
+2026-09-25: clicking a lead inside an opened batch now opens that lead's
+own detail sheet — `LeadPayload`, `DataFlagList`, and, admin only,
+`PaymentPanel`. Editable only for `admin` (`update_payload_field`/
+`payment_summary` don't accept `data_uploader`), so a `data_uploader`
+viewing their own batch gets the payload and flags read-only and no
+banking panel at all rather than one that would just error. Reuses the
+row already fetched for the batch table — no extra query per lead),
 `pending-imports.tsx`, `src/lib/parse-file.ts` (papaparse/xlsx dispatch),
 `src/lib/canonical-fields.ts` (import target catalog, derived from the
 closer form — see [closer-submission-and-forms.md](closer-submission-and-forms.md)),

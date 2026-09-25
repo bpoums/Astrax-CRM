@@ -29,6 +29,7 @@ import { PayloadEditor } from "@/components/payload-editor";
 import { ValidatorFields } from "@/components/validator-fields";
 import { PayloadEditHistory, payloadHistoryKey } from "@/components/payload-history";
 import { PaymentPanel } from "@/components/payment-panel";
+import { SubmissionTags } from "@/components/submission-tags";
 import { PaginationBar } from "@/components/pagination-bar";
 import {
   CATEGORY_LABEL,
@@ -706,6 +707,14 @@ export function ClosingDesk() {
                 {/* Read-only, and no card reveal: `card_details` belongs to an
                     admin and to the validator inside their own open review. */}
                 <PaymentPanel submissionId={selected.id} />
+
+                {/* general_manager only — closing_manager shares this screen
+                    but add_submission_tag refuses that role, so it isn't
+                    offered a control that would only error. Only meaningful
+                    once a lead is accepted, same precondition the RPC checks. */}
+                {profile?.role === "general_manager" && selected.disposition === "accepted" ? (
+                  <SubmissionTags submissionId={selected.id} />
+                ) : null}
 
                 <PayloadEditHistory submissionId={selected.id} />
 

@@ -7,11 +7,17 @@ import { digitsOf } from "@/lib/normalize/text";
 /**
  * "Has this SSN been sold before?", asked live on the intake forms.
  *
- * ADVISORY, exactly like every other check in `form-warnings.ts`, and for the
- * same reason: a repeat SSN is often a legitimate re-write after a decline, and
- * refusing the submission would lose a lead over a guess. Nothing here is
- * consulted by the submit path, and a failed lookup is silent — an advisory aid
- * that goes down must not become a gate.
+ * This hint is now a preview of a REAL gate for one case, not just an FYI:
+ * `submit_form_internal` blocks the actual submission (both the closer's
+ * forms and the validator's own direct submit) when the SSN matches another
+ * non-archived ACCEPTED lead, unless a CX agent has tagged that existing
+ * policy as eligible for a second one (see `SubmissionTags`,
+ * `docs/decisions/0007-duplicate-ssn-blocks-unless-tagged.md`). A declined or
+ * still-in-progress duplicate is unchanged — advisory only, never blocks,
+ * for the original reason: a repeat SSN there is often a legitimate re-write.
+ * This hook still never fires the RPC itself and a failed lookup stays
+ * silent — the block is enforced server-side regardless of whether this
+ * hint loads.
  *
  * It lives here rather than in `form-warnings.ts` because that file is
  * deliberately pure: no I/O, no React, every rule shared with the uploader. This
@@ -35,7 +41,7 @@ const SSN_LENGTH = 9;
 
 type DuplicateStatus = "accepted" | "declined" | "in_progress";
 
-type DuplicateHit = { status: DuplicateStatus; submittedAt: string };
+type DuplicateHit = { status: DuplicateStatus; submittedAt: string; exempt: boolean };
 
 const STATUSES: DuplicateStatus[] = ["accepted", "declined", "in_progress"];
 
@@ -43,7 +49,7 @@ function isStatus(value: unknown): value is DuplicateStatus {
   return typeof value === "string" && STATUSES.includes(value as DuplicateStatus);
 }
 
-export type DuplicateSsnHint = { tone: "warn" | "danger"; text: ReactNode };
+export type DuplicateSsnHint = { tone: "warn" | "danger" | "ok"; text: ReactNode };
 
 /**
  * The outcome word inside the sentence, coloured the same way the rest of the
@@ -74,7 +80,7 @@ function readHit(data: unknown): DuplicateHit | null {
   const status = row["status"];
   const submittedAt = row["submitted_at"];
   if (!isStatus(status) || typeof submittedAt !== "string") return null;
-  return { status, submittedAt };
+  return { status, submittedAt, exempt: row["exempt"] === true };
 }
 
 /**
@@ -95,6 +101,15 @@ export function duplicateSsnWarning(
   if (!hit) return null;
   const when = relativeTime(hit.submittedAt, now);
 
+  // Only an accepted duplicate actually blocks submission (see
+  // `submit_form_internal`), so `exempt` only ever matters here.
+  if (hit.status === "accepted" && hit.exempt) {
+    return {
+      tone: "ok",
+      text: "CX has cleared this SSN for a second policy — submitting is allowed.",
+    };
+  }
+
   switch (hit.status) {
     case "accepted":
       return {
@@ -104,7 +119,7 @@ export function duplicateSsnWarning(
           null,
           "⚠ This SSN already belongs to a lead marked ",
           outcomeWord(dispositionLabel("accepted") ?? "Submitted", "submitted"),
-          ` (submitted ${when}). This may be a duplicate sale.`,
+          ` (submitted ${when}). Submitting will be blocked — ask a CX agent to tag the original policy as eligible for a second policy first.`,
         ),
       };
     case "declined":

@@ -40,8 +40,8 @@ Row counts are a snapshot at audit time, for scale intuition only.
 | `cx_status_options` | 26 | The configurable vocabulary for the four CX categories. `category` check-constrained to `policy|premium|commission|chargeback`. `tone` check-constrained to `muted|accent|positive|destructive|warning`. |
 | `cx_lead_status` | 2 | One row per submission (PK is `submission_id`), four independent status-option pointers (`policy_status_id`, `premium_status_id`, `commission_status_id`, `chargeback_status_id`) each with its own free-text `_reason`. |
 | `cx_status_history` | 4 | Append-only log of every `set_cx_status` change: `from_code`/`to_code`/`reason`/`actor_id`. |
-| `cx_tags` | 2 | Free-form tag vocabulary for CX leads (`label`, `tone`, `sort_order`, `active`). |
-| `submission_tags` | 0 | Many-to-many `submissions` ↔ `cx_tags`, written by `add_submission_tag`/`remove_submission_tag`. Unused in production data so far (0 rows). |
+| `cx_tags` | 3 | Free-form tag vocabulary for CX leads (`label`, `tone`, `sort_order`, `active`). **Added 2026-09-25**: `allows_duplicate_ssn boolean` — a tag carrying this flag exempts the lead it's applied to from the duplicate-SSN block in `submit_form_internal`. Seeded with one such tag, "Eligible For Second Policy". See [decisions/0007](decisions/0007-duplicate-ssn-blocks-unless-tagged.md). |
+| `submission_tags` | — | Many-to-many `submissions` ↔ `cx_tags`, written by `add_submission_tag`/`remove_submission_tag`. Was unused in production (0 rows) until the tags UI (`SubmissionTags`, mounted in the Customers Pipeline detail sheet) gave CX a way to apply one. |
 | `payload_edits` | 11 | Before/after value history for `payload` field edits, written exclusively by `update_payload_field`. Distinct from `form_events`' `payload_edited` entries, which only record *that* a field changed, not the values — see `src/components/payload-history.tsx`. |
 | `settings_audit` | 10 | Before/after history for `app_config` changes, written by `set_admin_setting`. Admin-only read. |
 | `app_config` | 8 | Key/value config store. **No RLS policy at all** — reachable only through `admin_settings()`/`set_admin_setting()`/`review_window()`/`review_settings()`. |
@@ -203,13 +203,14 @@ each supports.
 
 **Closer / validator submission**
 - `submit_form_internal(p_payload jsonb, p_status sub_status)` — **not a client-facing RPC**; `EXECUTE` is revoked from `anon`/`authenticated` (added 2026-09-12). Holds the actual insert logic shared by the two public wrappers below: stamps `ID` (staff_id) and `Submitted By Role` into the payload, parses `Draft Date`/`Future Draft Date` into real date columns and a digits-only SSN into `ssn_normalized`, and inserts the row with `status = p_status` (or `'pending_manager'` if `p_status` is null) — except a **validator's own submission always auto-closes** regardless of `p_status`: `status='closed'`, `disposition='accepted'`, `disposed_by/at` = self, immediately, in the same insert. Kept unreachable directly so a client can never pass an arbitrary `p_status` and skip the normal `pending_manager` review start state.
+  **Blocks on a duplicate SSN, added 2026-09-25**: before the insert, if the payload's SSN normalizes to 9 digits and matches `ssn_normalized` on another non-archived submission **with `disposition = 'accepted'`**, the call `raise exception`s unless at least one of those accepted matches carries a tag with `cx_tags.allows_duplicate_ssn`. A declined or still-undisposed (in-progress) duplicate is **not** checked here at all — that stays advisory-only via `check_duplicate_ssn`. Applies to both `v_role` branches — a closer's forms and the validator's own auto-accepting submission alike. See [decisions/0007](decisions/0007-duplicate-ssn-blocks-unless-tagged.md), which supersedes the "advisory only" note this doc previously carried here.
 - `submit_form(p_payload jsonb)` — closer or validator only. Thin wrapper: `submit_form_internal(p_payload, null)`.
 - `submit_form_parked(p_payload jsonb, p_client uuid)` — closer or validator only. Thin wrapper: `submit_form_internal(p_payload, 'parked')`, then (only for a closer-originated result) resolves `p_client` against `transfer_clients`, stamps `transfer_client_id`/`transfer_client_name` on the row, and writes the `'parked'`/`external_transfer` `form_events` row with the client name in `detail`. A validator submission passes through unchanged (already closed by `submit_form_internal`), since there is nothing to park.
   **Changed 2026-09-19** (`20260919100000_external_transfer_clients.sql`): `p_client` was added and is **required** for a closer's transfer — the RPC raises `select a client to transfer to` on a null and `client is not available` on an id that is missing or deactivated. The one-argument `submit_form_parked(jsonb)` was **dropped**, not kept alongside, because leaving it would have been a way to park a lead against no client at all. A refusal aborts the whole call: verified live that a null client leaves neither a `submissions` row nor a `form_events` row behind.
   **Fixed 2026-09-12**: this used to call `submit_form()` (one INSERT, status `pending_manager`) and then `UPDATE ... SET status='parked'` on the same row — two separate writes, each firing its own `sheet_sync_*` trigger, dispatching two outbound HTTP requests to Apps Script within the same transaction with no guaranteed ordering. Apps Script upserts by `Submission ID`, so whichever of the two concurrent requests it finished processing *last* won — occasionally the stale `pending_manager` one — leaving the Sheet showing a status Supabase had already moved past. Routing both `submit_form`/`submit_form_parked` through one shared, single-INSERT `submit_form_internal` means a parked lead now fires exactly one sync, carrying its final status from the start.
 - `move_to_validation(p_sub)` — admin or `general_manager` only. Releases a `'parked'` lead back to `'pending_manager'`. The client stays stamped on the row; releasing a lead does not clear it, because it is a record of what happened rather than a queue pointer.
 - `parked_client_counts()` — admin or `general_manager` only (added 2026-09-19). Returns `(client_id, client_name, lead_count)` over unarchived `'parked'` leads, including a **null-id row** for the ones with no client, ordered with that row last. Drives the per-client chips above the Parked Leads table; it exists because that table is paginated, so the counts cannot be derived from the one page of rows on screen. Guard written `my_role() is distinct from ...` — see the NULL-role note in `CLAUDE.md` — and `EXECUTE` revoked from **both** `public` and `anon` (revoking from one alone leaves the other's grant in place; verified live that `anon` cannot execute it and `authenticated` can).
-- `check_duplicate_ssn(p_ssn)` — closer/validator/manager/admin. Looks up `ssn_normalized` (excluding archived rows), returns the most relevant existing match's bucket (`accepted`/`declined`/`in_progress`) and `submitted_at`, or `{exists:false}`. Advisory only — never blocks a submission.
+- `check_duplicate_ssn(p_ssn)` — closer/validator/manager/admin. Looks up `ssn_normalized` (excluding archived rows), returns the most relevant existing match's bucket (`accepted`/`declined`/`in_progress`), `submitted_at`, and (**added 2026-09-25**) `exempt` — whether any accepted, non-archived lead sharing the SSN carries a tag with `allows_duplicate_ssn`. `exempt` is only ever `true` when `status = 'accepted'`; it's meaningless (always `false`) for a declined/in-progress match, since those never block. This RPC itself stays read-only and advisory; `exempt` only previews what `submit_form_internal` will actually decide.
 
 **Manager queue**
 - `assign_to_validator(p_sub, p_validator)` — manager/admin. Only from `pending_manager`/`returned_timeout`, and only for `submitted_by_role='closer'` (a validator's own submission is never assignable).
@@ -241,7 +242,7 @@ each supports.
 - `return_lead_for_validation(p_sub, p_reason?)` — cxa/cxm/admin, only on a lead `disposition='accepted'`, not archived and not CX-removed (raises `'lead is not in the customer pipeline'` otherwise — same wording `set_cx_status` uses; that strict guard is also what makes a second send impossible while the lead is already out). The explicit action that hands a lead back to the manager — as of 2026-09-16 it does **not** take the lead off the CX pipeline, which keeps it via `reopened_from_cx_at` — regardless of what its four CX statuses currently read: `status='pending_manager'`, `disposition`/`disposed_*`/`assigned_*`/`final_carrier_id`/`agent_name`/`policy_number` all cleared, `reopened_from_cx_at` stamped, one `form_events` row (`reopened_from_cx`).
 - `remove_from_cx_pipeline(p_sub, p_reason?)` — added 2026-09-16. cxa/cxm/admin, on any `cx_pipeline_member` lead. Stamps `cx_removed_at`/`cx_removed_by` and writes a `cx_removed` `form_events` row. The CX team's own housekeeping, **not** an archive: every other queue, view and report still sees the row, and none of the columns `notify_sheet_sync()` watches change, so no Sheets write fires.
 - `restore_to_cx_pipeline(p_sub)` — added 2026-09-16. **admin only.** Clears both columns and writes a `cx_restored` event; raises `'lead was not removed from the customer pipeline'` if there was nothing to undo.
-- `add_submission_tag(p_sub, p_tag)` / `remove_submission_tag(p_sub, p_tag)` — cxa/cxm/admin, only on accepted/non-archived leads.
+- `add_submission_tag(p_sub, p_tag)` / `remove_submission_tag(p_sub, p_tag)` — cxa/cxm/admin, **plus manager/general_manager (added 2026-09-25)**, only on accepted/non-archived leads. `closing_manager` is deliberately not included — no UI mount offers it either.
 
 **Spreadsheet import**
 - `start_lead_import(p_file_name, p_row_count)` — data_uploader/admin. Opens a `lead_imports` batch row.
@@ -412,12 +413,15 @@ Every table has RLS **enabled**. Policy count per table, condensed:
 > wrapping** — the check is that no policy body in `public` contains
 > `my_role()` or `auth.uid()` not immediately preceded by `SELECT`.
 
-- **Direct client write policies** (corrected 2026-09-19 against the live
-  policies — this previously read "`profiles` only", which was not true):
-  `profiles`, plus the three admin-only vocabulary tables `carriers`,
-  `centers` and `transfer_clients`. Each is `FOR ALL` with
-  `USING/CHECK (select my_role()) = 'admin'`. No *lead* table has one —
-  `submissions` has zero write policies of any kind, see
+- **Direct client write policies** (corrected 2026-09-25 against the live
+  policies — this previously named only `profiles`, `carriers`, `centers`
+  and `transfer_clients`, missing `cx_tags`): `profiles`, the three
+  admin-only vocabulary tables `carriers`, `centers` and `transfer_clients`
+  (each `FOR ALL` with `USING/CHECK (select my_role()) = 'admin'`), and
+  `cx_tags` (`FOR ALL`, `admin` **or** `cxm` — the one vocabulary table a
+  non-admin role can write directly, so a CXM can add a new tag, e.g. a
+  further duplicate-SSN exemption, without an admin). No *lead* table has
+  one — `submissions` has zero write policies of any kind, see
   [decisions/0002](decisions/0002-payload-writes-via-rpc.md).
 - **Read policies**, one per table, role-scoped via `(select my_role())`:
   - `submissions` — the single most complex policy in the schema, one `CASE`
@@ -437,6 +441,8 @@ Every table has RLS **enabled**. Policy count per table, condensed:
     `cx_status_history`, `submission_tags`) are readable by a fixed,
     hand-listed set of roles — no per-row scoping, since these describe
     vocabulary or an audit trail rather than a specific person's work.
+    `cx_tags`/`submission_tags` specifically: `admin/cxm/cxa/manager`, plus
+    **`general_manager` (added 2026-09-25)**.
   - `lead_imports` — `uploaded_by = (select auth.uid()) OR (select my_role())
     in (manager, admin)`.
 - **Zero policies at all** (deny-everything to the client, reachable only

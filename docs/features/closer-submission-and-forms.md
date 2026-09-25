@@ -119,12 +119,65 @@ and `20260915121000` (the Sheet's `Final Carrier` column now falls back to
   (`draft_date`, `future_draft_date`, `ssn_normalized`) — this is what makes
   the duplicate-SSN check and the "By Draft Date" desk possible without a
   jsonb scan.
-- Duplicate-SSN warnings (`check_duplicate_ssn` RPC) are **advisory only** —
-  never block submission — because a repeat SSN is often a legitimate
-  re-write after a decline. The warning text states the matched lead's
-  current outcome using the app's own terminology (`dispositionLabel()` from
-  `ops.tsx`: "Submitted" / "Declined") plus "In Progress" for a lead that
-  hasn't been disposed yet — see `src/lib/duplicate-ssn.ts`.
+- **Duplicate SSN now blocks submission for an accepted match, changed
+  2026-09-25.** Both the closer's forms and the validator's own direct
+  submission (`submit_form` / `submit_form_parked`, via
+  `submit_form_internal`) refuse to insert when the SSN already belongs to
+  another non-archived lead **marked accepted** — unless a CX agent has
+  tagged that existing policy as eligible for a second one (see
+  "Second-policy exemption tag" below); the block checks whether **any**
+  accepted match carries that tag, not just the most recent one. A
+  **declined or still-in-progress duplicate is unchanged** — advisory only,
+  never blocks, for the original reason (a repeat SSN there is often a
+  legitimate re-write, e.g. after a decline). This narrows the previously-
+  documented "advisory only, never block" rule rather than removing it
+  outright — see
+  [decisions/0007](../decisions/0007-duplicate-ssn-blocks-unless-tagged.md)
+  for why and the exact scope.
+  `check_duplicate_ssn` (still a separate, read-only RPC called on blur)
+  is now a **preview** of that gate rather than a standalone opinion: it
+  returns the same match info as before (`dispositionLabel()`-worded
+  outcome, "In Progress" for an undisposed lead) plus `exempt` — meaningful
+  only when `status = 'accepted'` — so `duplicateSsnWarning()` in
+  `src/lib/duplicate-ssn.ts` can tell the closer or validator in advance
+  whether an accepted-SSN match will actually be blocked (danger tone) or
+  has been cleared (ok tone), before they hit Submit and find out from the
+  RPC's own error. The real gate is enforced server-side in
+  `submit_form_internal` regardless of what this hint shows or whether it
+  loaded at all.
+
+### Second-policy exemption tag
+
+A customer legitimately taking out a second policy is the one case the
+block has to allow for. `cxa`/`cxm`/admin do this from the **Customers
+Pipeline** detail sheet (`src/components/customers-pipeline.tsx`), which
+mounts `SubmissionTags` (`src/components/submission-tags.tsx`) — the same
+chip-toggle pattern used elsewhere in the app, listing the active `cx_tags`
+vocabulary and calling the existing `add_submission_tag`/
+`remove_submission_tag` RPCs. Those RPCs already require the target lead to
+be `disposition = 'accepted'` and not archived, which is exactly "the
+customer's existing, already-sold policy" — no RPC change was needed for
+this, only a UI to call them (previously wired end-to-end but unused, 0
+rows in production; see `docs/features/cx-lifecycle.md`).
+
+**Extended 2026-09-25** to `manager` and `general_manager` as well, since
+they can already see and edit an accepted lead from their own screens:
+`SubmissionTags` is also mounted in `ReportingDashboard`'s detail sheet
+(`src/components/reporting.tsx`, shared by the admin page and the manager's
+Reporting tab — gated the same way the payload editor there already is,
+`profile.role === "manager" || "admin"`) and in `ClosingDesk`
+(`src/components/closing-desk.tsx`), the latter gated in the component
+itself to `profile.role === "general_manager"` only — `closing_manager`
+shares that same screen but is deliberately **not** granted this, so it
+never sees a control that would just error. Every mount also only renders
+when `selected.disposition === "accepted"`, the same precondition
+`add_submission_tag` itself enforces.
+
+The exemption is a **property of the tag**, not a hardcoded label:
+`cx_tags.allows_duplicate_ssn` marks which tag(s) unlock a duplicate SSN.
+One such tag is seeded, "Eligible For Second Policy", but an admin/cxm can
+mark any tag this way — `cx_tags` is one of the few tables a `cxm` (not
+just admin) can write directly, via its `FOR ALL` RLS policy.
 
 ## Known limitations
 - Field labels doubling as payload keys, Sheet columns, *and* import target

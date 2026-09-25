@@ -29,6 +29,7 @@ import { useCenterColorById } from "@/lib/centers";
 import { formatDate, formatEventTime } from "@/lib/format-date";
 import { DataFlagList } from "@/components/data-flags";
 import { LeadPayload } from "@/components/lead-editor";
+import { SubmissionTags } from "@/components/submission-tags";
 import { PayloadEditHistory, payloadHistoryKey } from "@/components/payload-history";
 import { CarrierDeclineList } from "@/components/carrier-declines";
 import { validationTimelineKey } from "@/components/validation-timeline";
@@ -1074,6 +1075,13 @@ export function SubmissionsExplorer() {
                   payload={selected.payload}
                   flags={dataFlags(selected.data_flags)}
                 />
+
+                {/* Only meaningful once a lead is accepted — add_submission_tag
+                    itself refuses anything else — and readOnly follows the
+                    same admin/manager gate as the payload editor above. */}
+                {selected.disposition === "accepted" ? (
+                  <SubmissionTags submissionId={selected.id} readOnly={!canEditLead} />
+                ) : null}
 
                 {/* Kept above the timeline and out of it: the carriers a lead
                     has been refused by is a different story from the claims and

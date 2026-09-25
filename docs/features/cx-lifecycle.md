@@ -15,9 +15,15 @@ code directly.
 
 ## Roles involved
 **cxa**, **cxm** (work the pipeline, set statuses, tag leads), **admin**
-(same access, plus manages the status/tag vocabulary), **manager**,
-**closing_manager**, **general_manager** (read-only visibility into CX data
-where their own screens embed it — see below).
+(same access, plus manages the status/tag vocabulary), **closing_manager**
+(read-only visibility into CX data where its own screen embeds it — see
+below). **manager** and **general_manager** also have read-only visibility
+into CX data the same way, **plus** (added 2026-09-25) can apply/remove a
+`submission_tags` tag on an accepted lead from their own screens
+(`ReportingDashboard` for manager, `ClosingDesk` for general_manager) — the
+one CX-pipeline write either role can make, since everything else about
+the pipeline (statuses, removal, return-for-validation) stays cxa/cxm/admin
+only.
 
 ## Routes / screens
 - `/cx` → `src/routes/_authenticated/cx/route.tsx` (layout,
@@ -34,12 +40,27 @@ where their own screens embed it — see below).
 (`CustomersPipeline`, the only built pipeline), `cx-status-admin.tsx`
 (vocabulary management), `cx-status-breakdown.tsx` + `cx-status-cell.tsx`
 (the editable/read-only status controls, shared by every screen that shows a
-CX status), `src/lib/cx-status.ts` (categories, tones, the reopen-code list).
+CX status), `src/lib/cx-status.ts` (categories, tones, the reopen-code list),
+`submission-tags.tsx` (`SubmissionTags`, added 2026-09-25 — the first UI
+mount of the `cx_tags`/`submission_tags` system. Chip-toggle list of the
+active `cx_tags`, calling `add_submission_tag`/`remove_submission_tag`. A
+tag whose `allows_duplicate_ssn` is set does more than label the lead:
+applying it exempts that lead's SSN from the block `submit_form_internal`
+otherwise raises on a repeat submission — see
+[closer-submission-and-forms.md](closer-submission-and-forms.md) and
+[decisions/0007](../decisions/0007-duplicate-ssn-blocks-unless-tagged.md).
+Mounted in three places: the Customers Pipeline detail sheet (cxa/cxm/admin,
+editable), `ReportingDashboard`'s detail sheet (admin/manager, editable;
+read-only for anyone else who reaches Reporting), and `ClosingDesk`'s
+detail sheet (general_manager only, gated in-component —
+`closing_manager` shares that screen but is not granted this). Every mount
+only renders for a lead that's `disposition === "accepted"`, matching what
+`add_submission_tag` itself requires.
 
 ## Database
 Tables: `cx_status_options`, `cx_lead_status`, `cx_status_history`,
-`cx_tags`, `submission_tags` (0 rows in production — effectively unused so
-far). Views: `cx_pipeline`, `cx_status_summary`, `cx_untouched`,
+`cx_tags` (now including `allows_duplicate_ssn`, see below),
+`submission_tags`. Views: `cx_pipeline`, `cx_status_summary`, `cx_untouched`,
 `closer_lead_alerts`. RPCs: `set_cx_status`, `return_lead_for_validation`,
 `add_submission_tag`, `remove_submission_tag`. Full detail in
 [database.md](../database.md).
@@ -173,12 +194,6 @@ far). Views: `cx_pipeline`, `cx_status_summary`, `cx_untouched`,
 - Three of four pipelines are "Coming soon" — Transfer, Chargeback,
   Analytics have no query, no table beyond what the vocabulary/history
   tables already support, and no UI beyond the placeholder text.
-- `submission_tags` has 0 rows in production despite the RPCs
-  (`add_submission_tag`/`remove_submission_tag`) and the `cx_tags` vocabulary
-  existing and being populated (2 tags) — the tagging feature appears wired
-  end-to-end but not yet used, or not yet exposed anywhere a CXA would find
-  it (no confirmed UI mount for tag-adding was found in the files read
-  during this audit).
 
 ## Future work
 Building out the Transfer, Chargeback, and Analytics pipelines is the
