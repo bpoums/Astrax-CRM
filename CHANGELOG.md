@@ -1,5 +1,67 @@
 # Changelog
 
+## 2026-09-25 — Clicking a lead inside an opened import batch now opens its detail sheet
+
+`import-history.tsx`'s "Leads in this batch" table (Admin → Uploads, and
+the uploader's own `/upload` history) listed each lead's name/status/flags
+but nothing was clickable — there was no way to see a single imported
+lead's payload or flags from this screen. Clicking a row now opens a detail
+sheet with `LeadPayload`, `DataFlagList`, and (admin only) `PaymentPanel`,
+reusing the row already fetched for the batch table rather than a second
+query. Editable only for `admin` — `update_payload_field` and
+`payment_summary` don't accept `data_uploader`, so an uploader viewing
+their own batch gets a read-only payload/flags view and no banking panel.
+See `docs/features/spreadsheet-import.md`.
+
+## 2026-09-25 — Manager and general_manager can apply the second-policy tag too
+
+`add_submission_tag`/`remove_submission_tag` and the `cx_tags`/
+`submission_tags` read policies were cxa/cxm/admin only. Extended to
+`manager` and `general_manager` (not `closing_manager`, which shares
+`ClosingDesk` with general_manager but wasn't granted this), since both can
+already see and edit an accepted lead from their own screens.
+`SubmissionTags` is now also mounted in `ReportingDashboard`'s detail sheet
+(`src/components/reporting.tsx`, shared by admin's Overview/Reporting and
+the manager's Reporting tab) and in `ClosingDesk`
+(`src/components/closing-desk.tsx`, gated in-component to
+`general_manager`), each only rendering for an accepted lead. See
+`docs/decisions/0007-duplicate-ssn-blocks-unless-tagged.md`.
+
+## 2026-09-25 — Deactivated two unused CX tags
+
+`Approved Success` and `Denied Failure` in the `cx_tags` vocabulary had 0
+leads tagged and no code reference anywhere — leftover placeholders from
+when the CX tagging system was first built (`20260821184015`), before any
+UI existed to apply tags. Deactivated (`active = false`), not deleted —
+`cx_tags` rows are FK-referenced by `submission_tags`, so there's no delete
+path for vocabulary tables, only the existing active-toggle convention.
+They no longer appear in `SubmissionTags`' chip list. Only
+"Eligible For Second Policy" remains active.
+
+## 2026-09-25 — Duplicate SSN blocks submission for an accepted lead, unless CX tags the original policy
+
+A repeat SSN used to be advisory only (`check_duplicate_ssn`) — warned, but
+never stopped a submission, since a repeat SSN is often a legitimate
+re-write after a decline. Now `submit_form_internal` (behind both the
+closer's forms and the validator's own direct submission) refuses the
+insert when the SSN already belongs to another non-archived **accepted**
+lead, unless a CX agent has tagged that existing policy as eligible for a
+second one. A duplicate against a declined or still-in-progress lead is
+**unchanged** — still advisory only, still just a warning — narrowed to
+this scope after the first pass blocked on any duplicate at all. A new
+component, `SubmissionTags` (`src/components/submission-tags.tsx`), mounted
+in the Customers Pipeline detail sheet, is the first UI for the
+`cx_tags`/`submission_tags` system — previously wired end-to-end via
+`add_submission_tag`/`remove_submission_tag` but unused (0 rows) in
+production. The exemption is a flag on the tag
+(`cx_tags.allows_duplicate_ssn`), not a hardcoded name, seeded on one new
+tag, "Eligible For Second Policy." `check_duplicate_ssn`'s advisory hint on
+both forms now previews whether an accepted-SSN match will actually be
+blocked or has been cleared. See
+`docs/decisions/0007-duplicate-ssn-blocks-unless-tagged.md`,
+`docs/features/closer-submission-and-forms.md`, and
+`docs/features/cx-lifecycle.md`.
+
 ## 2026-09-24 — Closing Desk shows when a lead was disposed, not just submitted
 
 The Closing Desk (`general_manager`/`closing_manager`, `/closing`) only

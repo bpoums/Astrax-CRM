@@ -1,9 +1,19 @@
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { STATUS_LABEL, customerName, dataFlags, relativeTime, useNow } from "@/components/ops";
 import { useAuth } from "@/lib/auth";
 import { Badge } from "@/components/ui/badge";
+import { LeadPayload } from "@/components/lead-editor";
+import { PaymentPanel } from "@/components/payment-panel";
+import { DataFlagList } from "@/components/data-flags";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import {
   Table,
   TableBody,
@@ -70,7 +80,17 @@ function DecisionBadge({ counts }: { counts: DecisionCounts | undefined }) {
 export function ImportHistory({ allUploaders = false }: { allUploaders?: boolean }) {
   const now = useNow(30_000);
   const { profile } = useAuth();
+  const queryClient = useQueryClient();
   const [openId, setOpenId] = useState<string | null>(null);
+  /** One lead's detail sheet, opened from the batch table below. */
+  const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
+  /**
+   * `payment_summary` (behind `PaymentPanel`) does not accept `data_uploader`
+   * — only admin reaches full read/edit here; an uploader viewing their own
+   * batch gets the payload and flags read-only, and no banking panel at all
+   * rather than one that would just error.
+   */
+  const canEditLead = profile?.role === "admin";
 
   /**
    * The upload address is admin-only, and gated on the role rather than on
@@ -149,6 +169,10 @@ export function ImportHistory({ allUploaders = false }: { allUploaders?: boolean
       return data ?? [];
     },
   });
+
+  // Found in the already-loaded batch, not a second fetch by id — the same
+  // row `leads` just queried carries everything the sheet needs.
+  const selectedLead = (leads.data ?? []).find((lead) => lead.id === selectedLeadId) ?? null;
 
   return (
     <section className="panel">
@@ -231,7 +255,11 @@ export function ImportHistory({ allUploaders = false }: { allUploaders?: boolean
               {(leads.data ?? []).map((lead) => {
                 const flags = dataFlags(lead.data_flags);
                 return (
-                  <TableRow key={lead.id}>
+                  <TableRow
+                    key={lead.id}
+                    className="cursor-pointer"
+                    onClick={() => setSelectedLeadId(lead.id)}
+                  >
                     <TableCell className="font-medium">
                       {customerName((lead.payload ?? {}) as Record<string, unknown>)}
                     </TableCell>
@@ -265,6 +293,57 @@ export function ImportHistory({ allUploaders = false }: { allUploaders?: boolean
           </Table>
         </div>
       ) : null}
+
+      <Sheet
+        open={!!selectedLead}
+        onOpenChange={(open) => {
+          if (!open) setSelectedLeadId(null);
+        }}
+      >
+        <SheetContent className="w-full overflow-y-auto overflow-x-hidden sm:max-w-xl">
+          {selectedLead ? (
+            <>
+              <SheetHeader>
+                <SheetTitle>
+                  {customerName((selectedLead.payload ?? {}) as Record<string, unknown>)}
+                </SheetTitle>
+                <SheetDescription>
+                  {selectedLead.archived_at && selectedLead.status === "pending_import_approval"
+                    ? "Rejected"
+                    : STATUS_LABEL[selectedLead.status]}{" "}
+                  · imported {relativeTime(selectedLead.created_at, now)}
+                </SheetDescription>
+              </SheetHeader>
+
+              <div className="flex min-w-0 max-w-full flex-col gap-4 px-4 pb-4">
+                <LeadPayload
+                  submissionId={selectedLead.id}
+                  payload={(selectedLead.payload ?? {}) as Record<string, unknown>}
+                  editable={canEditLead}
+                  onSaved={() => {
+                    void queryClient.invalidateQueries({
+                      queryKey: ["lead-imports", "leads", openId],
+                    });
+                  }}
+                />
+
+                <DataFlagList
+                  submissionId={selectedLead.id}
+                  payload={(selectedLead.payload ?? {}) as Record<string, unknown>}
+                  flags={dataFlags(selectedLead.data_flags)}
+                  editable={canEditLead}
+                />
+
+                {/* payment_summary refuses data_uploader outright — only
+                    shown where it will actually resolve. */}
+                {canEditLead ? (
+                  <PaymentPanel submissionId={selectedLead.id} editable={canEditLead} />
+                ) : null}
+              </div>
+            </>
+          ) : null}
+        </SheetContent>
+      </Sheet>
     </section>
   );
 }

@@ -23,6 +23,7 @@ import {
 } from "@/components/cx-status-cell";
 import { LeadPayload } from "@/components/lead-editor";
 import { PaymentPanel } from "@/components/payment-panel";
+import { SubmissionTags } from "@/components/submission-tags";
 import { LeadHistoryDialog } from "@/components/lead-history-dialog";
 import { History } from "lucide-react";
 import {
@@ -806,6 +807,11 @@ export function CustomersPipeline({
                   <History className="h-3.5 w-3.5" aria-hidden />
                   View History
                 </button>
+
+                {/* A tag here can carry mechanical weight, not just a label —
+                    see submission-tags.tsx for the duplicate-SSN exemption
+                    it enables on new submissions for this customer. */}
+                <SubmissionTags submissionId={selected.submission_id} readOnly={readOnly} />
 
                 {/* The same editor a manager uses: one `update_payload_field`
                     call per changed field, each with its own before/after row in
