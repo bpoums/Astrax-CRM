@@ -1,5 +1,38 @@
 # Changelog
 
+## 2026-09-27 — Sales Breakdown aggregation moved server-side
+
+`SalesBreakdown` (`/admin?tab=sales-breakdown`) previously paged every
+accepted lead's full payload into the browser (measured 386 rows / 393 kB
+live, tracked in `docs/TODO.md`) to compute the carrier/state/plan-type
+pivots and closer leaderboard client-side. Two new admin-only RPCs,
+`sales_breakdown_range` and `sales_closer_leaderboard_range`, now do that
+aggregation server-side, with three SQL helpers
+(`sales_plan_type_bucket`/`sales_resolve_carrier`/`sales_resolve_state`)
+reimplementing the same carrier-alias/state-fallback rules
+`src/lib/normalize/carriers.ts`/`src/lib/normalize/states.ts` use elsewhere.
+`sales-breakdown.tsx` no longer fetches or holds any raw lead payload.
+Verified live equivalent to the old result before and after the change. See
+`docs/database.md` and `docs/features/sales-breakdown.md`.
+
+## 2026-09-27 — Fixed two live RPC security bugs
+
+Two bugs already diagnosed in `docs/TODO.md` were fixed: (1) ~19
+`SECURITY DEFINER` RPCs (`admin_settings`, `archive_submission`,
+`assign_to_validator`, and others) used a role guard (`my_role() <> 'admin'`
+or `my_role() not in (...)`) that silently passed for a roleless caller,
+since `my_role()` returns NULL for no-JWT/no-profile/inactive callers and
+`NULL <> 'admin'` is NULL, not true — verified live that `admin_settings()`
+and `reporting_retention_status()` returned real data to `anon`. (2)
+`validator_stats_range()` returned whole-business validator figures to any
+caller regardless of their actual RLS scope, because three of its columns
+come from `form_events`, whose read policy isn't centre-scoped the way
+`submissions` is — verified live under a closing manager's JWT. Both fixed
+with a corrected guard (`is distinct from` / an explicit `is null or`
+check) and `EXECUTE` revoked from `anon` by name; `validator_stats_range` is
+now also restricted to `admin`/`manager`, the only two roles that actually
+call it. See `docs/TODO.md` and `docs/database.md`.
+
 ## 2026-09-25 — Clicking a lead inside an opened import batch now opens its detail sheet
 
 `import-history.tsx`'s "Leads in this batch" table (Admin → Uploads, and

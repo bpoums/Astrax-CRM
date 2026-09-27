@@ -5,9 +5,17 @@ discovery only inside a feature doc's "Known limitations".
 
 ---
 
-## SECURITY — ~20 `SECURITY DEFINER` RPCs fail open for a roleless caller
+## ~~SECURITY — ~20 `SECURITY DEFINER` RPCs fail open for a roleless caller~~
 
-**Found 2026-09-17. Not fixed. Reachable from the public internet.**
+**Found 2026-09-17. FIXED 2026-09-27 in
+`20260927100000_fix_null_role_auth_bypass.sql`** — every function listed below
+now uses `is distinct from` (the `<>` form) or `is null or ... not in (...)`
+(the `not in` form), matching `sheet_sync_backlog_status`'s reference shape,
+and `EXECUTE` is revoked from `anon` by name on all 19. Re-verified live: both
+`admin_settings()` and `archive_submission()` now raise `not authorized` for
+`anon` and for `authenticated` with no matching profile, where they previously
+returned data / performed the write. Kept here for the reasoning; delete once
+it has been live for a while.
 
 The standard guard in these functions is
 
@@ -164,21 +172,23 @@ tab, which keeps its filters, pivots and CSV export.
    different numbers for the same business, so one screen showing both would
    need the mismatch spelled out, or one of them subordinated.
 
-2. **`SalesBreakdown` aggregates in the browser, not the server.** It pages
-   every accepted lead's **full payload** in via `fetchAllRows` and pivots in a
-   `useMemo`, because carrier and state come from payload free text that needs
-   the alias-aware normalizers (`lib/normalize/carriers.ts`,
-   `lib/normalize/states.ts`). Measured 2026-09-18: **386 rows, 393 kB of
-   payload, ~1 kB each**, growing linearly with sales. Acceptable on a tab
-   someone opens deliberately; not on the Overview, which everybody opens all
-   day. It also ships customer PII to the browser purely to count carriers.
+2. ~~**`SalesBreakdown` aggregates in the browser, not the server.**~~ **Fixed
+   2026-09-27.** It no longer pages any lead payload into the browser — see
+   point 3.
 
-3. **A `sales_breakdown_range` RPC is the right long-term answer** — same
-   pattern as `submission_totals_range`, and it would make the Sales tab cheap
-   too. The cost is reimplementing the alias folding in SQL against `carriers`
-   and the state list, which is real work rather than a transcription. If it is
-   built, the totals should come from the same place as the outcome figures in
-   the entry above, so the two cannot disagree.
+3. ~~**A `sales_breakdown_range` RPC is the right long-term answer**~~ **Built
+   2026-09-27** in `20260927120000_sales_breakdown_range.sql`:
+   `sales_breakdown_range`/`sales_closer_leaderboard_range`, same
+   `reporting_window`-driven pattern as `submission_totals_range`, plus three
+   helpers (`sales_plan_type_bucket`, `sales_resolve_carrier`,
+   `sales_resolve_state`) that reimplement the alias/state-fallback logic
+   `lib/normalize/carriers.ts`/`lib/normalize/states.ts` use elsewhere.
+   `SalesBreakdown` now calls these RPCs instead of `fetchAllRows`; verified
+   live that the RPC's total (532 accepted, current data) matches a direct
+   `count(*) filter (disposition='accepted' and archived_at is null)`, and
+   that `by_carrier`/`by_state` sums both reconcile to the same total. This
+   only fixes the Sales Breakdown tab itself — the Overview-tab panels
+   described above are still not built; that ask is unchanged and separate.
 
 **Whatever is built must also settle** whether "sales" means all origins or
 live only — see the correctness entry above. Today the Sales Breakdown tab
@@ -187,9 +197,20 @@ Overview's Submitted says 183. Those two screens already disagree.
 
 ---
 
-## SECURITY — `validator_stats_range` hands every validator's record to any caller
+## ~~SECURITY — `validator_stats_range` hands every validator's record to any caller~~
 
-**Found 2026-09-18. Not fixed. Database-side; the client door is now shut.**
+**Found 2026-09-18. FIXED 2026-09-27** in
+`20260927110000_fix_validator_stats_range_leak.sql`: the function is now
+gated to `admin`/`manager` only — the only two roles that ever called it (the
+manager Reporting tab; the Closing Desk explicitly never fetched it for
+`closing_manager`/`general_manager`), and the two roles that already see
+whole-business `form_events` by RLS design, so this closes the leak with no
+behavior change for either legitimate caller. Converted from `language sql`
+to `language plpgsql` to add the guard; the query itself is unchanged.
+Re-verified live under a closing manager's JWT: now raises `not authorized`
+where it previously returned all thirteen validators' full-business figures.
+A manager's JWT still gets the same shape of result as before. Kept here for
+the reasoning; delete once it has been live for a while.
 
 `validator_stats_range()` is `SECURITY INVOKER`, but only three of its columns
 are actually scoped by the caller's RLS. `assigned`, `approved`, `declined` and

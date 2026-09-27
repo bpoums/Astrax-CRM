@@ -2186,6 +2186,34 @@ export type Database = {
       review_settings: { Args: never; Returns: Json }
       review_window: { Args: never; Returns: string }
       roll_recurring_draft_dates: { Args: never; Returns: number }
+      sales_breakdown_range: {
+        Args: { p_days?: number; p_end_date?: string; p_start_date?: string }
+        Returns: {
+          dimension: string
+          gi_count: number
+          graded_count: number
+          label: string
+          level_count: number
+          mod_count: number
+          total_count: number
+          unspecified_count: number
+        }[]
+      }
+      sales_closer_leaderboard_range: {
+        Args: { p_days?: number; p_end_date?: string; p_start_date?: string }
+        Returns: {
+          accepted: number
+          closer_id: string
+          closer_name: string
+          total: number
+        }[]
+      }
+      sales_plan_type_bucket: { Args: { p_raw: string }; Returns: string }
+      sales_resolve_carrier: {
+        Args: { p_final_carrier_name: string; p_payload: Json }
+        Returns: string
+      }
+      sales_resolve_state: { Args: { p_payload: Json }; Returns: string }
       set_admin_setting: {
         Args: { p_key: string; p_value: string }
         Returns: Json

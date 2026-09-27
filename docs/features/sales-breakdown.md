@@ -19,31 +19,44 @@ a route to it).
 
 ## Important components
 `sales-breakdown.tsx` (`SalesBreakdown`, `PivotTable`, `LeaderboardCard`,
-`StatCard`), `src/lib/plan-type.ts` (`normalizePlanType`,
-`PLAN_TYPE_COLUMNS`). Reuses, unmodified: `carrierName`/`Disposition`
-(`ops.tsx`), `useCarriers`/`carrierRefs` (`lib/carriers.ts`), `lookupCarrier`
-(`lib/normalize/carriers.ts`), `STATE_CODES`/`STATE_ABBREVIATIONS`
-(`lib/normalize/states.ts`), `MetricBar` (`metric-bar.tsx`).
+`StatCard`), `src/lib/plan-type.ts` (`PLAN_TYPE_COLUMNS`, used only for the
+table's column headers now — bucketing itself happens in
+`sales_plan_type_bucket` server-side), `MetricBar` (`metric-bar.tsx`). The
+component no longer imports `carrierName`, `useCarriers`/`carrierRefs`,
+`lookupCarrier`, or the state-normalizer constants — all of that logic moved
+to the SQL functions listed under Database.
 
 ## Database
-Read-only, no RPC/view/migration added.
-- **Approved-sales breakdown**: `.from("submissions").select("payload, final_carrier:carriers!submissions_final_carrier_id_fkey(name)")`
-  filtered to `disposition = 'accepted'` and `archived_at is null`, fully
-  paginated (1000 rows/page, no cap) rather than capped the way `Exports` is
-  — this is an aggregate total, and silently truncating it would misreport
-  a real count rather than just show a shorter preview.
-- **Closer leaderboard**: a second, independent fetch —
-  `.select("closer_id, disposition, closer:profiles!submissions_closer_id_fkey(full_name)")`
-  filtered to `closer_id is not null` and `archived_at is null` (any
-  disposition, so a conversion rate is computable) — same pagination, same
-  date window.
-- **Date filtering**: the `This Week` / `This Month` chips call
-  `reporting_window({ p_days: 7 | 30 })`; `Custom` calls it with
-  `p_start_date`/`p_end_date` — the exact RPC and call shape
-  `SubmissionsExplorer` already uses for its own date filter
-  (`src/components/reporting.tsx`), so this tab's day boundaries can never
-  disagree with the rest of the app's. `All time` (the default) skips the
-  RPC entirely.
+**Server-side aggregation, added 2026-09-27** (`20260927120000_sales_breakdown_range.sql`).
+Previously this tab paged every accepted lead's full payload into the browser
+and pivoted client-side; that shipped customer PII to the browser purely to
+count carriers and was measured at 386 rows / 393 kB live (2026-09-18,
+tracked in `docs/TODO.md`). It now calls two admin-only RPCs that do the same
+aggregation server-side:
+- **`sales_breakdown_range(p_days, p_start_date, p_end_date)`** — scoped
+  exactly as before (`disposition = 'accepted'`, `archived_at is null`),
+  returning one `'total'` row plus one row per resolved carrier and per
+  resolved state, each with the five plan-type bucket counts and a total.
+  The carrier/state resolution and plan-type bucketing (see "Business rules"
+  below) are reimplemented in SQL by three helper functions
+  (`sales_plan_type_bucket`, `sales_resolve_carrier`, `sales_resolve_state`)
+  that mirror `src/lib/plan-type.ts`/`src/lib/normalize/carriers.ts`/
+  `src/lib/normalize/states.ts` exactly, so the rules described below still
+  apply — only where they run changed. See `docs/database.md` for the full
+  signature list.
+- **`sales_closer_leaderboard_range(p_days, p_start_date, p_end_date)`** —
+  the closer leaderboard, same scope as before (`closer_id is not null`,
+  `submitted_by_role <> 'validator'`, `archived_at is null`).
+- **Date filtering**: unchanged in the UI (`This Week`/`This Month` resolve
+  to calendar-boundary dates client-side; `Custom` uses the picked dates;
+  `All time` sends neither) but now passed straight through to the two RPCs'
+  own `p_start_date`/`p_end_date` args (the same `reporting_window`-driven
+  resolution `submission_totals_range` uses) instead of first resolving a
+  window via a separate `reporting_window` call and filtering client-side.
+- Verified live equivalent to the old client-side result: the RPC's total
+  matched a direct `count(*) filter (disposition='accepted' and archived_at
+  is null)`, and the carrier/state group sums both reconciled to that same
+  total.
 
 ## Business rules
 - **Scope is `disposition = 'accepted'` only** — the same "Submit"/approved
@@ -122,12 +135,14 @@ Read-only, no RPC/view/migration added.
   this tab does not subscribe to `postgres_changes`; a stale view clears on
   next visit/refetch, not live. Consistent with `Exports`, which behaves the
   same way.
-- Carrier/state aggregation is computed client-side (fetches all matching
-  rows, aggregates in the browser) rather than via a SQL view, because the
-  alias/state-name matching it needs already lives once, on purpose, in
-  `src/lib/normalize/*` (built pure so it can be lifted anywhere) —
-  reimplementing that matching in SQL would create a second, divergent copy
-  of the same logic.
+- The carrier/state alias-matching logic now exists in two places: the
+  client-side normalizers in `src/lib/normalize/*` (used by the upload-import
+  pipeline) and the SQL reimplementation in
+  `sales_resolve_carrier`/`sales_resolve_state` (used only by this tab's
+  RPCs). This was a deliberate, accepted tradeoff to get the aggregation off
+  the browser (see `docs/TODO.md`'s "Sales stats on the admin Overview" entry)
+  — a change to carrier alias rules or the state list needs updating in both
+  places if it should apply to both the import pipeline and this report.
 
 ## Future work
 None named yet.

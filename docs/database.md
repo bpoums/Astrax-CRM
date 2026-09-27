@@ -117,10 +117,28 @@ there would become a new Sheet column).
 
 The app's TypeScript layer mostly calls **`_range`-suffixed RPC wrappers**
 (`submission_totals_range`, `submission_totals_by_center_range`,
-`validator_stats_range` — all `SECURITY INVOKER`, so they run under the
-caller's own RLS) rather than selecting these views directly; the wrappers add
-an optional `p_days` window (via `reporting_since(p_days)`, which computes a
-Pacific-timezone day boundary) on top of the same underlying view logic.
+`validator_stats_range` — `SECURITY INVOKER`, so the `submissions`-derived
+columns run under the caller's own RLS) rather than selecting these views
+directly; the wrappers add an optional `p_days` window (via
+`reporting_since(p_days)`, which computes a Pacific-timezone day boundary) on
+top of the same underlying view logic.
+
+**`validator_stats_range` role guard, added 2026-09-27**
+(`20260927110000_fix_validator_stats_range_leak.sql`). `assigned`/`approved`/
+`declined`/`pending` come from `submissions` and were always correctly scoped
+by the caller's RLS, but `timed_out`/`rejected`/`holds` come from
+`form_events`, whose SELECT policy lets `manager`/`admin`/`closing_manager`/
+`general_manager` read every row with **no** centre scoping — so those three
+columns came back whole-business for any of those four roles, not just the
+two that should see it. Verified live under a closing manager's JWT (recorded
+in [TODO.md](TODO.md)): all thirteen validators' full-business figures came
+back, not that centre's. Fixed by adding an explicit
+`my_role() is null or my_role() not in ('admin','manager')` guard inside the
+function (converted from `language sql` to `language plpgsql` to hold it; the
+query itself is unchanged) rather than fixing the `form_events` policy, since
+the only two real-world callers — the manager Reporting tab; the Closing Desk
+never fetches it for `closing_manager`/`general_manager` — are exactly the two
+roles the guard now allows. `EXECUTE` revoked from `anon`.
 
 **All-origin outcome columns, added 2026-09-18**
 (`20260918160000_all_origin_totals.sql`). Every disposition count in these two
@@ -191,10 +209,13 @@ each supports.
 > Supabase's default privileges grant it to `anon` directly, and
 > `revoke ... from public` does **not** remove a direct grant.
 >
-> **~20 existing RPCs still have this bug**, including `admin_settings` and
-> `reporting_retention_status`, both verified returning data to `anon` with no
-> JWT on 2026-09-17. Listed and tracked in [TODO.md](TODO.md).
-> `sheet_sync_backlog_status()` is the reference for the correct shape.
+> **Fixed 2026-09-27** in `20260927100000_fix_null_role_auth_bypass.sql` for
+> all 19 affected RPCs, including `admin_settings` and
+> `reporting_retention_status`, both previously verified returning data to
+> `anon` with no JWT (2026-09-17). Every one now uses one of the two forms
+> above and has `EXECUTE` revoked from `anon`. History and the affected list
+> kept in [TODO.md](TODO.md). `sheet_sync_backlog_status()` remains the
+> reference for the correct shape.
 
 **Identity / bootstrap**
 - `my_role()` — `select role from profiles where id = auth.uid() and active`. The single point every other check reads through; an inactive profile resolves to no role — i.e. **NULL**, which is why the `<>` / `NOT IN` warning above matters. RLS policies compare with `=` and so correctly deny a NULL role; the RPCs using `<>` do not.
@@ -259,6 +280,15 @@ each supports.
 - `reporting_since(p_days)` — `INVOKER`, pure date arithmetic in `America/Los_Angeles`, no role check (it computes a boundary, not a query).
 - `reporting_retention_status()` — admin only. Reads `cron.job_run_details` for the `purge-reporting-leads` job's last run, and counts how many rows that run archived.
 - `purge_old_reporting_leads()` — cron only. Archives `closed` leads whose `disposed_at` is older than `reporting_retention_days` (skipped entirely if that setting is `0`).
+
+**Sales reporting (added 2026-09-27)** — see [features/sales-breakdown.md](features/sales-breakdown.md).
+- `sales_breakdown_range(p_days, p_start_date, p_end_date)` — admin only. Same `reporting_window`-driven scope as `submission_totals_range` (`disposition = 'accepted' and archived_at is null`), returning one `'total'` row plus one row per resolved carrier and per resolved state (`dimension`, `label`, `level_count`/`graded_count`/`mod_count`/`gi_count`/`unspecified_count`/`total_count`). Replaces the client-side aggregation `SalesBreakdown` (`src/components/sales-breakdown.tsx`) used to do by paging every accepted lead's full payload into the browser (measured 386 rows / 393 kB live on 2026-09-18, tracked in [TODO.md](TODO.md)).
+- `sales_closer_leaderboard_range(p_days, p_start_date, p_end_date)` — admin only. Same scope as the closer leaderboard the client used to compute: `closer_id is not null`, `submitted_by_role <> 'validator'` (excludes a validator's own auto-accepted self-submissions, which would otherwise show every validator as a 100%-conversion "closer"), `archived_at is null`. Returns `(closer_id, closer_name, accepted, total)` per closer.
+- `sales_plan_type_bucket(p_raw text) returns text` — pure, no role check. SQL reimplementation of `src/lib/plan-type.ts`'s `normalizePlanType`: substring match on `MOD`/`LEVEL`/`GRADED`, then an exact match on `GI` with dots stripped, else `'Unspecified'`.
+- `sales_resolve_carrier(p_final_carrier_name text, p_payload jsonb) returns text` — `STABLE`, no role check (reads only whatever `carriers` rows the caller's own RLS permits). Reimplements `sales-breakdown.tsx`'s `resolveCarrier`: the final-carrier name wins if present; else `coalesce(payload->>'Proposed Carrier', payload->>'Agency')` is matched exactly against `carriers.name` (checked first) then `carriers.aliases`, using the same non-alphanumeric-stripped lowercase key `src/lib/normalize/carriers.ts`'s `carrierKey` computes; failing that, the longest registered name/alias (≥4 characters) that the lead's key **starts with** wins (mirrors the file-local `prefixMatchCarrier`, deliberately not shared with the stricter upload-import pipeline); failing that, the raw text itself, whitespace-collapsed.
+- `sales_resolve_state(p_payload jsonb) returns text` — pure, no role check. Reimplements `resolveState`: checks `'State'`, `'Residential State'`, `'Birth State'` in order, returning the first field with either a recognized 2-letter abbreviation or a full state name (case-insensitive); a present-but-unrecognized value falls through to the next field rather than stopping; `'Unspecified'` if none resolve.
+
+All five have `EXECUTE` revoked from `anon`; the two top-level RPCs guard with `my_role() is distinct from 'admin'`.
 
 **Google Sheets sync (added/changed 2026-09-10)** — see the `notify_sheet_sync` entry under Triggers below for the full story.
 - `sync_submission_to_sheet(p_sub uuid) returns bigint` — no role check (called only by the trigger and the retry job, never by a client). Re-reads the submission fresh, builds the same payload `notify_sheet_sync` always has, posts it with a 45s timeout, returns the `pg_net` request id (or `null` if sync isn't configured or the row doesn't exist). **Updated 2026-09-15** (`20260915121000`): the `final_carrier` field now falls back to `payload->>'Agency'` when `final_carrier_id` is null *and* `submitted_by_role = 'validator'`. Those submissions auto-accept on submit and so never pass through `set_validator_fields`, which left the Sheet's `Final Carrier` column blank on all 260 of them — even though their `Agency` value *is* the final carrier and matches a real `carriers` row. The fallback is gated on the role deliberately: on a closer/uploaded lead the payload only holds a *proposed* carrier, and letting it through would report a pitch as an issued policy.
