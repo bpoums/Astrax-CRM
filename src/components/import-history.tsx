@@ -1,9 +1,26 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import Papa from "papaparse";
+import * as XLSX from "xlsx";
+import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { STATUS_LABEL, customerName, dataFlags, relativeTime, useNow } from "@/components/ops";
+import {
+  STATUS_LABEL,
+  customerName,
+  dataFlags,
+  orderedPayloadEntries,
+  payloadDisplayLabel,
+  payloadDisplayValue,
+  relativeTime,
+  useNow,
+  type SubStatus,
+} from "@/components/ops";
 import { useAuth } from "@/lib/auth";
+import { formatDate } from "@/lib/format-date";
+import { LEAD_PAGE_SIZE } from "@/lib/lead-search";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import { PaginationBar } from "@/components/pagination-bar";
 import { LeadPayload } from "@/components/lead-editor";
 import { PaymentPanel } from "@/components/payment-panel";
 import { DataFlagList } from "@/components/data-flags";
@@ -52,6 +69,18 @@ type ImportRow = {
  */
 type DecisionCounts = { pending: number; approved: number; rejected: number };
 
+/**
+ * Age / State / Zip for the batch leads table below. Same shape as
+ * `customerName()` in `ops.tsx` — a single fixed payload key with a safe
+ * fallback — kept local since nowhere else needs these three as an export.
+ * The keys are the closer form's own field labels (`closer-form.tsx`
+ * `SECTIONS`), which are also what an imported lead's payload carries.
+ */
+function payloadField(payload: Record<string, unknown>, key: string) {
+  const value = payload[key];
+  return typeof value === "string" && value.trim() ? value : "—";
+}
+
 function DecisionBadge({ counts }: { counts: DecisionCounts | undefined }) {
   if (!counts) return <span className="text-muted-foreground">—</span>;
   if (counts.pending > 0) {
@@ -70,6 +99,120 @@ function DecisionBadge({ counts }: { counts: DecisionCounts | undefined }) {
   }
   if (counts.rejected > 0) return <Badge variant="destructive">Rejected</Badge>;
   return <span className="text-muted-foreground">—</span>;
+}
+
+/** A lead as the download needs it — current (possibly corrected) payload,
+ *  plus whatever decides its Status column. */
+type DownloadLeadRow = {
+  import_id: string | null;
+  payload: Record<string, unknown> | null;
+  status: SubStatus;
+  archived_at: string | null;
+};
+
+/** One column in the downloaded file, whichever kind it comes from. */
+type DownloadColumn = { label: string; get: (row: DownloadLeadRow) => string };
+
+/**
+ * The metadata columns every download carries. "Source File" only makes
+ * sense — and only appears — when more than one batch is selected, so a row
+ * stays traceable to its batch in a combined download.
+ */
+function metadataColumns(batchById: Map<string, ImportRow>, multiBatch: boolean): DownloadColumn[] {
+  const columns: DownloadColumn[] = [];
+  if (multiBatch) {
+    columns.push({
+      label: "Source File",
+      get: (row) => (row.import_id && batchById.get(row.import_id)?.file_name) || "—",
+    });
+  }
+  columns.push(
+    {
+      label: "Status",
+      // A rejected lead is archived and left in the import status, so the
+      // raw label would read as still waiting — same rule the batch's own
+      // lead table above applies.
+      get: (row) =>
+        row.archived_at && row.status === "pending_import_approval"
+          ? "Rejected"
+          : STATUS_LABEL[row.status],
+    },
+    {
+      label: "Uploaded On",
+      get: (row) => {
+        const batch = row.import_id ? batchById.get(row.import_id) : undefined;
+        return batch ? formatDate(batch.created_at) : "—";
+      },
+    },
+    {
+      label: "Uploader",
+      get: (row) => {
+        const batch = row.import_id ? batchById.get(row.import_id) : undefined;
+        return batch?.uploader?.full_name ?? "—";
+      },
+    },
+  );
+  return columns;
+}
+
+/**
+ * The form fields present on the downloaded leads, as columns — a union
+ * across every row, not an intersection, grouped by DISPLAY label so a key
+ * the app relabels is offered under the word the reader knows it by. Reads
+ * whatever is CURRENTLY in `payload`, corrections included — the same
+ * `update_payload_field` that fixed it lives here, so a downloaded file
+ * reflects the live record, not a frozen copy of the original upload.
+ * Mirrors `exports.tsx`'s `payloadColumns()`; kept local rather than shared
+ * since the row shapes differ and the function is small.
+ */
+function payloadColumns(rows: DownloadLeadRow[]): DownloadColumn[] {
+  const order: string[] = [];
+  const rawKeysByLabel = new Map<string, Set<string>>();
+  for (const row of rows) {
+    for (const [rawKey] of orderedPayloadEntries(row.payload ?? {})) {
+      const label = payloadDisplayLabel(rawKey);
+      if (!rawKeysByLabel.has(label)) {
+        rawKeysByLabel.set(label, new Set());
+        order.push(label);
+      }
+      rawKeysByLabel.get(label)?.add(rawKey);
+    }
+  }
+  return order.map((label) => {
+    const rawKeys = Array.from(rawKeysByLabel.get(label) ?? []);
+    return {
+      label,
+      get: (row: DownloadLeadRow) => {
+        for (const rawKey of rawKeys) {
+          const raw = row.payload?.[rawKey];
+          if (raw !== null && raw !== undefined && raw !== "") {
+            return payloadDisplayValue(rawKey, raw);
+          }
+        }
+        return "";
+      },
+    };
+  });
+}
+
+/** Strips the original extension and anything unsafe for a filename. */
+function safeFileBase(name: string) {
+  return name.replace(/\.[^.]+$/, "").replace(/[^a-z0-9_-]+/gi, "-");
+}
+
+function fileStamp() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function triggerDownload(blob: Blob, fileName: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }
 
 /**
@@ -99,10 +242,25 @@ export function ImportHistory({ allUploaders = false }: { allUploaders?: boolean
    */
   const showIp = profile?.role === "admin";
 
+  /** Same gate as `canEditLead`/`showIp` — admin only. Batch download reads
+   *  every selected batch's full lead payload in one go, which is the kind
+   *  of access already reserved for admin everywhere else on this screen. */
+  const canDownload = profile?.role === "admin";
+  /**
+   * The row object, not just the id — same reasoning `exports.tsx` already
+   * documents for its own selection: paging away from a selected batch must
+   * not lose what the download needs to know about it (file name, uploader,
+   * uploaded-on), the way it would if this only tracked ids and looked them
+   * up in the current page's rows.
+   */
+  const [selected, setSelected] = useState<Map<string, ImportRow>>(new Map());
+  const [downloading, setDownloading] = useState<"csv" | "excel" | null>(null);
+  const [page, setPage] = useState(0);
+
   const imports = useQuery({
     // `showIp` is part of the key: the two variants fetch different columns,
     // and a cached row without upload_ip must not be served to an admin.
-    queryKey: ["lead-imports", allUploaders, showIp],
+    queryKey: ["lead-imports", allUploaders, showIp, page],
     queryFn: async () => {
       const columns = [
         "id",
@@ -116,18 +274,103 @@ export function ImportHistory({ allUploaders = false }: { allUploaders?: boolean
         columns.push("uploader:profiles!lead_imports_uploaded_by_fkey(full_name)");
       }
       if (showIp) columns.push("upload_ip");
-      const { data, error } = await supabase
+      const from = page * LEAD_PAGE_SIZE;
+      const { data, error, count } = await supabase
         .from("lead_imports")
-        .select(columns.join(", "))
+        .select(columns.join(", "), { count: "exact" })
         .order("created_at", { ascending: false })
-        .limit(100);
+        .range(from, from + LEAD_PAGE_SIZE - 1);
       if (error) throw error;
-      return (data ?? []) as unknown as ImportRow[];
+      return { rows: (data ?? []) as unknown as ImportRow[], total: count ?? 0 };
     },
   });
 
-  const rows = useMemo(() => imports.data ?? [], [imports.data]);
+  const rows = useMemo(() => imports.data?.rows ?? [], [imports.data]);
+  const total = imports.data?.total ?? 0;
   const ids = useMemo(() => rows.map((row) => row.id), [rows]);
+
+  const selectedBatches = useMemo(() => Array.from(selected.values()), [selected]);
+  // "Select all" reflects THIS page, same as Exports' own toggleAllFiltered —
+  // a batch on another page is either already selected or not, but this
+  // control only ever acts on what's currently on screen.
+  const allSelected = rows.length > 0 && rows.every((row) => selected.has(row.id));
+
+  function toggleBatch(row: ImportRow) {
+    setSelected((prev) => {
+      const next = new Map(prev);
+      if (next.has(row.id)) next.delete(row.id);
+      else next.set(row.id, row);
+      return next;
+    });
+  }
+
+  function toggleAllBatches() {
+    setSelected((prev) => {
+      const pageFullySelected = rows.length > 0 && rows.every((row) => prev.has(row.id));
+      const next = new Map(prev);
+      for (const row of rows) {
+        if (pageFullySelected) next.delete(row.id);
+        else next.set(row.id, row);
+      }
+      return next;
+    });
+  }
+
+  /**
+   * Every lead tagged with any of the selected batches, current payload
+   * included — corrections and all. Not paginated: a batch is capped at 200
+   * leads at ingest time, so even a selection spanning every page stays a
+   * single bounded request, the same tolerance `SalesBreakdown` and
+   * `Exports` already accept for their own unpaginated reads.
+   */
+  async function downloadSelectedBatches(format: "csv" | "excel") {
+    const batchIds = Array.from(selected.keys());
+    if (batchIds.length === 0) return;
+    setDownloading(format);
+    try {
+      const { data, error } = await supabase
+        .from("submissions")
+        .select("import_id, payload, status, archived_at")
+        .in("import_id", batchIds)
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      const leadRows = (data ?? []) as unknown as DownloadLeadRow[];
+
+      const multiBatch = batchIds.length > 1;
+      const columns = [...metadataColumns(selected, multiBatch), ...payloadColumns(leadRows)];
+      const records = leadRows.map((row) => {
+        const record: Record<string, string> = {};
+        for (const column of columns) record[column.label] = column.get(row);
+        return record;
+      });
+
+      const fileBase =
+        batchIds.length === 1
+          ? safeFileBase(selectedBatches[0]?.file_name ?? "lead-import")
+          : `lead-imports-${fileStamp()}`;
+
+      if (format === "csv") {
+        const csv = Papa.unparse(records);
+        // A BOM, so Excel — the thing most people open a .csv in — reads it
+        // as UTF-8 instead of guessing and mangling any accented name.
+        const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+        triggerDownload(blob, `${fileBase}.csv`);
+      } else {
+        const sheet = XLSX.utils.json_to_sheet(records);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, sheet, "Leads");
+        XLSX.writeFile(workbook, `${fileBase}.xlsx`);
+      }
+
+      toast.success(
+        `Downloaded ${records.length} lead${records.length === 1 ? "" : "s"} from ${batchIds.length} batch${batchIds.length === 1 ? "" : "es"} as ${format === "csv" ? "CSV" : "Excel"}`,
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Download failed");
+    } finally {
+      setDownloading(null);
+    }
+  }
 
   /**
    * One query for every batch on screen rather than one per row. Uploading is
@@ -177,11 +420,21 @@ export function ImportHistory({ allUploaders = false }: { allUploaders?: boolean
   return (
     <section className="panel">
       <h2 className="panel-title">
-        {allUploaders ? "Lead imports" : "My imports"} ({rows.length})
+        {allUploaders ? "Lead imports" : "My imports"} ({total})
       </h2>
       <Table>
         <TableHeader>
           <TableRow>
+            {canDownload ? (
+              <TableHead className="w-8">
+                <Checkbox
+                  aria-label="Select all batches"
+                  disabled={rows.length === 0}
+                  checked={allSelected}
+                  onCheckedChange={toggleAllBatches}
+                />
+              </TableHead>
+            ) : null}
             <TableHead>File</TableHead>
             {allUploaders ? <TableHead>Uploader</TableHead> : null}
             {showIp ? <TableHead>Upload IP</TableHead> : null}
@@ -199,6 +452,15 @@ export function ImportHistory({ allUploaders = false }: { allUploaders?: boolean
               className="cursor-pointer"
               onClick={() => setOpenId((current) => (current === row.id ? null : row.id))}
             >
+              {canDownload ? (
+                <TableCell onClick={(event) => event.stopPropagation()}>
+                  <Checkbox
+                    aria-label={`Select ${row.file_name ?? "this batch"}`}
+                    checked={selected.has(row.id)}
+                    onCheckedChange={() => toggleBatch(row)}
+                  />
+                </TableCell>
+              ) : null}
               <TableCell className="font-medium">{row.file_name ?? "—"}</TableCell>
               {allUploaders ? (
                 <TableCell className="text-muted-foreground">
@@ -222,15 +484,15 @@ export function ImportHistory({ allUploaders = false }: { allUploaders?: boolean
               <TableCell>
                 <DecisionBadge counts={decisions.data?.get(row.id)} />
               </TableCell>
-              <TableCell className="text-muted-foreground">
-                {relativeTime(row.created_at, now)}
+              <TableCell className="text-muted-foreground" title={relativeTime(row.created_at, now)}>
+                {formatDate(row.created_at)}
               </TableCell>
             </TableRow>
           ))}
           {rows.length === 0 ? (
             <TableRow>
               <TableCell
-                colSpan={(allUploaders ? 7 : 6) + (showIp ? 1 : 0)}
+                colSpan={(allUploaders ? 7 : 6) + (showIp ? 1 : 0) + (canDownload ? 1 : 0)}
                 className="text-center text-muted-foreground"
               >
                 {imports.isLoading ? "Loading…" : "No imports yet."}
@@ -240,6 +502,52 @@ export function ImportHistory({ allUploaders = false }: { allUploaders?: boolean
         </TableBody>
       </Table>
 
+      <PaginationBar
+        page={page}
+        pageSize={LEAD_PAGE_SIZE}
+        shown={rows.length}
+        total={total}
+        busy={imports.isFetching}
+        onPage={setPage}
+      />
+
+      {canDownload ? (
+        <section
+          className={`panel flex flex-wrap items-center justify-between gap-3 border transition-colors duration-300 ${
+            selected.size > 0 ? "border-accent/60" : "border-border"
+          }`}
+        >
+          <div>
+            <span className="font-display text-2xl font-semibold tracking-tight">
+              {selected.size}
+            </span>
+            <span className="ml-1.5 text-xs text-muted-foreground">
+              {selected.size === 1
+                ? `batch selected — ${selectedBatches[0]?.imported_count ?? 0} leads`
+                : `batches selected — ${selectedBatches.reduce((sum, row) => sum + row.imported_count, 0)} leads`}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="chip"
+              disabled={selected.size === 0 || downloading !== null}
+              onClick={() => downloadSelectedBatches("excel")}
+            >
+              {downloading === "excel" ? "Downloading…" : "Download Excel"}
+            </button>
+            <button
+              type="button"
+              className="btn-submit"
+              disabled={selected.size === 0 || downloading !== null}
+              onClick={() => downloadSelectedBatches("csv")}
+            >
+              {downloading === "csv" ? "Downloading…" : "Download CSV"}
+            </button>
+          </div>
+        </section>
+      ) : null}
+
       {openId ? (
         <div className="flex flex-col gap-2 rounded-md border border-border p-3">
           <h3 className="panel-title">Leads in this batch ({leads.data?.length ?? 0})</h3>
@@ -247,6 +555,9 @@ export function ImportHistory({ allUploaders = false }: { allUploaders?: boolean
             <TableHeader>
               <TableRow>
                 <TableHead>Customer</TableHead>
+                <TableHead>Age</TableHead>
+                <TableHead>State</TableHead>
+                <TableHead>Zip</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Flags</TableHead>
               </TableRow>
@@ -254,14 +565,22 @@ export function ImportHistory({ allUploaders = false }: { allUploaders?: boolean
             <TableBody>
               {(leads.data ?? []).map((lead) => {
                 const flags = dataFlags(lead.data_flags);
+                const payload = (lead.payload ?? {}) as Record<string, unknown>;
                 return (
                   <TableRow
                     key={lead.id}
                     className="cursor-pointer"
                     onClick={() => setSelectedLeadId(lead.id)}
                   >
-                    <TableCell className="font-medium">
-                      {customerName((lead.payload ?? {}) as Record<string, unknown>)}
+                    <TableCell className="font-medium">{customerName(payload)}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {payloadField(payload, "Age")}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {payloadField(payload, "State")}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {payloadField(payload, "Customer Zip Code")}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {/* A rejected lead is archived and left in the import
@@ -284,7 +603,7 @@ export function ImportHistory({ allUploaders = false }: { allUploaders?: boolean
               })}
               {(leads.data ?? []).length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={3} className="text-center text-muted-foreground">
+                  <TableCell colSpan={6} className="text-center text-muted-foreground">
                     {leads.isLoading ? "Loading…" : "No leads found for this batch."}
                   </TableCell>
                 </TableRow>

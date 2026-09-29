@@ -266,3 +266,42 @@ last-write-wins vs `Array.find` first-match). Pre-existing, found in the
 Detail views render payload fields verbatim. Recorded in
 [features/closing-desk.md](features/closing-desk.md).
 
+---
+
+## ~~Individual deactivation doesn't force a sign-out or block login~~
+
+**Found 2026-09-29 while building CRM-wide suspension. FIXED same day** in
+`login.tsx` (blocks entry post-sign-in when `profiles.active` is false) and
+`lib/auth.tsx` (`AuthProvider` subscribes to realtime updates on the
+signed-in user's own `profiles` row — added to the `supabase_realtime`
+publication in `20260929140000_profiles_realtime_deactivation.sql` — and
+force-signs-out the moment `active` flips false). See
+[features/user-management.md](features/user-management.md). Kept here for
+the reasoning; delete once it has been live for a while.
+
+Deactivating
+a user (`profiles.active = false`) makes `my_role()` return `NULL`, which
+correctly cascades through every RLS policy and (as of the 2026-09-27 fix)
+every RPC guard — but nothing signs the user out or blocks a fresh login.
+Verified live and reproduced by the admin this session: `closer1@ums.com`,
+deactivated, still logs in successfully; only once inside does every screen
+go silently empty (RLS returning zero rows, not an error), because carrier
+lookups and similar reads use no-error empty results rather than raising.
+
+Suspension now has the fix this needs — `AuthProvider` subscribes to a
+realtime channel and force-signs-out any affected session immediately, per
+[decisions/0008](decisions/0008-crm-suspension-via-my-role.md) — but that
+subscription only fires on `crm_suspension` changes, not on `profiles.active`
+changes, so individual deactivation still has the gap.
+
+**Fix**, same shape as the suspension one: have `AuthProvider` also listen
+for its own profile's `active` flag flipping to `false` (a `postgres_changes`
+subscription filtered to `id=eq.<self>` on `profiles`, or reuse the existing
+profile-loading effect on a shorter poll) and call `signOut()` immediately,
+rather than leaving a deactivated session logged in until it happens to hit
+a refetch.
+
+**Verify by** deactivating a signed-in test user from the Users tab and
+confirming their open session is signed out within a few seconds, not just
+on their next manual reload.
+

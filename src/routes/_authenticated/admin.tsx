@@ -13,12 +13,13 @@ import { ImportHistory } from "@/components/import-history";
 import { CardAccessLog } from "@/components/card-access-log";
 import { SettingsAudit } from "@/components/settings-audit";
 import { AdminSettings } from "@/components/admin-settings";
+import { SuspensionControl } from "@/components/suspension-control";
 import { CxStatusAdmin } from "@/components/cx-status-admin";
 import { CarrierAdmin } from "@/components/carrier-admin";
 import { DraftDateDesk } from "@/components/draft-date-desk";
 import { CenterAdmin } from "@/components/center-admin";
 import { TransferClientAdmin } from "@/components/transfer-client-admin";
-import { VoiceCloneStudio } from "@/components/voice-clone-studio";
+import { VoiceboxLauncher } from "@/components/voicebox-launcher";
 import { CarrierDeclineReport } from "@/components/carrier-declines";
 import { ParkedLeads, PARKED_LEADS_KEY } from "@/components/parked-leads";
 import { SheetSyncBacklogCard } from "@/components/sheet-sync-backlog";
@@ -229,6 +230,7 @@ function AdminPage() {
           </TabsContent> */}
 
           <TabsContent value="settings" className="flex flex-col gap-4">
+            <SuspensionControl />
             <AdminSettings />
             <CenterAdmin />
             <TransferClientAdmin />
@@ -242,7 +244,7 @@ function AdminPage() {
           </TabsContent> */}
 
           <TabsContent value="voice-clone" className="flex flex-col gap-4">
-            <VoiceCloneStudio />
+            <VoiceboxLauncher />
           </TabsContent>
         </Tabs>
       </div>

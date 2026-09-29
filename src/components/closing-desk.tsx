@@ -302,6 +302,14 @@ export function ClosingDesk() {
       // Reporting date filter calls, so a "today" here and a "today" there can
       // never disagree about where midnight falls. A blank To filters exactly
       // the single day named in From.
+      //
+      // Filters on "Submitted On" (`disposed_at`), not "SaleMade On"
+      // (`created_at`) — deliberate: this screen's From/To is asking "what
+      // was submitted [to the carrier/outcome] in this window," which is
+      // `disposed_at`, not when the lead first entered the queue. A row with
+      // no `disposed_at` yet (never dispositioned) matches neither bound and
+      // so falls out of any date-filtered result, which is correct — there is
+      // no submitted date to test yet.
       let dateWindow: { since: string | null; until: string | null } | null = null;
       if (dateFrom) {
         const { data, error } = await supabase
@@ -372,8 +380,8 @@ export function ClosingDesk() {
       // like every filter here — this table is paged, so a browser-side match
       // would only ever see the rows already fetched and would report nothing
       // for a lead on page four.
-      if (dateWindow?.since) query = query.gte("created_at", dateWindow.since);
-      if (dateWindow?.until) query = query.lt("created_at", dateWindow.until);
+      if (dateWindow?.since) query = query.gte("disposed_at", dateWindow.since);
+      if (dateWindow?.until) query = query.lt("disposed_at", dateWindow.until);
 
       const from = page * PAGE_SIZE;
       const { data, error, count } = await query

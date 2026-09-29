@@ -2,6 +2,7 @@ import "./lib/error-capture";
 
 import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
+import { handleVoicebox } from "./lib/voicebox";
 
 type ServerEntry = {
   fetch: (request: Request, env: unknown, ctx: unknown) => Promise<Response> | Response;
@@ -46,6 +47,14 @@ function isH3SwallowedErrorBody(body: string): boolean {
 
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
+    // Handled entirely outside the SSR handler: these paths proxy an
+    // external tool and never touch the router. See src/lib/voicebox.ts —
+    // it reads Cloudflare bindings off `globalThis.__env__`, not the `env`
+    // argument here, because Nitro's own Cloudflare adapter never forwards
+    // `env` down to this handler (confirmed by reading the built output).
+    const voicebox = await handleVoicebox(request);
+    if (voicebox) return voicebox;
+
     try {
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);

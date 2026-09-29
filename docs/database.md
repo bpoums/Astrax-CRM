@@ -45,6 +45,7 @@ Row counts are a snapshot at audit time, for scale intuition only.
 | `payload_edits` | 11 | Before/after value history for `payload` field edits, written exclusively by `update_payload_field`. Distinct from `form_events`' `payload_edited` entries, which only record *that* a field changed, not the values — see `src/components/payload-history.tsx`. |
 | `settings_audit` | 10 | Before/after history for `app_config` changes, written by `set_admin_setting`. Admin-only read. |
 | `app_config` | 8 | Key/value config store. **No RLS policy at all** — reachable only through `admin_settings()`/`set_admin_setting()`/`review_window()`/`review_settings()`. |
+| `crm_suspension` | added 2026-09-29 | Singleton row (`id boolean primary key default true`, `suspended`, `resumes_at`, `message`, `updated_by`, `updated_at`) — the CRM-wide maintenance switch. **One RLS policy, `for select using (true)`** — the deliberate exception: readable by anyone, including anon/signed-out, so a just-kicked user can still see why. No write policy; writes go only through `set_crm_suspension()`. In the `supabase_realtime` publication so the client can subscribe to changes. See [decisions/0008](decisions/0008-crm-suspension-via-my-role.md). |
 | `sheet_sync_attempts` | added 2026-09-10 | One row per Google Sheets sync attempt (`sync_submission_to_sheet`/`notify_sheet_sync`/`retry_failed_sheet_syncs`). `submission_id`, `request_id` (the `pg_net` request id), `attempt_number`, `resolved_at`, `resolved_status` (`ok`/`retried`/`superseded`/`gave_up`, or null while still pending). RLS enabled, no policies — internal bookkeeping only, never read by the client. See the `notify_sheet_sync` entry below for why this exists. `submission_id` is `ON DELETE CASCADE` (fixed 2026-09-12 — it was created without a delete rule, unlike every other table referencing `submissions.id`, which blocked deleting any submission that had ever had a sync attempt logged). |
 
 ### `submissions` — full current column list
@@ -218,7 +219,7 @@ each supports.
 > reference for the correct shape.
 
 **Identity / bootstrap**
-- `my_role()` — `select role from profiles where id = auth.uid() and active`. The single point every other check reads through; an inactive profile resolves to no role — i.e. **NULL**, which is why the `<>` / `NOT IN` warning above matters. RLS policies compare with `=` and so correctly deny a NULL role; the RPCs using `<>` do not.
+- `my_role()` — **changed 2026-09-29**: `select role from profiles where id = auth.uid() and active and (role = 'admin' or not exists (select 1 from crm_suspension where id = true and suspended and (resumes_at is null or resumes_at > now())))`. The single point every other check reads through; an inactive profile, or a non-admin while the CRM is suspended, resolves to no role — i.e. **NULL**, which is why the `<>` / `NOT IN` warning above matters. RLS policies compare with `=` and so correctly deny a NULL role; the RPCs using `<>` do not. See [decisions/0008](decisions/0008-crm-suspension-via-my-role.md) for why system suspension was folded into this function rather than added to every policy/RPC separately.
 - `handle_new_user()` (trigger, on `auth.users` insert) — creates the matching `profiles` row. **Hardcodes** `role := 'admin'` when the new email is exactly `bpoums@gmail.com` (lowercased comparison), else `'closer'`. This is how the first admin account exists — there is no other bootstrap path.
 - `guard_last_admin()` (trigger, `BEFORE UPDATE` on `profiles`) — raises if the update would deactivate or demote the last active admin.
 
@@ -280,6 +281,8 @@ each supports.
 - `reporting_since(p_days)` — `INVOKER`, pure date arithmetic in `America/Los_Angeles`, no role check (it computes a boundary, not a query).
 - `reporting_retention_status()` — admin only. Reads `cron.job_run_details` for the `purge-reporting-leads` job's last run, and counts how many rows that run archived.
 - `purge_old_reporting_leads()` — cron only. Archives `closed` leads whose `disposed_at` is older than `reporting_retention_days` (skipped entirely if that setting is `0`).
+- `set_crm_suspension(p_suspended, p_duration_minutes?, p_message?)` — admin only (added 2026-09-29). `p_suspended=true` sets `crm_suspension.suspended=true` and `resumes_at = now() + p_duration_minutes` (or `null` for indefinite when `p_duration_minutes` is omitted); `p_suspended=false` clears both. `p_message` defaults to "The system is temporarily suspended for maintenance." when blank. Writes a `settings_audit` row (`key='crm_suspension'`). See [decisions/0008](decisions/0008-crm-suspension-via-my-role.md).
+- `clear_expired_suspension()` — cron only, `EXECUTE` revoked from `anon`/`authenticated`. Flips `crm_suspension.suspended` back to `false` once `resumes_at` has passed — cosmetic consistency for the admin's own Settings view; `my_role()` compares `resumes_at` to `now()` directly and never waits on this tick.
 
 **Sales reporting (added 2026-09-27)** — see [features/sales-breakdown.md](features/sales-breakdown.md).
 - `sales_breakdown_range(p_days, p_start_date, p_end_date)` — admin only. Same `reporting_window`-driven scope as `submission_totals_range` (`disposition = 'accepted' and archived_at is null`), returning one `'total'` row plus one row per resolved carrier and per resolved state (`dimension`, `label`, `level_count`/`graded_count`/`mod_count`/`gi_count`/`unspecified_count`/`total_count`). Replaces the client-side aggregation `SalesBreakdown` (`src/components/sales-breakdown.tsx`) used to do by paging every accepted lead's full payload into the browser (measured 386 rows / 393 kB live on 2026-09-18, tracked in [TODO.md](TODO.md)).
@@ -412,6 +415,7 @@ nothing in this app reads the sheet back to diff against it).
 | `purge-reporting-leads` | daily 04:11 | `purge_old_reporting_leads()` |
 | `retry-sheet-sync` | every 5 minutes (`*/5 * * * *`) | `retry_failed_sheet_syncs()` — added 2026-09-10 |
 | `roll-recurring-draft-dates` | daily 05:23 | `roll_recurring_draft_dates()` — added 2026-09-17. Moves a lead whose `draft_date` has passed and whose payload text is a recurrence ("3rd of the month") to its next occurrence. An explicitly typed date does not match those patterns and is never moved. See [decisions/0006](decisions/0006-recurring-draft-dates-resolved.md). |
+| `clear-expired-suspension` | every minute (`* * * * *`) | `clear_expired_suspension()` — added 2026-09-29. Cosmetic sweep only; see [decisions/0008](decisions/0008-crm-suspension-via-my-role.md). |
 
 ## Edge Functions
 
@@ -425,7 +429,7 @@ exist and their JWT-verification setting via the Supabase API:
 | `invite-user` | `true` | `src/components/user-admin.tsx` (`supabase.functions.invoke("invite-user", ...)`) |
 | `ingest-sheet-lead` | `false` | Not called from this client codebase at all — invoked externally (the batch-of-50/200 ceiling described in `CLAUDE.md` implies an external importer or Apps Script calls this directly with the service key, then it presumably calls the `ingest_sheet_lead` RPC per row). Not independently confirmed in this audit. |
 | `sheet-sync` | `false` | Not called from the client; reached only via `sync_submission_to_sheet()`'s `net.http_post` (called from the `notify_sheet_sync()` trigger and from `retry_failed_sheet_syncs()`). **Source read directly 2026-09-10**: it validates `x-sync-secret`, reshapes the payload, then itself calls out to an Apps Script web app URL (`APPS_SCRIPT_URL`/`APPS_SCRIPT_SECRET` env vars) with no timeout of its own, and only responds to Postgres once that call resolves. Apps Script's own `doPost` (source also confirmed directly) upserts by a `Submission ID` field and holds a lock for up to 30s under concurrent requests — see the `notify_sheet_sync` entry under Triggers. **v12, 2026-09-15 — a 200 from Apps Script does not mean the row was written.** An Apps Script web app answers `200` even when `doPost` threw, with its HTML error page as the body instead of the `'ok'` the handler returns on success. Checking `res.ok` alone therefore logged every exception as a successful sync, wrote `resolved_status = 'ok'` to `sheet_sync_attempts`, and left the retry job with nothing to retry — which is how uploaded leads went missing silently. `appsScriptFailure()` now inspects the body for the three failure shapes that arrive as 200 (an HTML page, any `Exception:` text, or the literal `unauthorized` on a secret mismatch) and returns `502`, so the attempt is recorded honestly and `retry_failed_sheet_syncs` picks it up. It also logs just the extracted `Exception:` line rather than ~8KB of Google's CSP shim. |
-| `voice-clone-proxy` | `true` | `src/components/voice-clone-studio.tsx` (`supabase.functions.invoke("voice-clone-proxy", ...)`), admin tab only. Added 2026-09-23. Checks the caller's own `profiles.role` is `admin` (same pattern as `invite-user`), then forwards the request as-is to `POST {VOICE_CLONE_TOOL_URL}/api/clone-speak` — an external, unauthenticated, plain-HTTP tool at a bare IP. This function is that tool's entire access boundary; see `docs/features/voice-clone-studio.md`. |
+| `voice-clone-proxy` | `true` | **Superseded 2026-09-28, left deployed but unused.** Added 2026-09-23 to front the same external tool this described; the admin tab now proxies the tool's whole interface through the Cloudflare Worker itself (`src/lib/voicebox.ts`, `src/server.ts`) instead of calling this function for one endpoint — see `docs/features/voice-clone-studio.md`. Nothing in the app calls `supabase.functions.invoke("voice-clone-proxy", ...)` anymore. |
 
 ## Row-Level Security summary
 
@@ -475,6 +479,11 @@ Every table has RLS **enabled**. Policy count per table, condensed:
     **`general_manager` (added 2026-09-25)**.
   - `lead_imports` — `uploaded_by = (select auth.uid()) OR (select my_role())
     in (manager, admin)`.
+  - `crm_suspension` — **the one table readable by literally everyone,
+    including `anon`** (`for select using (true)`, no role check at all),
+    added 2026-09-29. Deliberate: the blocking message on `/suspended` has to
+    reach a session that's already been signed out, or was never signed in.
+    See [decisions/0008](decisions/0008-crm-suspension-via-my-role.md).
 - **Zero policies at all** (deny-everything to the client, reachable only
   through `SECURITY DEFINER` functions): `app_config`, `payment_details`,
   and — corrected 2026-09-17, this list previously named only the first two —

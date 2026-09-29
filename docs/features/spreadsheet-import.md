@@ -32,7 +32,33 @@ own detail sheet — `LeadPayload`, `DataFlagList`, and, admin only,
 `payment_summary` don't accept `data_uploader`), so a `data_uploader`
 viewing their own batch gets the payload and flags read-only and no
 banking panel at all rather than one that would just error. Reuses the
-row already fetched for the batch table — no extra query per lead),
+row already fetched for the batch table — no extra query per lead.
+**Added 2026-09-28: batch download** — admin-only, a checkbox column on
+the batch table plus a reused "Selected (N)" / amber-ready-bar download
+control, same pattern `exports.tsx` established. Selecting one or more
+batches and clicking Download CSV/Excel fetches every `submissions` row
+tagged with those `import_id`s — current payload, corrections included,
+every status (approved/pending/rejected) — and builds a file client-side,
+same `papaparse`/`xlsx` path `Exports` uses. One batch selected keeps that
+batch's file name; more than one produces a combined file with a "Source
+File" column so rows stay traceable to their batch. No column picker,
+unlike `Exports` — the intent here is "give the admin their batch back,"
+not a curated report, so every payload field (union across the downloaded
+rows, deduped by display label) plus Source File/Status/Uploaded
+On/Uploader metadata columns are always included. **Added 2026-09-28: the
+batch table itself is now server-paginated** (`LEAD_PAGE_SIZE`/25 per page,
+`PaginationBar`, the same pattern `SubmissionsExplorer` uses) — it used to
+be a single unpaginated fetch capped at the 100 most recent batches, with
+no way to reach anything older. Selection is tracked as `Map<id, ImportRow>`
+(row snapshot, not just the id) specifically so a batch selected on one page
+survives navigating to another — the same reasoning `exports.tsx` documents
+for its own selection state),
+**Added 2026-09-29: the opened-batch leads table now shows Age, State, and
+Zip** alongside Customer/Status/Flags — read straight off the already-fetched
+`payload` (no new query), using the closer form's own field labels (`"Age"`,
+`"State"`, `"Customer Zip Code"` — `closer-form.tsx` `SECTIONS`), which an
+imported lead's payload carries under the same keys since
+`canonical-fields.ts` derives its import targets from that same form.
 `pending-imports.tsx`, `src/lib/parse-file.ts` (papaparse/xlsx dispatch),
 `src/lib/canonical-fields.ts` (import target catalog, derived from the
 closer form — see [closer-submission-and-forms.md](closer-submission-and-forms.md)),
@@ -76,6 +102,14 @@ normalization, duplicate grouping — see
   spreadsheet open on the same machine, so masking the parsed copy
   "protects nothing." This is the one place in the app where a full card
   number and CVV are ever rendered outside a validator's own open review.
+- **Batch download reads live `payload`, not the original upload** — no raw
+  file is ever stored, so "download this batch" reconstructs a spreadsheet
+  from whatever `submissions.payload` currently holds. A value corrected
+  after import via `update_payload_field` downloads as the corrected value,
+  not the one originally uploaded. "Include everything tagged with that
+  batch" was a deliberate choice, not a default: an approved, a still-pending
+  and a rejected (archived, still `pending_import_approval`) lead from the
+  same batch all download together, distinguished only by the Status column.
 
 ## Derived columns (fixed 2026-09-17)
 
@@ -132,6 +166,8 @@ The backfill filled 31 of 44 uploaded leads' `draft_date` and all 44
   intentionally forward-looking or simply unused was not resolved by this
   audit.
 - Only the first sheet of a multi-sheet `.xlsx` file is ever read.
+- **Batch download carries the same PII-export caveat `docs/features/lead-export.md` records for the Exports tab**: no audit trail records who downloaded which batch, and SSNs/bank-account text sitting in `payload` are in scope and not logged. Card number/CVV are not at risk here — those go to `payment_details` for an imported lead, never into `payload` (see `CLAUDE.md`'s "Payment data never goes in `payload`" rule) — so an imported lead's downloaded row never carries them regardless.
+- **The download fetch itself is still unpaginated** — the batch *table* is now paginated (25/page), but selecting batches across many pages and downloading still issues one single `.in("import_id", [...])` request for every lead in every selected batch. Bounded by the 200-leads-per-batch ingest ceiling per batch, but an admin could in principle select hundreds of batches across many pages and trigger one very large request. Not tested against a realistic worst case in this pass.
 
 ## Future work
 None found as explicit code TODOs beyond the items above.

@@ -1,5 +1,147 @@
 # Changelog
 
+## 2026-09-29 — Lead Imports "When" column shows the date, not a relative duration
+
+Same fix as 2026-09-28's Parked Leads change, applied to `import-history.tsx`'s
+batch list: the "When" column now shows `formatDate(created_at)` instead of
+`relativeTime`, with the relative duration still available on hover (the
+cell's `title`).
+
+## 2026-09-29 — Age/State/Zip columns on the Uploads batch leads table
+
+Clicking a batch in the admin Uploads tab (`import-history.tsx`) showed only
+Customer/Status/Flags. Added Age, State, and Zip Code, read from the
+already-fetched `payload` (no new query, no schema change) using the closer
+form's own field labels. See `docs/features/spreadsheet-import.md`.
+
+## 2026-09-29 — Deactivation now signs the user out and blocks login
+
+Individual deactivation (`profiles.active = false`, Users tab) already
+cascaded through every RLS policy and RPC guard via `my_role()`, but left an
+already-open session logged in (screens just went silently empty) and didn't
+stop the account signing back in. `login.tsx` now checks `active` right
+after sign-in and refuses with "This account has been deactivated. Contact
+your admin." if false; `AuthProvider` subscribes to realtime updates on the
+signed-in user's own `profiles` row and force-signs-out the instant `active`
+flips false mid-session, redirecting to `/login?reason=deactivated`. New
+migration `20260929140000_profiles_realtime_deactivation.sql` adds
+`profiles` to the `supabase_realtime` publication. See
+`docs/features/user-management.md`.
+
+## 2026-09-29 — CRM-wide suspend/maintenance mode
+
+New admin Settings-tab control (`SuspensionControl`) to pause the whole CRM
+for every non-admin role, timed (auto-resume) or manual (indefinite), ahead
+of commercializing the product. Enforcement is server-side in `my_role()`
+(a non-admin resolves to no role while suspended, cascading through every
+existing RLS policy and RPC guard the same way individual deactivation
+already does — no other policy or RPC edited); the forced sign-out is a new
+realtime subscription in `AuthProvider` that signs out and redirects an
+affected session to the new public `/suspended` page the instant the switch
+flips, closing the gap individual deactivation still has (see
+`docs/TODO.md`). New table `crm_suspension`, RPCs `set_crm_suspension`/
+`clear_expired_suspension`, cron job `clear-expired-suspension`. See
+`docs/decisions/0008-crm-suspension-via-my-role.md` and
+`docs/features/admin-settings-and-config.md`.
+
+Migration `20260929120000_crm_suspension.sql` applied live 2026-09-29;
+`npm run types` re-run afterward, removing the temporary type-cast
+workarounds `lib/crm-suspension.ts` carried while the table wasn't yet in
+the generated `Database` type.
+
+## 2026-09-28 — Parked Leads shows the date it was parked, not a relative duration
+
+`parked-leads.tsx` — shared by the admin panel's Parked Leads tab and the
+general_manager's Closing Desk Parked Leads tab, one component, so this
+fixes both at once — swapped the "Parked" column and the detail panel's
+subtitle from `relativeTime(created_at)` ("2d ago") to `formatDate(created_at)`
+(the calendar date). The relative duration is still there on hover (the
+table cell's `title`). See `docs/features/closing-desk.md`.
+
+## 2026-09-28 — Fixed "error code: 1003" opening Voice Clone Studio
+
+`src/lib/voicebox.ts` fetched the external tool by its bare IP
+(`http://132.226.187.244`). Cloudflare Workers' `fetch()` rejects a raw
+IP-literal URL with its own error 1003 ("Direct IP Access Not Allowed") —
+confirmed live: the identical request reached the tool fine from a normal
+outside network, only failed when made from inside the Worker, and the
+Worker faithfully relayed Cloudflare's own error page back to the browser as
+if it were the tool's page. Fixed by adding a DNS-only (not proxied) `A`
+record, `voicebox-origin.astrax.live → 132.226.187.244`, and pointing
+`TOOL_URL` at that hostname instead of the IP. See
+`docs/features/voice-clone-studio.md`.
+
+## 2026-09-28 — Fixed "Voice Clone Studio is not configured" after setting the secret
+
+`src/lib/voicebox.ts` read `VOICEBOX_SESSION_SECRET` off its handler's `env`
+function argument — the textbook Cloudflare Workers convention. In this
+Nitro build that argument is always empty by the time it reaches
+`src/server.ts`: traced by reading the built `.output/server/index.mjs`,
+where Nitro's own Cloudflare adapter sets `globalThis.__env__ = env` and
+then calls `nitroApp.fetch(request)` with no `env` parameter at all. Fixed
+to read `globalThis.__env__` directly instead of the function argument — the
+secret was set correctly the whole time, the code just never looked in the
+right place. See `docs/features/voice-clone-studio.md`.
+
+## 2026-09-28 — Voice Clone tab now opens the tool's real interface at astrax.live/voicebox
+
+Replaced the hand-built form in the admin Voice Clone tab
+(`voice-clone-studio.tsx`, deleted) with an "Open Voice Clone Studio" button
+(`voicebox-launcher.tsx`) that opens the external tool's own, unmodified
+interface in a new tab at `astrax.live/voicebox`, proxied through this app's
+own Cloudflare Worker — admin-only. New `src/lib/voicebox.ts`, wired into
+`src/server.ts` (this app's actual Worker `fetch` handler): exchanges the
+current Supabase session for a short-lived signed cookie
+(`POST /api/voicebox/session`), then proxies `/voicebox` and
+`/voicebox/api/*` to the tool, rewriting its three confirmed root-relative
+`fetch()` calls in transit so its own API calls stay within the proxy.
+Needed because this app's Supabase session lives in `localStorage`, not a
+cookie, so a plain navigation carries no proof of who's asking. New
+Cloudflare Worker secret `VOICEBOX_SESSION_SECRET` (HMAC signing only — no
+new Supabase secret needed). `supabase/functions/voice-clone-proxy` is
+superseded but left deployed, unused, by explicit decision. See
+`docs/features/voice-clone-studio.md`, `docs/database.md`.
+
+## 2026-09-28 — Lead imports batch list is now paginated
+
+`ImportHistory` (`/admin?tab=uploads`, `/upload`) used to fetch the 100 most
+recent batches in one unpaginated request, with no way to reach anything
+older. Now server-paginated at 25/page (`LEAD_PAGE_SIZE`, `PaginationBar`,
+the same pattern `SubmissionsExplorer` already uses). Batch selection for
+the CSV/Excel download (below) is now tracked by row snapshot
+(`Map<id, ImportRow>`) rather than by id alone, so a batch selected on one
+page stays selected after navigating to another — the same fix `exports.tsx`
+already needed for its own selection state, applied here before shipping
+the same bug.
+
+## 2026-09-28 — Admin can download uploaded batches as CSV/Excel
+
+`ImportHistory` (`/admin?tab=uploads`) gained a checkbox column and a reused
+"Selected (N)" / amber-ready-bar download control (the same pattern
+`exports.tsx` established) — admin-only. Selecting one or more lead-import
+batches and downloading builds a file from every `submissions` row tagged
+with those batches' `import_id`s: current payload (corrections included),
+every status (approved/pending/rejected), every payload field present
+(union across the downloaded rows, no column picker — the intent is "give
+the batch back," not a curated report). One batch keeps its own file name;
+more than one produces a combined file with a "Source File" column. No new
+RPC or migration — reads `submissions` directly, same access an admin
+already has everywhere else on this screen. See
+`docs/features/spreadsheet-import.md`.
+
+## 2026-09-28 — Closing Desk's date filter now searches "Submitted On" (`disposed_at`), not "SaleMade On" (`created_at`)
+
+The Closing Desk table (`/closing`, `closing_manager`/`general_manager`)
+names its two date columns deliberately the other way round from what the
+raw column names suggest: "SaleMade On" is `created_at` (when the lead
+entered the queue) and "Submitted On" is `disposed_at` (when it was
+submitted to the carrier/outcome). The From/To filter above the table was
+querying `created_at` — "SaleMade On" — instead of the "Submitted On" column
+its own labels claimed. Changed the filter to query `disposed_at`; headers
+and every other column are unchanged. A row with no `disposed_at` yet
+(never dispositioned) now falls out of any date-filtered result, correctly —
+there is no submitted date to test yet. See `docs/features/closing-desk.md`.
+
 ## 2026-09-27 — Sales Breakdown aggregation moved server-side
 
 `SalesBreakdown` (`/admin?tab=sales-breakdown`) previously paged every

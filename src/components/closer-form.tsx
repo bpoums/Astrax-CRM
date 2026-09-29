@@ -51,7 +51,7 @@ export const SECTIONS: Section[] = [
       { label: "Date of Birth", type: "date", required: true },
       { label: "Age", type: "number", required: true },
       { label: "State", type: "text", required: true },
-      { label: "Residential State", type: "text", required: true },
+      // { label: "Residential State", type: "text", required: true },
       { label: "Birth State", type: "text", required: true },
       // Two chips, not free text: almost every customer is USA, and "Other"
       // reveals a box whose contents become the value — see FieldControl.

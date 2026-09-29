@@ -42,6 +42,22 @@ table (now with a filter bar and a capped, sticky-header scroll region).
   `guard_last_admin()` refuses to deactivate the last active admin, and its
   raised message is shown verbatim via the same `toast.error(error.message)`
   pattern the other mutations already use.
+- **Deactivation now signs the user out, not just cascades through RLS
+  (fixed 2026-09-29).** Previously `active = false` only made `my_role()`
+  return `NULL`, correctly blocking every read/write server-side but leaving
+  an already-open session logged in to a silently-empty app, and leaving
+  login itself unblocked. Two client-side checks close that, mirroring the
+  realtime kick built for CRM suspension
+  ([decisions/0008](../decisions/0008-crm-suspension-via-my-role.md)):
+  `login.tsx` now checks `profiles.active` right after sign-in and refuses
+  entry with "This account has been deactivated. Contact your admin." if
+  it's false; `AuthProvider` (`lib/auth.tsx`) subscribes to realtime updates
+  on the signed-in user's own `profiles` row (added to the
+  `supabase_realtime` publication) and force-signs-out + redirects to
+  `/login?reason=deactivated` the instant `active` flips false mid-session.
+  `profiles`' own read policy (`id = auth.uid() OR ...`) isn't gated by
+  `active`, so a deactivated user can still receive that one realtime event
+  about their own row even though every other read now returns nothing.
 - **A center picker only renders for roles in `CENTER_ROLES`**
   (`src/lib/centers.ts`: `closer`, `closing_manager`, `data_uploader`,
   `validator`) — everyone else's center cell is a plain dash. Being in the

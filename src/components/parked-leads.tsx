@@ -312,9 +312,9 @@ export function ParkedLeads() {
                 </TableCell>
                 <TableCell
                   className="whitespace-nowrap text-muted-foreground"
-                  title={formatDate(row.created_at)}
+                  title={relativeTime(row.created_at, now)}
                 >
-                  {relativeTime(row.created_at, now)}
+                  {formatDate(row.created_at)}
                 </TableCell>
                 {/* Stops the row's own click handler firing too, which would
                   open the detail panel over a lead that is already leaving. */}
@@ -374,7 +374,7 @@ export function ParkedLeads() {
                 <SheetTitle>{customerName(selected.payload)}</SheetTitle>
                 <SheetDescription>
                   {closerName(selected)} · {sourceLabel(selected)} · parked{" "}
-                  {relativeTime(selected.created_at, now)}
+                  {formatDate(selected.created_at)}
                   {selected.transfer_client_name ? ` · to ${selected.transfer_client_name}` : ""}
                 </SheetDescription>
               </SheetHeader>

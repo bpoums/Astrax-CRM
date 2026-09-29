@@ -69,13 +69,26 @@ back whole-business whatever the caller's centre — see the security entry in
 ## Database
 Read: the same wide `submissions` select used elsewhere (`BASE_SELECT`),
 plus the `CX_LEAD_STATUS_SELECT` embed for the four read-only CX columns.
-`BASE_SELECT` also carries `disposed_at`, shown as its own "Disposed" table
-column (and in the detail sheet's subtitle) next to "Submitted"
-(`created_at`) — `created_at` is when the lead was first submitted,
-`disposed_at` is when a disposition (Submit/Declined/Pending) was last
-recorded on it. Stamped by `dispose_submission` every time it runs, whether
-called by a validator inside their review or by a manager/admin; `null`
-until a disposition has actually been recorded.
+`BASE_SELECT` also carries `disposed_at`, shown as its own table column
+("Submitted On") and in the detail sheet's subtitle, next to "SaleMade On"
+(`created_at`) — deliberately named the other way round from what the raw
+column names suggest: `created_at` is when the lead first entered the queue
+("SaleMade On" here), `disposed_at` is when a disposition
+(Submit/Declined/Pending) was last recorded on it ("Submitted On" here — the
+date it was submitted to the carrier/outcome). Table column order: Center,
+Customer, Submitted By, Source, **SaleMade On** (`created_at`), Validation
+Status, **Submitted On** (`disposed_at`), Disposition. `disposed_at` is
+stamped by `dispose_submission` every time it runs, whether called by a
+validator inside their review or by a manager/admin; `null` until a
+disposition has actually been recorded.
+
+**Filter by submitted date now searches `disposed_at`, changed 2026-09-28**
+(previously searched `created_at`, which under this screen's naming was the
+"SaleMade On" column, not "Submitted On" as the filter's own aria-labels and
+the "Submitted On" header claimed). A row with no `disposed_at` yet — not
+dispositioned — matches neither bound and falls out of any date-filtered
+result, which is correct: there is no submitted date to test yet.
+
 Write: `update_payload_field` for in-place edits, `set_validator_fields`,
 `decline_with_carriers`/`dispose_submission` are **not** available here —
 this desk edits the payload and can view outcomes but does not itself
@@ -104,17 +117,18 @@ branch that decides whether the Parked Leads tab even renders lives in the
   filter on top would risk quietly disagreeing with the server-side rule the
   moment that rule changes.
 - **Filter by submitted date** (added 2026-09-15, available to both
-  `closing_manager` and `general_manager`). A From/To pair over `created_at`,
-  the date the "Submitted" column already draws; a blank "To" filters exactly
-  the single day in "From". It composes with every other filter rather than
-  replacing them, and like all of them it runs in the database — this table is
-  paged, so a browser-side match would only ever see the rows already fetched.
+  `closing_manager` and `general_manager`). A From/To pair over `disposed_at`
+  (changed 2026-09-28, was `created_at` — see the Database section above for
+  why: on this screen "Submitted On" names `disposed_at`, not `created_at`),
+  a blank "To" filters exactly the single day in "From". It composes with
+  every other filter rather than replacing them, and like all of them it runs
+  in the database — this table is paged, so a browser-side match would only
+  ever see the rows already fetched.
   Boundaries come from the **`reporting_window` RPC**, the same one Reporting
   calls, never from browser date maths: a Pacific calendar day is not a UTC
-  day, and the difference is real rather than theoretical — for 2026-09-14 the
-  Pacific window holds 27 closer leads where a naive `created_at::date`
-  comparison holds 25. Reusing the RPC is also what keeps a "today" here
-  meaning the same day as a "today" in Reporting.
+  day, and the difference is real rather than theoretical. Reusing the RPC is
+  also what keeps a "today" here meaning the same day as a "today" in
+  Reporting.
   The RPC needs no role gate of its own: `EXECUTE` is granted to
   `authenticated`, it is not `SECURITY DEFINER`, and it takes no submission id
   and returns no lead data — only `{since, until}`. The rows themselves stay
@@ -142,6 +156,14 @@ branch that decides whether the Parked Leads tab even renders lives in the
   the row's own button stops event propagation so it does not also open the
   panel, and a successful move closes the panel, since the lead leaves the
   list at that moment.
+- **The "Parked" column shows the calendar date, changed 2026-09-28** (was
+  the relative duration, "2d ago") — same swap in both the table cell and the
+  detail panel's subtitle. The relative duration is still available on hover
+  (the table cell's `title`), just no longer the primary reading. `created_at`
+  is the right column for this: a closer-parked lead is written `status =
+  'parked'` in the same single insert as its submission (see
+  [decisions/0005](../decisions/0005-single-insert-status-to-avoid-sheet-sync-races.md)),
+  so there is no separate "parked at" timestamp to prefer over it.
 
 ## Known limitations
 - **A parked lead's payload is shown unmasked**, banking fields included. The

@@ -242,6 +242,48 @@ export type Database = {
         }
         Relationships: []
       }
+      crm_suspension: {
+        Row: {
+          id: boolean
+          message: string | null
+          resumes_at: string | null
+          suspended: boolean
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          id?: boolean
+          message?: string | null
+          resumes_at?: string | null
+          suspended?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          id?: boolean
+          message?: string | null
+          resumes_at?: string | null
+          suspended?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "crm_suspension_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "crm_suspension_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "validator_stats"
+            referencedColumns: ["validator_id"]
+          },
+        ]
+      }
       cx_lead_status: {
         Row: {
           chargeback_reason: string | null
@@ -1736,6 +1778,7 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      clear_expired_suspension: { Args: never; Returns: undefined }
       cx_pipeline_member: { Args: { p_sub: string }; Returns: boolean }
       decline_with_carriers: {
         Args: { p_carrier_ids: string[]; p_reason?: string; p_sub: string }
@@ -2217,6 +2260,14 @@ export type Database = {
       set_admin_setting: {
         Args: { p_key: string; p_value: string }
         Returns: Json
+      }
+      set_crm_suspension: {
+        Args: {
+          p_duration_minutes?: number
+          p_message?: string
+          p_suspended: boolean
+        }
+        Returns: undefined
       }
       set_cx_status: {
         Args: {

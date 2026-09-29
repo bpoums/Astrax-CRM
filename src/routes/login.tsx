@@ -47,6 +47,8 @@ function withTimeout<T>(work: Promise<T>, message: string): Promise<T> {
   ]);
 }
 
+const DEACTIVATED_MESSAGE = "This account has been deactivated. Contact your admin.";
+
 function LoginPage() {
   const navigate = useNavigate();
   const { profile, session } = useAuth();
@@ -61,6 +63,15 @@ function LoginPage() {
       navigate({ to: roleHome[profile.role], replace: true });
     }
   }, [session, profile, navigate]);
+
+  // `AuthProvider` lands a live-kicked deactivation here via a hard redirect
+  // (see `lib/auth.tsx`) — no typed search schema on this route, so read the
+  // flag the same way `reset-password.tsx` reads its own fragment error.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("reason") === "deactivated") {
+      setError(DEACTIVATED_MESSAGE);
+    }
+  }, []);
 
   async function handleForgotPassword() {
     setError("");
@@ -113,9 +124,14 @@ function LoginPage() {
       }
       const { data: prof } = await supabase
         .from("profiles")
-        .select("role")
+        .select("role, active")
         .eq("id", data.user.id)
         .maybeSingle();
+      if (prof && !prof.active) {
+        await supabase.auth.signOut();
+        setError(DEACTIVATED_MESSAGE);
+        return;
+      }
       const role = (prof?.role as AppRole | undefined) ?? "closer";
       navigate({ to: roleHome[role], replace: true });
     } catch (caught) {

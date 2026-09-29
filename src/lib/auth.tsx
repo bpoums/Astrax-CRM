@@ -1,9 +1,15 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { redirect, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
+import {
+  fetchCrmSuspension,
+  isActiveSuspension,
+  subscribeToCrmSuspension,
+  type CrmSuspension,
+} from "@/lib/crm-suspension";
 
 /**
  * Read from the generated enum rather than restated, so adding a role in the
@@ -84,6 +90,12 @@ export async function requireRole(allowed: AppRole[]) {
     .maybeSingle();
 
   const role = (profile?.role as AppRole | undefined) ?? "closer";
+
+  if (role !== "admin") {
+    const suspension = await fetchCrmSuspension();
+    if (isActiveSuspension(suspension)) throw redirect({ to: "/suspended", replace: true });
+  }
+
   if (!allowed.includes(role)) throw redirect({ to: roleHome[role], replace: true });
 }
 
@@ -137,6 +149,77 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setProfile(null);
     navigate({ to: "/login", replace: true });
   };
+
+  /**
+   * Force-logout on a live suspension. `my_role()` already blocks every read
+   * and write server-side the moment `crm_suspension` flips, but a signed-in
+   * non-admin sitting on a page would otherwise just watch it go silently
+   * empty. Individual deactivation gets the same treatment below, via its
+   * own effects. Refs, not state, so the subscription is set up once and
+   * reads the latest session/profile without resubscribing on every profile
+   * change.
+   */
+  const sessionRef = useRef(session);
+  const profileRef = useRef(profile);
+  sessionRef.current = session;
+  profileRef.current = profile;
+
+  useEffect(() => {
+    const kickIfSuspended = (row: CrmSuspension) => {
+      if (!sessionRef.current) return;
+      if (profileRef.current?.role === "admin") return;
+      if (!isActiveSuspension(row)) return;
+      void signOut().then(() => navigate({ to: "/suspended", replace: true }));
+    };
+
+    void fetchCrmSuspension().then((data) => {
+      if (data) kickIfSuspended(data);
+    });
+
+    return subscribeToCrmSuspension(queryClient, kickIfSuspended);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /**
+   * The equivalent kick for individual deactivation — same job as the
+   * suspension effect above, but there's no separate lookup table to poll:
+   * `profiles.active` is already part of the profile this provider loads.
+   * A full `window.location` redirect, not the router's `navigate`, because
+   * `/login` has no typed search schema for the `?reason=` flag and a hard
+   * reload is fine (arguably safer) for a forced security sign-out.
+   */
+  useEffect(() => {
+    if (profile && !profile.active) {
+      void signOut().then(() => {
+        window.location.href = "/login?reason=deactivated";
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile]);
+
+  useEffect(() => {
+    const uid = session?.user.id;
+    if (!uid) return;
+    const channel = supabase
+      .channel(`profile-deactivation-${uid}`)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "profiles", filter: `id=eq.${uid}` },
+        (payload) => {
+          const row = payload.new as { active: boolean };
+          if (!row.active) {
+            void signOut().then(() => {
+              window.location.href = "/login?reason=deactivated";
+            });
+          }
+        },
+      )
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user.id]);
 
   return (
     <AuthContext.Provider value={{ session, profile, loading, signOut }}>
