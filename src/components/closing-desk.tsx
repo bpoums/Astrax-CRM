@@ -371,7 +371,14 @@ export function ClosingDesk() {
         const clauses = [
           ...payloadSearchClauses(term),
           ...personSearchClauses(["closer_id", "uploaded_by"], profileIds),
+          `policy_number.ilike.*${term}*`,
         ];
+        // The payload's SSN is typed dashed on some leads and not on others;
+        // `ssn_normalized` is digits only on every one, so "123-45-6789",
+        // "123456789" and a last-4 all match. Under four digits a fragment
+        // would match most of the book.
+        const ssnDigits = term.replace(/\D/g, "");
+        if (ssnDigits.length >= 4) clauses.push(`ssn_normalized.ilike.*${ssnDigits}*`);
         query = query.or(clauses.join(","));
       }
 
@@ -501,7 +508,7 @@ export function ClosingDesk() {
             type="search"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search customer, closer, phone…"
+            placeholder="Search customer, closer, phone, SSN, policy #…"
             className="field-input flex-1"
             aria-label="Search closer leads"
           />

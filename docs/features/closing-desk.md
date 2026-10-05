@@ -82,6 +82,17 @@ stamped by `dispose_submission` every time it runs, whether called by a
 validator inside their review or by a manager/admin; `null` until a
 disposition has actually been recorded.
 
+**The search box** (server-side, one PostgREST `or` group) matches customer
+name and phone (`payloadSearchClauses`), the closer or uploading centre by
+name, and, **added 2026-10-06**, `policy_number` and SSN. SSN searches
+`ssn_normalized` with the typed term reduced to its digits, not the payload's
+`SSN Number`. The payload value is dashed on some leads and plain on others,
+so an undashed search against it missed dashed leads (verified live: 0 hits
+vs 1). The SSN clause is only added when the term has 4 or more digits, so a
+last-4 lookup works but a shorter fragment doesn't match most of the book.
+This is the one desk shared by `closing_manager` and `general_manager`, so
+both get it. RLS still decides which leads can match.
+
 **Filter by submitted date now searches `disposed_at`, changed 2026-09-28**
 (previously searched `created_at`, which under this screen's naming was the
 "SaleMade On" column, not "Submitted On" as the filter's own aria-labels and

@@ -122,6 +122,10 @@ Tables: `cx_status_options`, `cx_lead_status`, `cx_status_history`,
   — losing the text would take information off a screen that had it. The search
   box follows the column: `final_carrier_name` is one more clause in its `or`
   group, so a carrier that is only a stamped FK is still findable by name.
+  **The search box matches**: customer name, phone, SSN (payload), the final
+  carrier (`Agency` plus `final_carrier_name`, not the closer's proposed
+  carrier, changed 2026-10-01), and, **added 2026-10-06**, `policy_number`,
+  the view's own column.
 - **The detail sheet has a read-only "Filled By Validator" panel** — Final
   Carrier, Agent Name, Policy Number, sitting directly under Lead Details
   because it reads as the rest of the same record: what the validator added to

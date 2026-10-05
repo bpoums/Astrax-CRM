@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import {
-  CARRIER_KEYS,
+  AGENCY_KEY,
   CenterBadge,
   carrierName,
   customerName,
@@ -77,12 +77,15 @@ const PAGE_SIZE = 25;
 
 /** The payload keys the search box spans. */
 /**
- * Spread from `CARRIER_KEYS` rather than naming one of them: a validator
- * submission files the carrier under "Agency", so searching only the closer's
- * "Proposed Carrier" key matched none of them — the same split that used to
- * leave the column blank.
+ * `AGENCY_KEY` rather than `CARRIER_KEYS`: the column shown and searched here
+ * is the Final Carrier, not the carrier the closer originally proposed, so a
+ * search for "TransAmerica" shouldn't also match a lead merely pitched on it
+ * and then written elsewhere. `AGENCY_KEY` is the validator form's own
+ * carrier field (its submissions have no separate proposal stage); the
+ * `final_carrier_name` clause below covers a reviewed closer/uploaded lead's
+ * FK-resolved carrier.
  */
-const SEARCH_KEYS = ["Full Name", ...CARRIER_KEYS, "Phone Number", SSN_FIELD];
+const SEARCH_KEYS = ["Full Name", AGENCY_KEY, "Phone Number", SSN_FIELD];
 
 const SELECT_COLUMNS = [
   "submission_id",
@@ -333,6 +336,8 @@ function searchFilter(term: string) {
   // otherwise match nothing. The view resolves the name, which is why this is
   // one more clause here rather than a carriers lookup per keystroke.
   clauses.push(`final_carrier_name.ilike.*${safe}*`);
+  // A column on the view, not a payload key — set by the validator at review.
+  clauses.push(`policy_number.ilike.*${safe}*`);
   return clauses.join(",");
 }
 
@@ -522,7 +527,7 @@ export function CustomersPipeline({
             type="search"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search customer, carrier, phone, SSN…"
+            placeholder="Search customer, carrier, phone, SSN, policy #…"
             className="field-input flex-1"
             aria-label="Search the customers pipeline"
           />

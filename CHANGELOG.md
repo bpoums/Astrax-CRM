@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-10-06 — Search by policy number (CX pipeline) and SSN + policy number (Closing Desk)
+
+Customers Pipeline's search box now also matches `policy_number`
+(`customers-pipeline.tsx`). The Closing Desk's (general manager and closing
+manager) now matches `policy_number`, and SSN via `ssn_normalized` using the
+digits of the search term, so dashed, undashed and last-4 searches all work.
+It needs at least 4 digits (`closing-desk.tsx`). Placeholders updated on both.
+Client only, no database change. See `docs/features/cx-lifecycle.md` and
+`docs/features/closing-desk.md`.
+
 ## 2026-10-04 — Placement hierarchy, phase 1: agencies, IMOs, agents and their mapping
 
 New admin vocabulary for where a lead is placed: Agency → IMO → Carrier →
