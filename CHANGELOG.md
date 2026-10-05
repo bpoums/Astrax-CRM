@@ -1,5 +1,33 @@
 # Changelog
 
+## 2026-10-04 — Placement hierarchy, phase 1: agencies, IMOs, agents and their mapping
+
+New admin vocabulary for where a lead is placed: Agency → IMO → Carrier →
+Agent. Every link is many-to-many, and an agent's appointment belongs to one
+IMO→Carrier contract.
+
+**Database** (`20261004100000_placement_hierarchy.sql`):
+- New tables `agencies`, `imos`, `agents`, `agency_imos`, `imo_carriers` and
+  `agent_appointments`.
+- New nullable columns `submissions.agency_id`, `imo_id` and `agent_id`.
+- Two admin-only RPCs, `placement_upsert_item` and `placement_set_link`, both
+  audited to `settings_audit`.
+- Every role can read the tables. Direct writes, including `TRUNCATE`, are
+  revoked from `anon` and `authenticated`.
+
+**UI:** a new "Agencies, IMOs and agents" panel in Admin → Settings
+(`placement-admin.tsx`, `lib/placement.ts`).
+
+**No behaviour change for validators.** The validation flow doesn't read any of
+this yet. Phase 2 (cascading dropdowns plus the rejection-block rule) ships once
+the mapping is filled in.
+
+Verified:
+- `submission_totals`, the `validator_stats` hash and `sheet_sync_queue` are
+  identical before and after the migration.
+- 0 existing rows changed.
+- The RPCs refuse a caller with no role.
+
 ## 2026-09-29 — Lead Imports "When" column shows the date, not a relative duration
 
 Same fix as 2026-09-28's Parked Leads change, applied to `import-history.tsx`'s

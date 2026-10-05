@@ -36,6 +36,8 @@ Row counts are a snapshot at audit time, for scale intuition only.
 | `carriers` | 7 | Vocabulary table: `name`, `active`, `sort_order`, `aliases text[]`. Admin-writable directly (no RPC — see `centers.ts` comment pattern, same reasoning applies to carriers). |
 | `carrier_declines` | 76 | One row per (submission, carrier) decline, written only by `decline_with_carriers`. |
 | `centers` | 2 | The two call centers (UMS BPO, DESCOM). Admin-writable directly. |
+| `agencies`, `imos`, `agents` | added 2026-10-04 | Placement vocabulary (`20261004100000_placement_hierarchy.sql`): `name` (unique, case/space-insensitive), `active`, `sort_order`; `agents` also has an optional `npn`. Unlike `carriers`, **not** directly writable: write grants (incl. `TRUNCATE`) are revoked from `anon`/`authenticated`, there is no write policy, and every write goes through the admin-only `placement_upsert_item`. Readable by every role. No delete — deactivate. |
+| `agency_imos`, `imo_carriers`, `agent_appointments` | added 2026-10-04 | The many-to-many links: agency↔IMO (PK pair), IMO↔carrier (`id` PK, unique pair — one IMO→Carrier *contract*), and agent↔`imo_carriers.id` (PK pair — an appointment belongs to one contract, not to the carrier in general). Each has `active`. Same grants/RLS as the lists; written only by `placement_set_link`. See [features/admin-settings-and-config.md](features/admin-settings-and-config.md). |
 | `transfer_clients` | 0 | Added 2026-09-19. Vocabulary table: `name` (unique), `active`, `sort_order`. The external parties a closer transfers a lead to with **External Transfer**. Admin-writable directly, readable by every role (the closer's transfer dialog reads it). Referenced by `submissions.transfer_client_id`, so there is no delete — deactivate instead. |
 | `cx_status_options` | 26 | The configurable vocabulary for the four CX categories. `category` check-constrained to `policy|premium|commission|chargeback`. `tone` check-constrained to `muted|accent|positive|destructive|warning`. |
 | `cx_lead_status` | 2 | One row per submission (PK is `submission_id`), four independent status-option pointers (`policy_status_id`, `premium_status_id`, `commission_status_id`, `chargeback_status_id`) each with its own free-text `_reason`. |
@@ -60,8 +62,15 @@ uploaded_by, import_id, data_flags jsonb,
 cx_assigned_to, cx_assigned_at,
 center_id, center_name, draft_date, future_draft_date, ssn_normalized,
 final_carrier_id, agent_name, policy_number,
-reopened_from_cx_at
+reopened_from_cx_at,
+agency_id, imo_id, agent_id
 ```
+
+`agency_id`/`imo_id`/`agent_id` (added 2026-10-04, FKs to `agencies`/`imos`/`agents`)
+are nullable and were added empty on every existing row. No RPC writes them yet;
+they are filled by hand for historical leads. `notify_sheet_sync` ignores them, so
+setting them never re-sends a row to Google Sheets. `agent_name` stays the column
+every reader uses.
 
 Columns **not** previously documented in `CLAUDE.md`: `cx_assigned_to`,
 `cx_assigned_at` (present on the table; not observed written by any RPC read
@@ -242,6 +251,8 @@ each supports.
 - `reject_assignment(p_sub, p_reason?)` — validator only, on their own assignment. Returns the lead to `pending_manager`, increments `rejection_count`.
 - `hold_submission(p_sub)` — the assigned validator only, while `in_review`. Enforces `max_holds` from `app_config` (0 = unlimited) and raises once reached. Releases the claim (`claimed_at=null`, back to `'assigned'`) without losing the assignment; reopening restarts the full window.
 - `set_validator_fields(p_sub, p_final_carrier_id, p_agent_name, p_policy_number)` — manager/validator/admin/`general_manager`. Validates the carrier id is active if provided. Callable at any stage, not gated to `in_review`.
+- `placement_upsert_item(p_kind, p_id?, p_name?, p_active?, p_sort_order?, p_npn?)` — added 2026-10-04, admin only (`is distinct from` guard, EXECUTE revoked from `anon`). `p_kind` is `agency`/`imo`/`agent`. No `p_id` adds a row (name required, appended to the end of the order); with `p_id`, omitted arguments keep their value. `p_npn` is agents only; an empty string clears it. A duplicate name raises `a <kind> named "<name>" already exists`. Writes `settings_audit` (`key = placement.<kind>:<id>`, before/after row as JSON).
+- `placement_set_link(p_kind, p_parent, p_child, p_active)` — added 2026-10-04, admin only. Creates or toggles one link: `agency_imo` (agency → IMO), `imo_carrier` (IMO → carrier), `agent_appointment` (parent is the `imo_carriers.id`, child is the agent). Writes `settings_audit`.
 - `parse_lead_date(p_text, p_from default current_date)` — added 2026-09-17, `IMMUTABLE`. One draft-date string as a date, or null. Accepts `YYYY-MM-DD`, `MM/DD/YYYY`/`M/D/YY`, `Nth of the month` and `Nth <weekday> of the month` (returning the first occurrence on or after `p_from`, searching up to a year ahead so a 5th Wednesday resolves). Pattern-matched and built with `make_date`, so `DateStyle` cannot change its answer; unrecognised text — `Every 2nd Friday` — is null rather than a guess.
 - `next_monthly_day(p_day, p_from default current_date)` — added 2026-09-17, `IMMUTABLE`. Day N of this month if still to come, else next; clamped to the month's length, so "31st" in February is the 28th/29th.
 - `normalize_ssn(p_text)` — added 2026-09-17, `IMMUTABLE`. The digits-only-and-exactly-nine rule, extracted so `submit_form_internal`, `ingest_sheet_lead` and `update_payload_field` share one definition.

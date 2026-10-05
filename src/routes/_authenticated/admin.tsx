@@ -16,6 +16,7 @@ import { AdminSettings } from "@/components/admin-settings";
 import { SuspensionControl } from "@/components/suspension-control";
 import { CxStatusAdmin } from "@/components/cx-status-admin";
 import { CarrierAdmin } from "@/components/carrier-admin";
+import { PlacementAdmin } from "@/components/placement-admin";
 import { DraftDateDesk } from "@/components/draft-date-desk";
 import { CenterAdmin } from "@/components/center-admin";
 import { TransferClientAdmin } from "@/components/transfer-client-admin";
@@ -235,6 +236,7 @@ function AdminPage() {
             <CenterAdmin />
             <TransferClientAdmin />
             <CarrierAdmin />
+            <PlacementAdmin />
             <CxStatusAdmin />
           </TabsContent>
 

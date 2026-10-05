@@ -17,7 +17,7 @@ from the UI — see [payments-security.md](payments-security.md).
 
 ## Routes / screens
 `/admin?tab=settings` → `SuspensionControl` + `AdminSettings` + `CenterAdmin` +
-`TransferClientAdmin` + `CarrierAdmin` + `CxStatusAdmin`. The Audit tab (`CardAccessLog` + `SettingsAudit`) exists in
+`TransferClientAdmin` + `CarrierAdmin` + `PlacementAdmin` + `CxStatusAdmin`. The Audit tab (`CardAccessLog` + `SettingsAudit`) exists in
 code but its tab entry and `TabsContent` are both commented out in
 `admin.tsx`. The blocking page a suspended non-admin is redirected to lives
 at the public route `/suspended` (`suspended.tsx`), outside the auth gate,
@@ -25,7 +25,8 @@ same as `reset-password.tsx`.
 
 ## Important components
 `suspension-control.tsx`, `admin-settings.tsx`, `carrier-admin.tsx`,
-`center-admin.tsx`, `transfer-client-admin.tsx`, `settings-audit.tsx`
+`center-admin.tsx`, `transfer-client-admin.tsx`, `placement-admin.tsx` (with
+`lib/placement.ts`), `settings-audit.tsx`
 (unreachable, see above). `lib/crm-suspension.ts` holds the shared query/RPC
 helpers (`useCrmSuspension`, `fetchCrmSuspension`, `setCrmSuspension`,
 `isActiveSuspension`, `subscribeToCrmSuspension`) used by
@@ -49,6 +50,11 @@ helpers (`useCrmSuspension`, `fetchCrmSuspension`, `setCrmSuspension`,
   each admin component's own comments) that naming a carrier, a center or a
   client is vocabulary, not workflow, and needs none of the ordering/audit
   guarantees an RPC exists to provide. All three are readable by every role.
+- `agencies`, `imos`, `agents` and the links `agency_imos`, `imo_carriers`,
+  `agent_appointments` (added 2026-10-04) — **not** directly writable, unlike
+  the three above: written only through `placement_upsert_item` and
+  `placement_set_link` (admin only, both audited to `settings_audit`). See
+  "Placement" below.
 - RPCs: `admin_settings()` (read all six keys at once), `set_admin_setting`
   (allow-listed keys, per-key validation, writes `settings_audit`),
   `reporting_retention_status()` (reads `cron.job_run_details` for the
@@ -57,6 +63,38 @@ helpers (`useCrmSuspension`, `fetchCrmSuspension`, `setCrmSuspension`,
   suspension, writes `settings_audit`), `clear_expired_suspension()`
   (cron-only, `EXECUTE` revoked from `anon`/`authenticated` — cosmetic sweep,
   see below).
+
+## Placement: agencies, IMOs and agents (added 2026-10-04)
+
+The **Agencies, IMOs and agents** panel (`placement-admin.tsx`) sits under
+Carriers in Settings. It has two parts.
+
+**Three lists** (Agencies, IMOs, Agents): add, edit, reorder (↑/↓ rewrites the
+order as 10, 20, 30…), deactivate. Agents also carry an optional NPN. Carriers
+are still managed in their own panel.
+
+**Mapping**, three boxes, each "pick the parent, tick its children":
+- **Agency → IMOs**
+- **IMO → Carriers.** One carrier can be ticked under several IMOs. Each
+  IMO→Carrier pair is its own contract.
+- **Agent appointments.** Pick an IMO, then one of its carriers, then tick the
+  agents appointed on that contract. An agent appointed on Corbridge through
+  IMO1 is not automatically appointed on Corbridge through IMO2.
+
+Every link is many-to-many. Inactive items only appear in a checklist while
+they're still linked, so a link to something since retired can be seen and
+switched off.
+
+**Current status:** this is phase 1. It is the vocabulary and the mapping
+only. Nothing reads it in the validation flow yet. Phase 2 (planned) turns
+"To Be Filled By Validator" into cascading Agency → IMO → Final Carrier → Agent
+dropdowns, and enforces the placement rule. Under that rule, a carrier rejection
+at IMO X → Carrier C blocks carrier C under every IMO, and every carrier under
+IMO X, for that customer (matched by SSN).
+
+Historical leads' `submissions.agency_id`/`imo_id`/`agent_id` are being filled in
+by hand. Those columns don't trigger sheet-sync, so editing them never re-sends a
+row to Google Sheets.
 
 ## System suspension
 - **Enforcement is server-side, in `my_role()` itself** — not a separate RLS

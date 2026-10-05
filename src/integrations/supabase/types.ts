@@ -39,6 +39,129 @@ export type Database = {
   }
   public: {
     Tables: {
+      agencies: {
+        Row: {
+          active: boolean
+          created_at: string
+          id: string
+          name: string
+          sort_order: number
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          name: string
+          sort_order?: number
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          name?: string
+          sort_order?: number
+        }
+        Relationships: []
+      }
+      agency_imos: {
+        Row: {
+          active: boolean
+          agency_id: string
+          created_at: string
+          imo_id: string
+        }
+        Insert: {
+          active?: boolean
+          agency_id: string
+          created_at?: string
+          imo_id: string
+        }
+        Update: {
+          active?: boolean
+          agency_id?: string
+          created_at?: string
+          imo_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agency_imos_agency_id_fkey"
+            columns: ["agency_id"]
+            isOneToOne: false
+            referencedRelation: "agencies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agency_imos_imo_id_fkey"
+            columns: ["imo_id"]
+            isOneToOne: false
+            referencedRelation: "imos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      agent_appointments: {
+        Row: {
+          active: boolean
+          agent_id: string
+          created_at: string
+          imo_carrier_id: string
+        }
+        Insert: {
+          active?: boolean
+          agent_id: string
+          created_at?: string
+          imo_carrier_id: string
+        }
+        Update: {
+          active?: boolean
+          agent_id?: string
+          created_at?: string
+          imo_carrier_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_appointments_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_appointments_imo_carrier_id_fkey"
+            columns: ["imo_carrier_id"]
+            isOneToOne: false
+            referencedRelation: "imo_carriers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      agents: {
+        Row: {
+          active: boolean
+          created_at: string
+          id: string
+          name: string
+          npn: string | null
+          sort_order: number
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          name: string
+          npn?: string | null
+          sort_order?: number
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          name?: string
+          npn?: string | null
+          sort_order?: number
+        }
+        Relationships: []
+      }
       app_config: {
         Row: {
           key: string
@@ -214,6 +337,62 @@ export type Database = {
           sort_order?: number
         }
         Relationships: []
+      }
+      center_api_keys: {
+        Row: {
+          center_id: string
+          created_at: string
+          created_by: string | null
+          key_hash: string
+          key_prefix: string
+          last_used_at: string | null
+        }
+        Insert: {
+          center_id: string
+          created_at?: string
+          created_by?: string | null
+          key_hash: string
+          key_prefix: string
+          last_used_at?: string | null
+        }
+        Update: {
+          center_id?: string
+          created_at?: string
+          created_by?: string | null
+          key_hash?: string
+          key_prefix?: string
+          last_used_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "center_api_keys_center_id_fkey"
+            columns: ["center_id"]
+            isOneToOne: true
+            referencedRelation: "centers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "center_api_keys_center_id_fkey"
+            columns: ["center_id"]
+            isOneToOne: true
+            referencedRelation: "submission_totals_by_center"
+            referencedColumns: ["center_id"]
+          },
+          {
+            foreignKeyName: "center_api_keys_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "center_api_keys_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "validator_stats"
+            referencedColumns: ["validator_id"]
+          },
+        ]
       }
       centers: {
         Row: {
@@ -584,6 +763,76 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      imo_carriers: {
+        Row: {
+          active: boolean
+          carrier_id: string
+          created_at: string
+          id: string
+          imo_id: string
+        }
+        Insert: {
+          active?: boolean
+          carrier_id: string
+          created_at?: string
+          id?: string
+          imo_id: string
+        }
+        Update: {
+          active?: boolean
+          carrier_id?: string
+          created_at?: string
+          id?: string
+          imo_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "imo_carriers_carrier_id_fkey"
+            columns: ["carrier_id"]
+            isOneToOne: false
+            referencedRelation: "carrier_decline_stats"
+            referencedColumns: ["carrier_id"]
+          },
+          {
+            foreignKeyName: "imo_carriers_carrier_id_fkey"
+            columns: ["carrier_id"]
+            isOneToOne: false
+            referencedRelation: "carriers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "imo_carriers_imo_id_fkey"
+            columns: ["imo_id"]
+            isOneToOne: false
+            referencedRelation: "imos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      imos: {
+        Row: {
+          active: boolean
+          created_at: string
+          id: string
+          name: string
+          sort_order: number
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          name: string
+          sort_order?: number
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          name?: string
+          sort_order?: number
+        }
+        Relationships: []
       }
       lead_imports: {
         Row: {
@@ -1026,6 +1275,8 @@ export type Database = {
       }
       submissions: {
         Row: {
+          agency_id: string | null
+          agent_id: string | null
           agent_name: string | null
           archived_at: string | null
           archived_by: string | null
@@ -1049,6 +1300,7 @@ export type Database = {
           future_draft_date: string | null
           hold_count: number
           id: string
+          imo_id: string | null
           import_id: string | null
           last_held_at: string | null
           last_rejected_by: string | null
@@ -1068,6 +1320,8 @@ export type Database = {
           uploaded_by: string | null
         }
         Insert: {
+          agency_id?: string | null
+          agent_id?: string | null
           agent_name?: string | null
           archived_at?: string | null
           archived_by?: string | null
@@ -1091,6 +1345,7 @@ export type Database = {
           future_draft_date?: string | null
           hold_count?: number
           id?: string
+          imo_id?: string | null
           import_id?: string | null
           last_held_at?: string | null
           last_rejected_by?: string | null
@@ -1110,6 +1365,8 @@ export type Database = {
           uploaded_by?: string | null
         }
         Update: {
+          agency_id?: string | null
+          agent_id?: string | null
           agent_name?: string | null
           archived_at?: string | null
           archived_by?: string | null
@@ -1133,6 +1390,7 @@ export type Database = {
           future_draft_date?: string | null
           hold_count?: number
           id?: string
+          imo_id?: string | null
           import_id?: string | null
           last_held_at?: string | null
           last_rejected_by?: string | null
@@ -1152,6 +1410,20 @@ export type Database = {
           uploaded_by?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "submissions_agency_id_fkey"
+            columns: ["agency_id"]
+            isOneToOne: false
+            referencedRelation: "agencies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "submissions_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "submissions_archived_by_fkey"
             columns: ["archived_by"]
@@ -1262,6 +1534,13 @@ export type Database = {
             columns: ["final_carrier_id"]
             isOneToOne: false
             referencedRelation: "carriers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "submissions_imo_id_fkey"
+            columns: ["imo_id"]
+            isOneToOne: false
+            referencedRelation: "imos"
             referencedColumns: ["id"]
           },
           {
@@ -1563,6 +1842,19 @@ export type Database = {
         Args: { p_sub: string; p_tag: string }
         Returns: undefined
       }
+      admin_generate_center_api_key: {
+        Args: { p_center_id: string }
+        Returns: string
+      }
+      admin_list_center_api_keys: {
+        Args: never
+        Returns: {
+          center_id: string
+          created_at: string
+          key_prefix: string
+          last_used_at: string
+        }[]
+      }
       admin_settings: { Args: never; Returns: Json }
       approve_import_batch: {
         Args: { p_import_id: string; p_reject_ids?: string[] }
@@ -1571,6 +1863,8 @@ export type Database = {
       archive_submission: {
         Args: { p_reason?: string; p_sub: string }
         Returns: {
+          agency_id: string | null
+          agent_id: string | null
           agent_name: string | null
           archived_at: string | null
           archived_by: string | null
@@ -1594,6 +1888,7 @@ export type Database = {
           future_draft_date: string | null
           hold_count: number
           id: string
+          imo_id: string | null
           import_id: string | null
           last_held_at: string | null
           last_rejected_by: string | null
@@ -1622,6 +1917,8 @@ export type Database = {
       assign_to_validator: {
         Args: { p_sub: string; p_validator: string }
         Returns: {
+          agency_id: string | null
+          agent_id: string | null
           agent_name: string | null
           archived_at: string | null
           archived_by: string | null
@@ -1645,6 +1942,7 @@ export type Database = {
           future_draft_date: string | null
           hold_count: number
           id: string
+          imo_id: string | null
           import_id: string | null
           last_held_at: string | null
           last_rejected_by: string | null
@@ -1679,6 +1977,8 @@ export type Database = {
       claim_submission: {
         Args: { p_sub: string }
         Returns: {
+          agency_id: string | null
+          agent_id: string | null
           agent_name: string | null
           archived_at: string | null
           archived_by: string | null
@@ -1702,6 +2002,7 @@ export type Database = {
           future_draft_date: string | null
           hold_count: number
           id: string
+          imo_id: string | null
           import_id: string | null
           last_held_at: string | null
           last_rejected_by: string | null
@@ -1730,6 +2031,8 @@ export type Database = {
       clear_data_flag: {
         Args: { p_field: string; p_sub: string }
         Returns: {
+          agency_id: string | null
+          agent_id: string | null
           agent_name: string | null
           archived_at: string | null
           archived_by: string | null
@@ -1753,6 +2056,7 @@ export type Database = {
           future_draft_date: string | null
           hold_count: number
           id: string
+          imo_id: string | null
           import_id: string | null
           last_held_at: string | null
           last_rejected_by: string | null
@@ -1783,6 +2087,8 @@ export type Database = {
       decline_with_carriers: {
         Args: { p_carrier_ids: string[]; p_reason?: string; p_sub: string }
         Returns: {
+          agency_id: string | null
+          agent_id: string | null
           agent_name: string | null
           archived_at: string | null
           archived_by: string | null
@@ -1806,6 +2112,7 @@ export type Database = {
           future_draft_date: string | null
           hold_count: number
           id: string
+          imo_id: string | null
           import_id: string | null
           last_held_at: string | null
           last_rejected_by: string | null
@@ -1837,6 +2144,8 @@ export type Database = {
           p_sub: string
         }
         Returns: {
+          agency_id: string | null
+          agent_id: string | null
           agent_name: string | null
           archived_at: string | null
           archived_by: string | null
@@ -1860,6 +2169,7 @@ export type Database = {
           future_draft_date: string | null
           hold_count: number
           id: string
+          imo_id: string | null
           import_id: string | null
           last_held_at: string | null
           last_rejected_by: string | null
@@ -1890,6 +2200,8 @@ export type Database = {
       hold_submission: {
         Args: { p_sub: string }
         Returns: {
+          agency_id: string | null
+          agent_id: string | null
           agent_name: string | null
           archived_at: string | null
           archived_by: string | null
@@ -1913,6 +2225,7 @@ export type Database = {
           future_draft_date: string | null
           hold_count: number
           id: string
+          imo_id: string | null
           import_id: string | null
           last_held_at: string | null
           last_rejected_by: string | null
@@ -1948,6 +2261,8 @@ export type Database = {
           p_uploaded_by?: string
         }
         Returns: {
+          agency_id: string | null
+          agent_id: string | null
           agent_name: string | null
           archived_at: string | null
           archived_by: string | null
@@ -1971,6 +2286,7 @@ export type Database = {
           future_draft_date: string | null
           hold_count: number
           id: string
+          imo_id: string | null
           import_id: string | null
           last_held_at: string | null
           last_rejected_by: string | null
@@ -1999,6 +2315,8 @@ export type Database = {
       move_to_validation: {
         Args: { p_sub: string }
         Returns: {
+          agency_id: string | null
+          agent_id: string | null
           agent_name: string | null
           archived_at: string | null
           archived_by: string | null
@@ -2022,6 +2340,7 @@ export type Database = {
           future_draft_date: string | null
           hold_count: number
           id: string
+          imo_id: string | null
           import_id: string | null
           last_held_at: string | null
           last_rejected_by: string | null
@@ -2081,11 +2400,33 @@ export type Database = {
         Returns: string
       }
       payment_summary: { Args: { p_sub: string }; Returns: Json }
+      placement_set_link: {
+        Args: {
+          p_active: boolean
+          p_child: string
+          p_kind: string
+          p_parent: string
+        }
+        Returns: undefined
+      }
+      placement_upsert_item: {
+        Args: {
+          p_active?: boolean
+          p_id?: string
+          p_kind: string
+          p_name?: string
+          p_npn?: string
+          p_sort_order?: number
+        }
+        Returns: string
+      }
       purge_old_reporting_leads: { Args: never; Returns: number }
       purge_payment_data: { Args: never; Returns: Json }
       reject_assignment: {
         Args: { p_reason?: string; p_sub: string }
         Returns: {
+          agency_id: string | null
+          agent_id: string | null
           agent_name: string | null
           archived_at: string | null
           archived_by: string | null
@@ -2109,6 +2450,7 @@ export type Database = {
           future_draft_date: string | null
           hold_count: number
           id: string
+          imo_id: string | null
           import_id: string | null
           last_held_at: string | null
           last_rejected_by: string | null
@@ -2178,6 +2520,8 @@ export type Database = {
       return_lead_for_validation: {
         Args: { p_reason?: string; p_sub: string }
         Returns: {
+          agency_id: string | null
+          agent_id: string | null
           agent_name: string | null
           archived_at: string | null
           archived_by: string | null
@@ -2201,6 +2545,7 @@ export type Database = {
           future_draft_date: string | null
           hold_count: number
           id: string
+          imo_id: string | null
           import_id: string | null
           last_held_at: string | null
           last_rejected_by: string | null
@@ -2286,6 +2631,8 @@ export type Database = {
           p_sub: string
         }
         Returns: {
+          agency_id: string | null
+          agent_id: string | null
           agent_name: string | null
           archived_at: string | null
           archived_by: string | null
@@ -2309,6 +2656,7 @@ export type Database = {
           future_draft_date: string | null
           hold_count: number
           id: string
+          imo_id: string | null
           import_id: string | null
           last_held_at: string | null
           last_rejected_by: string | null
@@ -2388,9 +2736,11 @@ export type Database = {
           validator_submissions: number
         }[]
       }
-      submit_form: {
-        Args: { p_payload: Json }
+      submit_external_lead: {
+        Args: { p_api_key: string; p_payload: Json }
         Returns: {
+          agency_id: string | null
+          agent_id: string | null
           agent_name: string | null
           archived_at: string | null
           archived_by: string | null
@@ -2414,6 +2764,61 @@ export type Database = {
           future_draft_date: string | null
           hold_count: number
           id: string
+          imo_id: string | null
+          import_id: string | null
+          last_held_at: string | null
+          last_rejected_by: string | null
+          last_timeout_by: string | null
+          payload: Json
+          policy_number: string | null
+          rejection_count: number
+          reopened_from_cx_at: string | null
+          source: string
+          source_ref: string | null
+          ssn_normalized: string | null
+          status: Database["public"]["Enums"]["sub_status"]
+          submitted_by_role: Database["public"]["Enums"]["app_role"] | null
+          timeout_count: number
+          transfer_client_id: string | null
+          transfer_client_name: string | null
+          uploaded_by: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "submissions"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      submit_form: {
+        Args: { p_payload: Json }
+        Returns: {
+          agency_id: string | null
+          agent_id: string | null
+          agent_name: string | null
+          archived_at: string | null
+          archived_by: string | null
+          assigned_at: string | null
+          assigned_to: string | null
+          center_id: string | null
+          center_name: string | null
+          claimed_at: string | null
+          closer_id: string | null
+          created_at: string
+          cx_assigned_at: string | null
+          cx_assigned_to: string | null
+          cx_removed_at: string | null
+          cx_removed_by: string | null
+          data_flags: Json
+          disposed_at: string | null
+          disposed_by: string | null
+          disposition: Database["public"]["Enums"]["disposition_t"] | null
+          draft_date: string | null
+          final_carrier_id: string | null
+          future_draft_date: string | null
+          hold_count: number
+          id: string
+          imo_id: string | null
           import_id: string | null
           last_held_at: string | null
           last_rejected_by: string | null
@@ -2445,6 +2850,8 @@ export type Database = {
           p_status: Database["public"]["Enums"]["sub_status"]
         }
         Returns: {
+          agency_id: string | null
+          agent_id: string | null
           agent_name: string | null
           archived_at: string | null
           archived_by: string | null
@@ -2468,6 +2875,7 @@ export type Database = {
           future_draft_date: string | null
           hold_count: number
           id: string
+          imo_id: string | null
           import_id: string | null
           last_held_at: string | null
           last_rejected_by: string | null
@@ -2496,6 +2904,8 @@ export type Database = {
       submit_form_parked: {
         Args: { p_client: string; p_payload: Json }
         Returns: {
+          agency_id: string | null
+          agent_id: string | null
           agent_name: string | null
           archived_at: string | null
           archived_by: string | null
@@ -2519,6 +2929,7 @@ export type Database = {
           future_draft_date: string | null
           hold_count: number
           id: string
+          imo_id: string | null
           import_id: string | null
           last_held_at: string | null
           last_rejected_by: string | null
@@ -2548,6 +2959,8 @@ export type Database = {
       unarchive_submission: {
         Args: { p_sub: string }
         Returns: {
+          agency_id: string | null
+          agent_id: string | null
           agent_name: string | null
           archived_at: string | null
           archived_by: string | null
@@ -2571,6 +2984,7 @@ export type Database = {
           future_draft_date: string | null
           hold_count: number
           id: string
+          imo_id: string | null
           import_id: string | null
           last_held_at: string | null
           last_rejected_by: string | null
@@ -2631,6 +3045,7 @@ export type Database = {
         | "cxa"
         | "closing_manager"
         | "general_manager"
+        | "reporting_manager"
       disposition_t: "accepted" | "declined" | "pending"
       sub_status:
         | "pending_manager"
@@ -2780,6 +3195,7 @@ export const Constants = {
         "cxa",
         "closing_manager",
         "general_manager",
+        "reporting_manager",
       ],
       disposition_t: ["accepted", "declined", "pending"],
       sub_status: [
