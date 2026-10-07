@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { PeriodPicker } from "@/components/period-picker";
 import { OverviewPanels } from "@/components/overview-panels";
 import { TotalsPanel } from "@/components/reporting";
+import { SalesBreakdown } from "@/components/sales-breakdown";
 import { usePeriod } from "@/lib/period-range";
 import { useOverviewStats } from "@/lib/overview-stats";
 
@@ -38,19 +39,30 @@ export function AdminOverview() {
 
   return (
     <>
-      <PeriodPicker
-        period={period}
-        note={
-          <span className="inline-flex items-center gap-1.5">
-            {/* Not a filter — a statement that these figures keep themselves up
-                to date off the realtime subscription in `useOverviewStats`. */}
-            <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />
-            Live · the window applies to the two panels and the record below
-          </span>
-        }
-      />
+      {/* One window for the whole tab, so it stays in reach while the page
+          scrolls past the Overview panels into the sales section. */}
+      <div className="sticky top-0 z-20 -mx-1 bg-background/95 px-1 py-1.5 backdrop-blur">
+        <PeriodPicker
+          period={period}
+          note={
+            <span className="inline-flex items-center gap-1.5">
+              {/* Not a filter — a statement that these figures keep themselves up
+                  to date off the realtime subscription in `useOverviewStats`. */}
+              <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />
+              Live · the window applies to every panel except Operations
+            </span>
+          }
+        />
+      </div>
 
       <OverviewPanels period={period} stats={stats} centers={perCenter} />
+
+      {/* Approved sales over the same window. */}
+      <div className="flex items-center gap-3 pt-2">
+        <h2 className="font-display text-sm font-semibold">Sales</h2>
+        <span aria-hidden className="h-px flex-1 bg-border" />
+      </div>
+      <SalesBreakdown sharedPeriod={period} />
 
       {/* The record. Deliberately quieter than the row above — true, worth
           having, and not what anybody opens this tab to find out. */}

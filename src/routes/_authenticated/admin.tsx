@@ -7,6 +7,7 @@ import { SubmissionsExplorer } from "@/components/reporting";
 import { AdminOverview } from "@/components/admin-overview";
 import { CustomersPipeline, RemovedFromPipeline } from "@/components/customers-pipeline";
 import { CxStatusBreakdown, CxCoverageCard } from "@/components/cx-status-breakdown";
+import { AgencyMap } from "@/components/agency-map";
 import { UserAdmin } from "@/components/user-admin";
 import { DataUploader } from "@/components/data-uploader";
 import { ImportHistory } from "@/components/import-history";
@@ -25,7 +26,6 @@ import { CarrierDeclineReport } from "@/components/carrier-declines";
 import { ParkedLeads, PARKED_LEADS_KEY } from "@/components/parked-leads";
 import { SheetSyncBacklogCard } from "@/components/sheet-sync-backlog";
 import { Exports } from "@/components/exports";
-import { SalesBreakdown } from "@/components/sales-breakdown";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const TABS = [
@@ -39,7 +39,7 @@ const TABS = [
   // everything a manager does.
   { id: "draft-dates", label: "By Draft Date" },
   { id: "exports", label: "Exports" },
-  { id: "sales-breakdown", label: "Sales Breakdown" },
+  { id: "agencies", label: "Agencies" },
   { id: "users", label: "Users" },
   { id: "uploads", label: "Uploads" },
   // { id: "imports", label: "Imports" },
@@ -213,8 +213,10 @@ function AdminPage() {
             <Exports />
           </TabsContent>
 
-          <TabsContent value="sales-breakdown" className="flex flex-col gap-4">
-            <SalesBreakdown />
+          {/* Read-only view of the Agency -> IMO -> Carrier mapping; it is edited
+              under Settings. */}
+          <TabsContent value="agencies" className="flex flex-col gap-4">
+            <AgencyMap />
           </TabsContent>
 
           <TabsContent value="users" className="flex flex-col gap-4">

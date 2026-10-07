@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { usePeriod } from "@/lib/period-range";
 import { useQuery } from "@tanstack/react-query";
 import Papa from "papaparse";
 import { supabase } from "@/integrations/supabase/client";
@@ -115,7 +116,12 @@ function toPivotRow(row: SalesBreakdownRow): PivotRow {
 
 const SALES_BREAKDOWN_KEY = ["admin", "sales-breakdown"];
 
-export function SalesBreakdown() {
+/**
+ * With no `sharedPeriod` this owns its own chips (the `/reporting` Sales tab).
+ * The admin Overview passes its `usePeriod()` so one filter governs both the
+ * Overview panels and this section; the chips are then not rendered here.
+ */
+export function SalesBreakdown({ sharedPeriod }: { sharedPeriod?: ReturnType<typeof usePeriod> }) {
   const [period, setPeriod] = useState<PeriodId>("all");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
@@ -158,22 +164,28 @@ export function SalesBreakdown() {
     period === "week" ||
     period === "month" ||
     !!customFrom;
+  // The shared window wins outright; the local state above is then unused.
+  const queryArgs: { p_days?: number; p_start_date?: string; p_end_date?: string } = sharedPeriod
+    ? sharedPeriod.range
+    : rpcArgs;
+  const queryEnabled = sharedPeriod ? true : rpcReady;
+  const phrase = sharedPeriod ? `(${sharedPeriod.heading})` : periodPhrase(period);
 
   const breakdownQuery = useQuery({
-    queryKey: [...SALES_BREAKDOWN_KEY, "breakdown", rpcArgs],
-    enabled: rpcReady,
+    queryKey: [...SALES_BREAKDOWN_KEY, "breakdown", queryArgs],
+    enabled: queryEnabled,
     queryFn: async () => {
-      const { data, error } = await supabase.rpc("sales_breakdown_range", rpcArgs);
+      const { data, error } = await supabase.rpc("sales_breakdown_range", queryArgs);
       if (error) throw error;
       return (data ?? []) as SalesBreakdownRow[];
     },
   });
 
   const leaderboardQuery = useQuery({
-    queryKey: [...SALES_BREAKDOWN_KEY, "leaderboard", rpcArgs],
-    enabled: rpcReady,
+    queryKey: [...SALES_BREAKDOWN_KEY, "leaderboard", queryArgs],
+    enabled: queryEnabled,
     queryFn: async () => {
-      const { data, error } = await supabase.rpc("sales_closer_leaderboard_range", rpcArgs);
+      const { data, error } = await supabase.rpc("sales_closer_leaderboard_range", queryArgs);
       if (error) throw error;
       return (data ?? []) as LeaderboardRpcRow[];
     },
@@ -252,46 +264,50 @@ export function SalesBreakdown() {
     <div className="flex flex-col gap-4">
       <section className="panel">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="panel-title">Sales Breakdown</h2>
-          <div className="flex flex-wrap items-center gap-1.5">
-            {PERIOD_CHIPS.map((entry) => (
+          <h2 className="panel-title">
+            Sales Breakdown{sharedPeriod ? ` — ${sharedPeriod.heading}` : ""}
+          </h2>
+          {sharedPeriod ? null : (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {PERIOD_CHIPS.map((entry) => (
+                <button
+                  key={entry.id}
+                  type="button"
+                  onClick={() => setPeriod(entry.id)}
+                  aria-pressed={entry.id === period}
+                  className={`chip px-2.5 py-0.5 text-[0.66rem] ${entry.id === period ? "chip-active" : ""}`}
+                >
+                  {entry.label}
+                </button>
+              ))}
               <button
-                key={entry.id}
                 type="button"
-                onClick={() => setPeriod(entry.id)}
-                aria-pressed={entry.id === period}
-                className={`chip px-2.5 py-0.5 text-[0.66rem] ${entry.id === period ? "chip-active" : ""}`}
+                onClick={() => setPeriod("custom")}
+                aria-pressed={isCustom}
+                className={`chip px-2.5 py-0.5 text-[0.66rem] ${isCustom ? "chip-active" : ""}`}
               >
-                {entry.label}
+                Custom
               </button>
-            ))}
-            <button
-              type="button"
-              onClick={() => setPeriod("custom")}
-              aria-pressed={isCustom}
-              className={`chip px-2.5 py-0.5 text-[0.66rem] ${isCustom ? "chip-active" : ""}`}
-            >
-              Custom
-            </button>
-            {isCustom ? (
-              <>
-                <input
-                  type="date"
-                  value={customFrom}
-                  onChange={(e) => setCustomFrom(e.target.value)}
-                  aria-label="From date"
-                  className="field-input h-6 w-32 py-0 text-[0.66rem]"
-                />
-                <input
-                  type="date"
-                  value={customTo}
-                  onChange={(e) => setCustomTo(e.target.value)}
-                  aria-label="To date (optional — leave blank for a single day)"
-                  className="field-input h-6 w-32 py-0 text-[0.66rem]"
-                />
-              </>
-            ) : null}
-          </div>
+              {isCustom ? (
+                <>
+                  <input
+                    type="date"
+                    value={customFrom}
+                    onChange={(e) => setCustomFrom(e.target.value)}
+                    aria-label="From date"
+                    className="field-input h-6 w-32 py-0 text-[0.66rem]"
+                  />
+                  <input
+                    type="date"
+                    value={customTo}
+                    onChange={(e) => setCustomTo(e.target.value)}
+                    aria-label="To date (optional — leave blank for a single day)"
+                    className="field-input h-6 w-32 py-0 text-[0.66rem]"
+                  />
+                </>
+              ) : null}
+            </div>
+          )}
         </div>
 
         <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 lg:grid-cols-5">
@@ -302,81 +318,75 @@ export function SalesBreakdown() {
         </dl>
       </section>
 
-      <section className="panel">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="panel-title">By Carrier ({carrierRows.length})</h2>
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              value={carrierFilter}
-              onChange={(e) => setCarrierFilter(e.target.value)}
-              placeholder="Filter carrier…"
-              className="field-input h-7 w-40 text-xs"
-              autoComplete="off"
-            />
-            <button
-              type="button"
-              className="chip"
-              onClick={() =>
-                downloadCsv(carrierRows, "Carrier", `carrier-sales-${fileStamp()}.csv`)
-              }
-            >
-              Export CSV
-            </button>
+      <div className={sharedPeriod ? "grid items-start gap-4 xl:grid-cols-2" : "contents"}>
+        <section className="panel min-w-0">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="panel-title">By Carrier ({carrierRows.length})</h2>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={carrierFilter}
+                onChange={(e) => setCarrierFilter(e.target.value)}
+                placeholder="Filter carrier…"
+                className="field-input h-7 w-40 text-xs"
+                autoComplete="off"
+              />
+              <button
+                type="button"
+                className="chip"
+                onClick={() =>
+                  downloadCsv(carrierRows, "Carrier", `carrier-sales-${fileStamp()}.csv`)
+                }
+              >
+                Export CSV
+              </button>
+            </div>
           </div>
-        </div>
-        <PivotTable
-          rows={carrierRows}
-          rowLabel="Carrier"
-          max={carrierMax}
-          loading={loading}
-          emptyMessage="No approved sales in this period."
-        />
-      </section>
+          <PivotTable
+            rows={carrierRows}
+            rowLabel="Carrier"
+            max={carrierMax}
+            loading={loading}
+            emptyMessage="No approved sales in this period."
+          />
+        </section>
 
-      <section className="panel">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="panel-title">By State ({stateRows.length})</h2>
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              value={stateFilter}
-              onChange={(e) => setStateFilter(e.target.value)}
-              placeholder="Filter state…"
-              className="field-input h-7 w-40 text-xs"
-              autoComplete="off"
-            />
-            <button
-              type="button"
-              className="chip"
-              onClick={() => downloadCsv(stateRows, "State", `state-sales-${fileStamp()}.csv`)}
-            >
-              Export CSV
-            </button>
+        <section className="panel min-w-0">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="panel-title">By State ({stateRows.length})</h2>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={stateFilter}
+                onChange={(e) => setStateFilter(e.target.value)}
+                placeholder="Filter state…"
+                className="field-input h-7 w-40 text-xs"
+                autoComplete="off"
+              />
+              <button
+                type="button"
+                className="chip"
+                onClick={() => downloadCsv(stateRows, "State", `state-sales-${fileStamp()}.csv`)}
+              >
+                Export CSV
+              </button>
+            </div>
           </div>
-        </div>
-        <PivotTable
-          rows={stateRows}
-          rowLabel="State"
-          max={stateMax}
-          loading={loading}
-          emptyMessage="No approved sales in this period."
-        />
-      </section>
+          <PivotTable
+            rows={stateRows}
+            rowLabel="State"
+            max={stateMax}
+            loading={loading}
+            emptyMessage="No approved sales in this period."
+          />
+        </section>
+      </div>
 
       <section className="panel">
         <h2 className="panel-title">Closer Leaderboard</h2>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <LeaderboardCard
-            title={`Top Performer ${periodPhrase(period)}`}
-            entry={best}
-            tone="positive"
-          />
-          <LeaderboardCard
-            title={`Needs Support ${periodPhrase(period)}`}
-            entry={worst}
-            tone="destructive"
-          />
+          <LeaderboardCard title={`Top Performer ${phrase}`} entry={best} tone="positive" />
+          <LeaderboardCard title={`Needs Support ${phrase}`} entry={worst} tone="destructive" />
         </div>
 
         <div className="mt-3 [&>div]:no-scrollbar [&>div]:max-h-[50vh] [&>div]:overflow-y-auto">

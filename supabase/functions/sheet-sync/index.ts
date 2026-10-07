@@ -93,6 +93,11 @@ function buildRow(body: Record<string, unknown>): Record<string, unknown> {
     // Who imported it, for the uploaded-leads sheet's own column. Blank for
     // a live-typed submission, which has no uploader at all.
     'Uploaded By': body.uploader_name ?? '',
+    // Typed by the validator while the placement rule is off. Not named
+    // 'Agency'/'IMO': 'Agency' is already a payload key holding the carrier on
+    // some forms. Last, so the columns already in the sheet keep their positions.
+    'Placement Agency': body.agency_name ?? '',
+    'Placement IMO': body.imo_name ?? '',
   };
 }
 

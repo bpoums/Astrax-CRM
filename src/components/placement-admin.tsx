@@ -1,13 +1,13 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useState, type FormEvent } from "react";
+import { Link } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { ChevronDown, ChevronUp, Pencil, Power } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useCarriers } from "@/lib/carriers";
 import {
   PLACEMENT_LABEL,
-  agentsForLink,
   carriersForImo,
-  imoCarrierLink,
   imosForAgency,
   invalidatePlacement,
   usePlacementLinks,
@@ -15,29 +15,21 @@ import {
   type PlacementItem,
   type PlacementKind,
 } from "@/lib/placement";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  FilterInput,
+  InactiveTag,
+  ListBody,
+  ListCard,
+  ListRow,
+  RowAction,
+} from "@/components/admin-list";
 
 /**
  * Agencies, IMOs and agents, and which of them belong together.
  *
  * Carriers stay in their own panel (`CarrierAdmin`); this one adds the other
- * three lists and maps Agency -> IMO, IMO -> Carrier, and agents onto one
- * IMO -> Carrier contract. There is no delete — a lead keeps pointing at the
+ * three lists and maps Agency -> IMO and IMO -> Carrier. Agents are just a
+ * list — they are not mapped to anything. There is no delete — a lead keeps pointing at the
  * agency, IMO and agent it was placed with, so they are deactivated instead.
  */
 export function PlacementAdmin() {
@@ -83,20 +75,39 @@ function useUpsertItem() {
 }
 
 const ORDER_STEP = 10;
+/** Lists longer than this get a filter box. */
+const FILTER_FROM = 8;
 
 function ItemList({ kind }: { kind: PlacementKind }) {
   const label = PLACEMENT_LABEL[kind];
   const list = usePlacementList(kind);
+  const links = usePlacementLinks(kind !== "agent");
   const upsert = useUpsertItem();
   const rows = list.data ?? [];
 
   const [name, setName] = useState("");
   const [npn, setNpn] = useState("");
+  const [query, setQuery] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
   const [draftNpn, setDraftNpn] = useState("");
 
   const busy = upsert.isPending;
+  const filtering = query.trim() !== "";
+  const visible = filtering
+    ? rows.filter((row) => row.name.toLowerCase().includes(query.trim().toLowerCase()))
+    : rows;
+
+  /** What each name is connected to, from the same links the mapping edits. */
+  function detail(item: PlacementItem): string | null {
+    if (kind === "agent" || !links.data) return null;
+    if (kind === "agency") {
+      const count = imosForAgency(links.data, item.id).size;
+      return `${count} ${count === 1 ? "IMO" : "IMOs"}`;
+    }
+    const count = carriersForImo(links.data, item.id).size;
+    return `${count} ${count === 1 ? "carrier" : "carriers"}`;
+  }
 
   function handleAdd(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -146,16 +157,13 @@ function ItemList({ kind }: { kind: PlacementKind }) {
   }
 
   return (
-    <div className="flex min-w-0 flex-col gap-2 rounded-md border border-border p-3">
-      <h3 className="field-label">
-        {label.many} ({rows.length})
-      </h3>
-      <form onSubmit={handleAdd} className="flex flex-wrap items-end gap-2">
+    <ListCard title={label.many} count={rows.length}>
+      <form onSubmit={handleAdd} className="flex items-center gap-1.5">
         <input
           id={`placement-${kind}-name`}
           value={name}
           onChange={(event) => setName(event.target.value)}
-          className="field-input min-w-0 flex-1"
+          className="field-input h-8 min-w-0 flex-1 text-xs"
           placeholder={`New ${label.one.toLowerCase()} name`}
           aria-label={`New ${label.one} name`}
         />
@@ -164,60 +172,32 @@ function ItemList({ kind }: { kind: PlacementKind }) {
             id="placement-agent-npn"
             value={npn}
             onChange={(event) => setNpn(event.target.value)}
-            className="field-input w-24"
+            className="field-input h-8 w-20 text-xs"
             placeholder="NPN"
             aria-label="New agent NPN (optional)"
           />
         ) : null}
-        <button type="submit" className="chip" disabled={busy || !name.trim()}>
+        <button type="submit" className="chip h-8 px-3" disabled={busy || !name.trim()}>
           Add
         </button>
       </form>
 
+      {rows.length > FILTER_FROM ? (
+        <FilterInput value={query} onChange={setQuery} label={label.many} />
+      ) : null}
+
       {list.isError ? (
         <p className="text-xs text-destructive">{(list.error as Error).message}</p>
       ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
-              {kind === "agent" ? <TableHead className="w-20">NPN</TableHead> : null}
-              <TableHead className="w-36 text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.map((item, index) =>
-              editingId === item.id ? (
-                <TableRow key={item.id}>
-                  <TableCell colSpan={kind === "agent" ? 2 : 1}>
-                    <div className="flex flex-wrap gap-1.5">
-                      <input
-                        value={draftName}
-                        onChange={(event) => setDraftName(event.target.value)}
-                        className="field-input min-w-0 flex-1"
-                        aria-label={`${label.one} name`}
-                        autoFocus
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") {
-                            event.preventDefault();
-                            saveEdit(item);
-                          }
-                          if (event.key === "Escape") setEditingId(null);
-                        }}
-                      />
-                      {kind === "agent" ? (
-                        <input
-                          value={draftNpn}
-                          onChange={(event) => setDraftNpn(event.target.value)}
-                          className="field-input w-24"
-                          aria-label="NPN"
-                          placeholder="NPN"
-                        />
-                      ) : null}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-1">
+        <ListBody>
+          {visible.map((item) => {
+            const index = rows.indexOf(item);
+            if (editingId === item.id) {
+              return (
+                <ListRow
+                  key={item.id}
+                  actions={
+                    <>
                       <button
                         type="button"
                         className="chip px-2 py-0.5 text-[0.66rem]"
@@ -234,99 +214,121 @@ function ItemList({ kind }: { kind: PlacementKind }) {
                       >
                         Cancel
                       </button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ) : (
-                <TableRow key={item.id}>
-                  <TableCell
-                    className={item.active ? "font-medium" : "text-muted-foreground line-through"}
-                  >
-                    {item.name}
-                  </TableCell>
-                  {kind === "agent" ? (
-                    <TableCell className="tabular-nums text-muted-foreground">
-                      {item.npn ?? "—"}
-                    </TableCell>
-                  ) : null}
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-1">
-                      <button
-                        type="button"
-                        className="chip px-1.5 py-0.5 text-[0.66rem]"
-                        disabled={busy || index === 0}
-                        aria-label={`Move ${item.name} up`}
-                        onClick={() => void move(index, -1)}
-                      >
-                        ↑
-                      </button>
-                      <button
-                        type="button"
-                        className="chip px-1.5 py-0.5 text-[0.66rem]"
-                        disabled={busy || index === rows.length - 1}
-                        aria-label={`Move ${item.name} down`}
-                        onClick={() => void move(index, 1)}
-                      >
-                        ↓
-                      </button>
-                      <button
-                        type="button"
-                        className="chip px-2 py-0.5 text-[0.66rem]"
-                        disabled={busy}
-                        onClick={() => {
-                          setEditingId(item.id);
-                          setDraftName(item.name);
-                          setDraftNpn(item.npn ?? "");
-                        }}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        className="chip px-2 py-0.5 text-[0.66rem] text-muted-foreground"
-                        disabled={busy}
-                        title={
-                          item.active
-                            ? "Removes it from the dropdowns; leads already placed with it keep it"
-                            : "Puts it back in the dropdowns"
-                        }
-                        onClick={() =>
-                          upsert.mutate(
-                            { p_kind: kind, p_id: item.id, p_active: !item.active },
-                            {
-                              onSuccess: () =>
-                                toast.success(
-                                  `${label.one} ${item.active ? "deactivated" : "reactivated"}`,
-                                ),
-                            },
-                          )
-                        }
-                      >
-                        {item.active ? "Deactivate" : "Reactivate"}
-                      </button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ),
-            )}
-            {rows.length === 0 ? (
-              <TableRow>
-                <TableCell
-                  colSpan={kind === "agent" ? 3 : 2}
-                  className="text-center text-muted-foreground"
+                    </>
+                  }
                 >
-                  {list.isLoading ? "Loading…" : `No ${label.many.toLowerCase()} yet.`}
-                </TableCell>
-              </TableRow>
-            ) : null}
-          </TableBody>
-        </Table>
+                  <input
+                    value={draftName}
+                    onChange={(event) => setDraftName(event.target.value)}
+                    className="field-input h-7 min-w-0 flex-1 text-xs"
+                    aria-label={`${label.one} name`}
+                    autoFocus
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        saveEdit(item);
+                      }
+                      if (event.key === "Escape") setEditingId(null);
+                    }}
+                  />
+                  {kind === "agent" ? (
+                    <input
+                      value={draftNpn}
+                      onChange={(event) => setDraftNpn(event.target.value)}
+                      className="field-input h-7 w-20 text-xs"
+                      aria-label="NPN"
+                      placeholder="NPN"
+                    />
+                  ) : null}
+                </ListRow>
+              );
+            }
+            const meta = kind === "agent" ? item.npn : detail(item);
+            return (
+              <ListRow
+                key={item.id}
+                muted={!item.active}
+                actions={
+                  <>
+                    <RowAction
+                      label={`Move ${item.name} up`}
+                      disabled={busy || filtering || index === 0}
+                      onClick={() => void move(index, -1)}
+                    >
+                      <ChevronUp />
+                    </RowAction>
+                    <RowAction
+                      label={`Move ${item.name} down`}
+                      disabled={busy || filtering || index === rows.length - 1}
+                      onClick={() => void move(index, 1)}
+                    >
+                      <ChevronDown />
+                    </RowAction>
+                    <RowAction
+                      label={`Edit ${item.name}`}
+                      disabled={busy}
+                      onClick={() => {
+                        setEditingId(item.id);
+                        setDraftName(item.name);
+                        setDraftNpn(item.npn ?? "");
+                      }}
+                    >
+                      <Pencil />
+                    </RowAction>
+                    <RowAction
+                      label={
+                        item.active
+                          ? `Deactivate ${item.name} — removes it from the dropdowns; leads already placed with it keep it`
+                          : `Reactivate ${item.name} — puts it back in the dropdowns`
+                      }
+                      disabled={busy}
+                      onClick={() =>
+                        upsert.mutate(
+                          { p_kind: kind, p_id: item.id, p_active: !item.active },
+                          {
+                            onSuccess: () =>
+                              toast.success(
+                                `${label.one} ${item.active ? "deactivated" : "reactivated"}`,
+                              ),
+                          },
+                        )
+                      }
+                    >
+                      <Power />
+                    </RowAction>
+                  </>
+                }
+              >
+                <span
+                  className={`truncate text-xs ${item.active ? "font-medium" : "line-through"}`}
+                >
+                  {item.name}
+                </span>
+                {item.active ? null : <InactiveTag />}
+                {meta ? (
+                  <span className="shrink-0 text-[0.66rem] tabular-nums text-muted-foreground">
+                    {meta}
+                  </span>
+                ) : null}
+              </ListRow>
+            );
+          })}
+          {visible.length === 0 ? (
+            <p className="px-2 py-3 text-center text-xs text-muted-foreground">
+              {list.isLoading
+                ? "Loading…"
+                : filtering
+                  ? `No ${label.many.toLowerCase()} match “${query.trim()}”.`
+                  : `No ${label.many.toLowerCase()} yet.`}
+            </p>
+          ) : null}
+        </ListBody>
       )}
-    </div>
+    </ListCard>
   );
 }
 
-type LinkKind = "agency_imo" | "imo_carrier" | "agent_appointment";
+type LinkKind = "agency_imo" | "imo_carrier";
 
 function useSetLink() {
   const queryClient = useQueryClient();
@@ -348,7 +350,7 @@ function useSetLink() {
 type Option = { id: string; name: string; active: boolean };
 
 /**
- * The three mappings, each "pick the parent, tick its children".
+ * The two mappings, each "pick the parent, toggle its children".
  *
  * Inactive children are offered only while they are still linked, so a link to
  * something since retired can be seen and switched off rather than lingering
@@ -357,29 +359,20 @@ type Option = { id: string; name: string; active: boolean };
 function PlacementMapping() {
   const agencies = usePlacementList("agency");
   const imos = usePlacementList("imo");
-  const agents = usePlacementList("agent");
   const carriers = useCarriers(false);
   const links = usePlacementLinks();
   const setLink = useSetLink();
 
   const [agencyId, setAgencyId] = useState("");
   const [imoId, setImoId] = useState("");
-  const [apptImoId, setApptImoId] = useState("");
-  const [apptCarrierId, setApptCarrierId] = useState("");
 
-  const error = [agencies, imos, agents, carriers, links].find((query) => query.isError)?.error;
+  const error = [agencies, imos, carriers, links].find((query) => query.isError)?.error;
 
   const imoOptions = imos.data ?? [];
   const carrierOptions = carriers.data ?? [];
-  const agentOptions = agents.data ?? [];
 
   const agencyImoIds = agencyId ? imosForAgency(links.data, agencyId) : new Set<string>();
   const imoCarrierIds = imoId ? carriersForImo(links.data, imoId) : new Set<string>();
-  const apptCarrierIds = apptImoId ? carriersForImo(links.data, apptImoId) : new Set<string>();
-  const apptLink =
-    apptImoId && apptCarrierId ? imoCarrierLink(links.data, apptImoId, apptCarrierId) : undefined;
-  const appointedIds =
-    apptLink && apptLink.active ? agentsForLink(links.data, apptLink.id) : new Set<string>();
 
   function toggle(kind: LinkKind, parent: string, child: string, active: boolean) {
     setLink.mutate({ p_kind: kind, p_parent: parent, p_child: child, p_active: active });
@@ -387,158 +380,155 @@ function PlacementMapping() {
 
   return (
     <div className="flex flex-col gap-2">
-      <h3 className="panel-title">Mapping</h3>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 className="panel-title">Mapping</h3>
+        <Link
+          to="/admin"
+          search={{ tab: "agencies" }}
+          className="text-[0.66rem] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+        >
+          See the whole map
+        </Link>
+      </div>
       {error ? <p className="text-xs text-destructive">{(error as Error).message}</p> : null}
-      <div className="grid gap-3 lg:grid-cols-3">
-        <MappingBox title="Agency → IMOs">
-          <ParentSelect
-            label="Agency"
-            value={agencyId}
-            onChange={setAgencyId}
-            options={(agencies.data ?? []).filter((a) => a.active || a.id === agencyId)}
-          />
-          {agencyId ? (
-            <ChildChecklist
-              idPrefix="agency-imo"
-              options={imoOptions.filter((imo) => imo.active || agencyImoIds.has(imo.id))}
-              checked={agencyImoIds}
-              disabled={setLink.isPending}
-              empty="No IMOs yet — add one above."
-              onToggle={(child, active) => toggle("agency_imo", agencyId, child, active)}
-            />
-          ) : null}
-        </MappingBox>
-
-        <MappingBox title="IMO → Carriers">
-          <ParentSelect
-            label="IMO"
-            value={imoId}
-            onChange={setImoId}
-            options={imoOptions.filter((imo) => imo.active || imo.id === imoId)}
-          />
-          {imoId ? (
-            <ChildChecklist
-              idPrefix="imo-carrier"
-              options={carrierOptions.filter((c) => c.active || imoCarrierIds.has(c.id))}
-              checked={imoCarrierIds}
-              disabled={setLink.isPending}
-              empty="No carriers — add them in the Carriers panel."
-              onToggle={(child, active) => toggle("imo_carrier", imoId, child, active)}
-            />
-          ) : null}
-        </MappingBox>
-
-        <MappingBox title="Agent appointments (IMO + carrier)">
-          <ParentSelect
-            label="IMO"
-            value={apptImoId}
-            onChange={(value) => {
-              setApptImoId(value);
-              setApptCarrierId("");
-            }}
-            options={imoOptions.filter((imo) => imo.active || imo.id === apptImoId)}
-          />
-          {apptImoId ? (
-            <ParentSelect
-              label="Carrier"
-              value={apptCarrierId}
-              onChange={setApptCarrierId}
-              options={carrierOptions.filter((c) => apptCarrierIds.has(c.id))}
-              placeholder={
-                apptCarrierIds.size === 0 ? "Map carriers to this IMO first" : "Select a carrier…"
-              }
-            />
-          ) : null}
-          {apptLink && apptLink.active ? (
-            <ChildChecklist
-              idPrefix="agent-appt"
-              options={agentOptions.filter((agent) => agent.active || appointedIds.has(agent.id))}
-              checked={appointedIds}
-              disabled={setLink.isPending}
-              empty="No agents yet — add one above."
-              onToggle={(child, active) => toggle("agent_appointment", apptLink.id, child, active)}
-            />
-          ) : null}
-        </MappingBox>
+      <div className="grid gap-3 xl:grid-cols-2">
+        <MappingPane
+          title="Agency → IMOs"
+          parentLabel="agency"
+          childLabel="IMOs"
+          parents={agencies.data ?? []}
+          parentId={agencyId}
+          onParent={setAgencyId}
+          linkedCount={(id) => imosForAgency(links.data, id).size}
+          options={imoOptions.filter((imo) => imo.active || agencyImoIds.has(imo.id))}
+          checked={agencyImoIds}
+          disabled={setLink.isPending}
+          empty="No IMOs yet — add one above."
+          onToggle={(child, active) => toggle("agency_imo", agencyId, child, active)}
+        />
+        <MappingPane
+          title="IMO → Carriers"
+          parentLabel="IMO"
+          childLabel="carriers"
+          parents={imoOptions}
+          parentId={imoId}
+          onParent={setImoId}
+          linkedCount={(id) => carriersForImo(links.data, id).size}
+          options={carrierOptions.filter((c) => c.active || imoCarrierIds.has(c.id))}
+          checked={imoCarrierIds}
+          disabled={setLink.isPending}
+          empty="No carriers — add them in the Carriers panel."
+          onToggle={(child, active) => toggle("imo_carrier", imoId, child, active)}
+        />
       </div>
     </div>
   );
 }
 
-function MappingBox({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <div className="flex min-w-0 flex-col gap-2 rounded-md border border-border p-3">
-      <span className="field-label">{title}</span>
-      {children}
-    </div>
-  );
-}
-
-function ParentSelect({
-  label,
-  value,
-  onChange,
-  options,
-  placeholder,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  options: Option[];
-  placeholder?: string;
-}) {
-  return (
-    <Select value={value} onValueChange={onChange}>
-      <SelectTrigger className="h-8 text-xs" aria-label={label}>
-        <SelectValue placeholder={placeholder ?? `Select ${label.toLowerCase()}…`} />
-      </SelectTrigger>
-      <SelectContent>
-        {options.map((option) => (
-          <SelectItem key={option.id} value={option.id} className="text-xs">
-            {option.name}
-            {option.active ? "" : " (inactive)"}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  );
-}
-
-function ChildChecklist({
-  idPrefix,
+/**
+ * Parents down the left, the selected parent's children as toggles on the
+ * right: a linked child is a lit pill, so what a parent is connected to reads
+ * at a glance instead of from a column of ticked boxes.
+ */
+function MappingPane({
+  title,
+  parentLabel,
+  childLabel,
+  parents,
+  parentId,
+  onParent,
+  linkedCount,
   options,
   checked,
   disabled,
   empty,
   onToggle,
 }: {
-  idPrefix: string;
+  title: string;
+  parentLabel: string;
+  childLabel: string;
+  parents: Option[];
+  parentId: string;
+  onParent: (id: string) => void;
+  linkedCount: (id: string) => number;
   options: Option[];
   checked: Set<string>;
   disabled: boolean;
   empty: string;
   onToggle: (child: string, active: boolean) => void;
 }) {
-  if (options.length === 0) return <p className="text-xs text-muted-foreground">{empty}</p>;
+  const selected = parents.find((parent) => parent.id === parentId);
+  const linked = options.filter((option) => checked.has(option.id)).length;
+
   return (
-    <div className="divide-y divide-border rounded-md border border-border">
-      {options.map((option) => (
-        <label
-          key={option.id}
-          htmlFor={`${idPrefix}-${option.id}`}
-          className="flex cursor-pointer items-center gap-2 px-3 py-1.5 hover:bg-accent/5"
+    <div className="flex min-w-0 flex-col gap-2 rounded-lg border border-border bg-card/30 p-3">
+      <span className="font-display text-sm font-semibold">{title}</span>
+      <div className="grid gap-3 sm:grid-cols-[12rem_1fr]">
+        <div
+          role="listbox"
+          aria-label={`Choose an ${parentLabel}`}
+          className="no-scrollbar flex max-h-64 flex-col gap-0.5 overflow-y-auto sm:border-r sm:border-border sm:pr-3"
         >
-          <Checkbox
-            id={`${idPrefix}-${option.id}`}
-            checked={checked.has(option.id)}
-            disabled={disabled}
-            onCheckedChange={(value) => onToggle(option.id, value === true)}
-          />
-          <span className={`text-xs ${option.active ? "" : "text-muted-foreground line-through"}`}>
-            {option.name}
-          </span>
-        </label>
-      ))}
+          {parents.map((parent) => (
+            <button
+              key={parent.id}
+              type="button"
+              role="option"
+              aria-selected={parent.id === parentId}
+              onClick={() => onParent(parent.id)}
+              className={`flex items-baseline justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                parent.id === parentId
+                  ? "bg-accent/15 font-medium text-foreground"
+                  : "text-muted-foreground hover:bg-accent/5 hover:text-foreground"
+              } ${parent.active ? "" : "line-through"}`}
+            >
+              <span className="truncate">{parent.name}</span>
+              <span className="shrink-0 text-[0.66rem] tabular-nums">{linkedCount(parent.id)}</span>
+            </button>
+          ))}
+          {parents.length === 0 ? (
+            <p className="px-2 py-1 text-xs text-muted-foreground">None yet.</p>
+          ) : null}
+        </div>
+
+        <div className="flex min-w-0 flex-col gap-2">
+          {selected ? (
+            <>
+              <span className="text-[0.66rem] text-muted-foreground">
+                <span className="font-medium text-foreground">{selected.name}</span> — {linked} of{" "}
+                {options.length} {childLabel} linked. Click to link or unlink.
+              </span>
+              {options.length === 0 ? (
+                <p className="text-xs text-muted-foreground">{empty}</p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {options.map((option) => {
+                    const on = checked.has(option.id);
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        aria-pressed={on}
+                        disabled={disabled}
+                        onClick={() => onToggle(option.id, !on)}
+                        className={`chip px-2.5 py-1 text-xs ${on ? "chip-active" : ""} ${
+                          option.active ? "" : "line-through"
+                        }`}
+                      >
+                        {option.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="py-2 text-xs text-muted-foreground">
+              Pick an {parentLabel} to see and change its {childLabel}.
+            </p>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

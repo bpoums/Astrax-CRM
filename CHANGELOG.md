@@ -1,5 +1,60 @@
 # Changelog
 
+## 2026-10-07 — Settings: cleaner Agencies / IMOs / Agents / Carriers panels
+
+UI-only redesign. Tables of four-chip rows became cards of rows with hover icon
+actions, scroll-capped lists with a filter box, link counts on agencies and IMOs,
+and a master–detail mapping with toggle pills in place of select + checklist.
+Carriers use the same rows (Order/Active columns removed).
+- New `src/components/admin-list.tsx`; rebuilt `placement-admin.tsx` and
+  `carrier-admin.tsx` UI. No RPC, query or database change.
+
+## 2026-10-07 — Admin "Agencies" tab: Agency → IMO → Carrier map
+
+New read-only tab showing which IMOs connect to which agencies and carriers, as
+three columns joined by curves, with click/hover path highlighting, per-name link
+counts, a "Show inactive" toggle and a stacked per-IMO fallback on narrow screens.
+- New `src/components/agency-map.tsx`; mounted from `admin.tsx`.
+- No database change; editing the mapping stays in Settings.
+
+## 2026-10-07 — Sales Breakdown merged into the admin Overview
+
+The admin "Sales Breakdown" tab is gone; its content now sits below the Overview
+panels, driven by the Overview's single time filter (Today / 7 days / 30 days /
+All time / Custom). The filter row sticks to the top while scrolling.
+- `sales-breakdown.tsx`: new optional `sharedPeriod` prop (a `usePeriod()` result);
+  when set it feeds `p_days`/`p_start_date`/`p_end_date` to the existing RPCs and
+  hides the component's own chips. Without it (the `/reporting` Sales tab) nothing changes.
+- `admin-overview.tsx` renders it; `admin.tsx` drops the tab.
+- Behaviour change: admin loses the calendar "This Week / This Month" chips.
+- No database change.
+
+## 2026-10-07 — Agents are independent of the placement rule
+
+Only Agency → IMO → Carrier follow the placement mapping now. Agents are a plain
+list: add one in Admin → Settings and it appears in the validator's Agent Name
+dropdown, regardless of agency, IMO or carrier.
+- Migration `20261007130000_agents_independent.sql`: `set_validator_fields` (uuid
+  overload) drops the carrier-first and appointment checks and only requires an
+  active agent (or the lead's current one); `placement_set_link` drops the
+  `agent_appointment` kind; `agent_appointments` (empty) is dropped.
+- UI: the "Agent appointments" mapping box is gone from `placement-admin.tsx`;
+  `validator-fields.tsx` offers all active agents and never clears the agent when
+  the chain changes; `placement.ts` loses `agentsForLink`/appointments.
+- The placement rule is still switched off (`placement_rule_enabled = false`).
+
+## 2026-10-07 — Typed Agency and IMO now reach the Google Sheet
+
+The free-text Agency and IMO a validator types (`submissions.agency_name` / `imo_name`)
+were saved but never sent to the sheet. Now they go as two new trailing columns,
+`Placement Agency` and `Placement IMO` (not `Agency`/`IMO`, since `Agency` is already a
+payload key holding the carrier on some forms).
+- Migration `20261007120000_sheet_sync_agency_imo.sql`: `sheet_sync_row` and
+  `sync_submission_to_sheet` add `agency_name`/`imo_name` to the body; `notify_sheet_sync`
+  re-queues a row when either changes.
+- Edge function `sheet-sync` (v14): `buildRow()` appends the two columns.
+- The 3 existing leads with typed text were re-queued once.
+
 ## 2026-10-07 — Final carrier filter in the Closing Desk
 
 general_manager and closing_manager get a "Final carrier" box beside the search box.

@@ -5,7 +5,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth, type AppRole } from "@/lib/auth";
 import { invalidateCarrierDeclines, useCarriers } from "@/lib/carriers";
 import {
-  agentsForLink,
   carriersForImo,
   imoCarrierLink,
   imosForAgency,
@@ -407,12 +406,10 @@ function PlacementFields({ row, onSaved }: ValidatorFieldsProps) {
     (c) =>
       (c.active && linkedCarriers.has(c.id)) || (c.id === row.final_carrier_id && sameAsSaved.imo),
   );
-  const link = imoId && carrierId ? imoCarrierLink(links.data, imoId, carrierId) : undefined;
-  const appointed = link ? agentsForLink(links.data, link.id) : new Set<string>();
+  // Agents are independent of the chain: every active agent, plus the one the
+  // lead already holds even if since retired.
   const agentOptions: Option[] = (agents.data ?? []).filter(
-    (a) =>
-      (a.active && appointed.has(a.id)) ||
-      (a.id === row.agent_id && sameAsSaved.imo && sameAsSaved.carrier),
+    (a) => a.active || a.id === row.agent_id,
   );
 
   // A closed lead is history being mapped, not a placement: the server skips
@@ -438,24 +435,12 @@ function PlacementFields({ row, onSaved }: ValidatorFieldsProps) {
     if (!imosNow.has(imoId)) {
       setImoId("");
       setCarrierId("");
-      setAgentId("");
     }
   }
   function chooseImo(value: string) {
     setImoId(value);
     const carriersNow = carriersForImo(links.data, value);
-    if (!carriersNow.has(carrierId)) {
-      setCarrierId("");
-      setAgentId("");
-      return;
-    }
-    const linkNow = imoCarrierLink(links.data, value, carrierId);
-    if (!linkNow || !agentsForLink(links.data, linkNow.id).has(agentId)) setAgentId("");
-  }
-  function chooseCarrier(value: string) {
-    setCarrierId(value);
-    const linkNow = imoCarrierLink(links.data, imoId, value);
-    if (!linkNow || !agentsForLink(links.data, linkNow.id).has(agentId)) setAgentId("");
+    if (!carriersNow.has(carrierId)) setCarrierId("");
   }
 
   const complete = !!agencyId && !!imoId && !!carrierId && !!agentId && !!policy.trim();
@@ -501,7 +486,7 @@ function PlacementFields({ row, onSaved }: ValidatorFieldsProps) {
           <FieldSelect
             label="Final Carrier"
             value={carrierId}
-            onChange={chooseCarrier}
+            onChange={setCarrierId}
             options={carrierOptions}
             disabled={save.isPending || !imoId}
             isBlocked={(id) => reasonFor(id) !== null}
@@ -518,14 +503,8 @@ function PlacementFields({ row, onSaved }: ValidatorFieldsProps) {
             value={agentId}
             onChange={setAgentId}
             options={agentOptions}
-            disabled={save.isPending || !carrierId}
-            placeholder={
-              !carrierId
-                ? "Choose the carrier first"
-                : agentOptions.length
-                  ? "Select an agent…"
-                  : "No agents appointed here"
-            }
+            disabled={save.isPending}
+            placeholder={agentOptions.length ? "Select an agent…" : "No agents set up"}
           />
         </div>
         {legacyAgent ? (

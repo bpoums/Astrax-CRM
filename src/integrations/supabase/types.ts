@@ -99,42 +99,6 @@ export type Database = {
           },
         ]
       }
-      agent_appointments: {
-        Row: {
-          active: boolean
-          agent_id: string
-          created_at: string
-          imo_carrier_id: string
-        }
-        Insert: {
-          active?: boolean
-          agent_id: string
-          created_at?: string
-          imo_carrier_id: string
-        }
-        Update: {
-          active?: boolean
-          agent_id?: string
-          created_at?: string
-          imo_carrier_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "agent_appointments_agent_id_fkey"
-            columns: ["agent_id"]
-            isOneToOne: false
-            referencedRelation: "agents"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "agent_appointments_imo_carrier_id_fkey"
-            columns: ["imo_carrier_id"]
-            isOneToOne: false
-            referencedRelation: "imo_carriers"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       agents: {
         Row: {
           active: boolean

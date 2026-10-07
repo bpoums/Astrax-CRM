@@ -4,14 +4,8 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { CARRIERS_KEY, useCarriers, type Carrier } from "@/lib/carriers";
 import { carrierKey } from "@/lib/normalize";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { ChevronDown, ChevronUp, Pencil, Power } from "lucide-react";
+import { InactiveTag, RowAction } from "@/components/admin-list";
 
 /**
  * The carrier list, managed.
@@ -218,162 +212,130 @@ export function CarrierAdmin() {
       {carriers.isError ? (
         <p className="text-xs text-destructive">{(carriers.error as Error).message}</p>
       ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Carrier</TableHead>
-              <TableHead>Spellings seen in uploaded files</TableHead>
-              <TableHead className="w-20 text-right">Order</TableHead>
-              <TableHead className="w-20">Active</TableHead>
-              <TableHead className="w-64 text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.map((carrier, index) =>
-              editingId === carrier.id ? (
-                <TableRow key={carrier.id}>
-                  <TableCell>
-                    <input
-                      value={draft}
-                      onChange={(event) => setDraft(event.target.value)}
-                      className="field-input"
-                      aria-label="Carrier name"
-                      autoFocus
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          event.preventDefault();
-                          saveEdit(carrier.id);
-                        }
-                        if (event.key === "Escape") setEditingId(null);
-                      }}
-                    />
-                    {/* The warning belongs beside the action, not in a help
-                        panel nobody opens — this is the moment it matters. */}
-                    <p className="mt-1 text-[0.66rem] text-destructive">
-                      Renaming starts a NEW Google Sheet tab from the next submission on: the Apps
-                      Script names the tab from the Agency value stored on each lead. Leads already
-                      submitted keep the old name and stay on the old tab.
-                    </p>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    <AliasChips carrier={carrier} />
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {carrier.sort_order}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {carrier.active ? "Yes" : "No"}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-1.5">
-                      <button
-                        type="button"
-                        className="chip px-2.5 py-0.5 text-[0.66rem]"
-                        disabled={busy}
-                        onClick={() => saveEdit(carrier.id)}
-                      >
-                        {update.isPending ? "Saving…" : "Save"}
-                      </button>
-                      <button
-                        type="button"
-                        className="chip px-2.5 py-0.5 text-[0.66rem]"
-                        disabled={busy}
-                        onClick={() => setEditingId(null)}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ) : (
-                <TableRow key={carrier.id}>
-                  <TableCell className={carrier.active ? "font-medium" : "text-muted-foreground"}>
-                    {carrier.name}
-                  </TableCell>
-                  <TableCell>
-                    <AliasEditor
-                      carrier={carrier}
-                      busy={busy}
-                      onAdd={(value) => addAlias(carrier, value)}
-                      onRemove={(alias) => removeAlias(carrier, alias)}
-                    />
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {carrier.sort_order}
-                  </TableCell>
-                  <TableCell
-                    className={carrier.active ? "text-muted-foreground" : "text-destructive"}
+        <div className="flex flex-col divide-y divide-border rounded-lg border border-border bg-card/30">
+          {rows.map((carrier, index) =>
+            editingId === carrier.id ? (
+              <div key={carrier.id} className="flex flex-col gap-2 px-3 py-2.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    value={draft}
+                    onChange={(event) => setDraft(event.target.value)}
+                    className="field-input h-8 min-w-0 flex-1 text-xs sm:max-w-xs"
+                    aria-label="Carrier name"
+                    autoFocus
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        saveEdit(carrier.id);
+                      }
+                      if (event.key === "Escape") setEditingId(null);
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="chip px-2.5 py-0.5 text-[0.66rem]"
+                    disabled={busy}
+                    onClick={() => saveEdit(carrier.id)}
                   >
-                    {carrier.active ? "Yes" : "No"}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-1.5">
-                      <button
-                        type="button"
-                        className="chip px-2 py-0.5 text-[0.66rem]"
-                        disabled={busy || index === 0}
-                        aria-label={`Move ${carrier.name} up`}
-                        onClick={() => move(index, -1)}
-                      >
-                        ↑
-                      </button>
-                      <button
-                        type="button"
-                        className="chip px-2 py-0.5 text-[0.66rem]"
-                        disabled={busy || index === rows.length - 1}
-                        aria-label={`Move ${carrier.name} down`}
-                        onClick={() => move(index, 1)}
-                      >
-                        ↓
-                      </button>
-                      <button
-                        type="button"
-                        className="chip px-2.5 py-0.5 text-[0.66rem]"
-                        disabled={busy}
-                        onClick={() => {
-                          setEditingId(carrier.id);
-                          setDraft(carrier.name);
-                        }}
-                      >
-                        Rename
-                      </button>
-                      <button
-                        type="button"
-                        className="chip px-2.5 py-0.5 text-[0.66rem] text-muted-foreground"
-                        disabled={busy}
-                        title={
-                          carrier.active
-                            ? "Takes it out of the decline dialog; declines already recorded against it are untouched"
-                            : "Puts it back in the decline dialog"
-                        }
-                        onClick={() =>
-                          update.mutate(
-                            { id: carrier.id, values: { active: !carrier.active } },
-                            {
-                              onSuccess: () =>
-                                toast.success(
-                                  carrier.active ? "Carrier deactivated" : "Carrier reactivated",
-                                ),
-                            },
-                          )
-                        }
-                      >
-                        {carrier.active ? "Deactivate" : "Reactivate"}
-                      </button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ),
-            )}
-            {rows.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={5} className="text-center text-muted-foreground">
-                  {carriers.isLoading ? "Loading…" : "No carriers yet."}
-                </TableCell>
-              </TableRow>
-            ) : null}
-          </TableBody>
-        </Table>
+                    {update.isPending ? "Saving…" : "Save"}
+                  </button>
+                  <button
+                    type="button"
+                    className="chip px-2.5 py-0.5 text-[0.66rem]"
+                    disabled={busy}
+                    onClick={() => setEditingId(null)}
+                  >
+                    Cancel
+                  </button>
+                </div>
+                {/* The warning belongs beside the action, not in a help
+                    panel nobody opens — this is the moment it matters. */}
+                <p className="text-[0.66rem] text-destructive">
+                  Renaming starts a NEW Google Sheet tab from the next submission on: the Apps
+                  Script names the tab from the Agency value stored on each lead. Leads already
+                  submitted keep the old name and stay on the old tab.
+                </p>
+                <AliasChips carrier={carrier} />
+              </div>
+            ) : (
+              <div
+                key={carrier.id}
+                className={`group flex flex-wrap items-center gap-x-4 gap-y-1.5 px-3 py-2 hover:bg-accent/5 focus-within:bg-accent/5 ${
+                  carrier.active ? "" : "text-muted-foreground"
+                }`}
+              >
+                <div className="flex w-56 min-w-0 shrink-0 items-center gap-2">
+                  <span
+                    className={`truncate text-xs ${carrier.active ? "font-medium" : "line-through"}`}
+                  >
+                    {carrier.name}
+                  </span>
+                  {carrier.active ? null : <InactiveTag />}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <AliasEditor
+                    carrier={carrier}
+                    busy={busy}
+                    onAdd={(value) => addAlias(carrier, value)}
+                    onRemove={(alias) => removeAlias(carrier, alias)}
+                  />
+                </div>
+                <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100">
+                  <RowAction
+                    label={`Move ${carrier.name} up`}
+                    disabled={busy || index === 0}
+                    onClick={() => move(index, -1)}
+                  >
+                    <ChevronUp />
+                  </RowAction>
+                  <RowAction
+                    label={`Move ${carrier.name} down`}
+                    disabled={busy || index === rows.length - 1}
+                    onClick={() => move(index, 1)}
+                  >
+                    <ChevronDown />
+                  </RowAction>
+                  <RowAction
+                    label={`Rename ${carrier.name}`}
+                    disabled={busy}
+                    onClick={() => {
+                      setEditingId(carrier.id);
+                      setDraft(carrier.name);
+                    }}
+                  >
+                    <Pencil />
+                  </RowAction>
+                  <RowAction
+                    label={
+                      carrier.active
+                        ? `Deactivate ${carrier.name} — takes it out of the decline dialog; declines already recorded against it are untouched`
+                        : `Reactivate ${carrier.name} — puts it back in the decline dialog`
+                    }
+                    disabled={busy}
+                    onClick={() =>
+                      update.mutate(
+                        { id: carrier.id, values: { active: !carrier.active } },
+                        {
+                          onSuccess: () =>
+                            toast.success(
+                              carrier.active ? "Carrier deactivated" : "Carrier reactivated",
+                            ),
+                        },
+                      )
+                    }
+                  >
+                    <Power />
+                  </RowAction>
+                </div>
+              </div>
+            ),
+          )}
+          {rows.length === 0 ? (
+            <p className="px-3 py-4 text-center text-xs text-muted-foreground">
+              {carriers.isLoading ? "Loading…" : "No carriers yet."}
+            </p>
+          ) : null}
+        </div>
       )}
     </section>
   );

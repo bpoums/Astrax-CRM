@@ -15,10 +15,18 @@ Live; built in this working session. Read-only, no database change.
 No other role has a route to it.
 
 ## Routes / screens
-`/admin?tab=sales-breakdown` and `/reporting?tab=sales-breakdown` both mount
-`src/components/sales-breakdown.tsx`'s `SalesBreakdown`, unchanged — the
-component itself has no role branching; what changed is which RPCs will
-answer it.
+**Changed 2026-10-07:** admin no longer has a Sales Breakdown tab. `SalesBreakdown`
+is rendered at the bottom of the admin **Overview** tab (under a "Sales"
+divider) with `sharedPeriod={usePeriod()}` from `AdminOverview`, so one filter
+(Today / 7 days / 30 days / All time / Custom, Pacific-day rolling windows)
+governs both the Overview panels and this section; the component then hides
+its own chips and lays By Carrier / By State side by side at `xl`. The
+calendar-aligned "This Week / This Month" chips no longer exist in admin.
+An old `/admin?tab=sales-breakdown` link falls back to Overview.
+
+`/reporting?tab=sales-breakdown` still mounts `SalesBreakdown` with no props
+and keeps its own chips (including This Week / This Month). The component has
+no role branching; what differs by role is which RPCs will answer it.
 
 ## Important components
 `sales-breakdown.tsx` (`SalesBreakdown`, `PivotTable`, `LeaderboardCard`,

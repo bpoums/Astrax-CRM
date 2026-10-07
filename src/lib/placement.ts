@@ -2,12 +2,10 @@ import { useQuery, type QueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
 /**
- * Where a lead can be placed: Agency -> IMO -> Carrier -> Agent.
+ * Where a lead can be placed: Agency -> IMO -> Carrier. Agents are a plain
+ * list, independent of that chain — any active agent can be picked.
  *
- * Every link is many-to-many. One carrier is contracted through several IMOs,
- * and an agent's appointment belongs to one IMO->Carrier contract (an
- * `imo_carriers` row), not to the carrier in general — appointed with Corbridge
- * through IMO1 does not mean appointed with Corbridge through IMO2.
+ * Every link is many-to-many. One carrier is contracted through several IMOs.
  *
  * Carriers themselves stay in `@/lib/carriers`; this module only adds the
  * other three lists and the links between them. All writes go through the
@@ -27,12 +25,10 @@ export type PlacementItem = {
 
 export type AgencyImoLink = { agency_id: string; imo_id: string; active: boolean };
 export type ImoCarrierLink = { id: string; imo_id: string; carrier_id: string; active: boolean };
-export type AgentAppointment = { agent_id: string; imo_carrier_id: string; active: boolean };
 
 export type PlacementLinks = {
   agencyImos: AgencyImoLink[];
   imoCarriers: ImoCarrierLink[];
-  appointments: AgentAppointment[];
 };
 
 export const PLACEMENT_KEY = ["placement"] as const;
@@ -94,18 +90,15 @@ export function usePlacementLinks(enabled = true) {
     queryKey: [...PLACEMENT_KEY, "links"],
     enabled,
     queryFn: async (): Promise<PlacementLinks> => {
-      const [agencyImos, imoCarriers, appointments] = await Promise.all([
+      const [agencyImos, imoCarriers] = await Promise.all([
         supabase.from("agency_imos").select("agency_id, imo_id, active"),
         supabase.from("imo_carriers").select("id, imo_id, carrier_id, active"),
-        supabase.from("agent_appointments").select("agent_id, imo_carrier_id, active"),
       ]);
       if (agencyImos.error) throw agencyImos.error;
       if (imoCarriers.error) throw imoCarriers.error;
-      if (appointments.error) throw appointments.error;
       return {
         agencyImos: agencyImos.data ?? [],
         imoCarriers: imoCarriers.data ?? [],
-        appointments: appointments.data ?? [],
       };
     },
   });
@@ -137,15 +130,6 @@ export function imoCarrierLink(
 ) {
   return (links?.imoCarriers ?? []).find(
     (link) => link.imo_id === imoId && link.carrier_id === carrierId,
-  );
-}
-
-/** Agent ids actively appointed on one IMO->Carrier contract. */
-export function agentsForLink(links: PlacementLinks | undefined, imoCarrierId: string) {
-  return new Set(
-    (links?.appointments ?? [])
-      .filter((link) => link.active && link.imo_carrier_id === imoCarrierId)
-      .map((link) => link.agent_id),
   );
 }
 

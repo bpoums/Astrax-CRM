@@ -50,8 +50,9 @@ helpers (`useCrmSuspension`, `fetchCrmSuspension`, `setCrmSuspension`,
   each admin component's own comments) that naming a carrier, a center or a
   client is vocabulary, not workflow, and needs none of the ordering/audit
   guarantees an RPC exists to provide. All three are readable by every role.
-- `agencies`, `imos`, `agents` and the links `agency_imos`, `imo_carriers`,
-  `agent_appointments` (added 2026-10-04) — **not** directly writable, unlike
+- `agencies`, `imos`, `agents` and the links `agency_imos`, `imo_carriers`
+  (added 2026-10-04; `agent_appointments` was dropped 2026-10-07 — agents are
+  a standalone list) — **not** directly writable, unlike
   the three above: written only through `placement_upsert_item` and
   `placement_set_link` (admin only, both audited to `settings_audit`). See
   "Placement" below.
@@ -66,20 +67,38 @@ helpers (`useCrmSuspension`, `fetchCrmSuspension`, `setCrmSuspension`,
 
 ## Placement: agencies, IMOs and agents (added 2026-10-04)
 
+**Layout (redesigned 2026-10-07).** Agencies, IMOs and Agents are three cards of
+rows (`admin-list.tsx`: `ListCard`, `ListRow`, `RowAction`). Row actions (↑ ↓,
+edit, activate/deactivate) are icon buttons shown on hover or focus, always on
+touch; lists scroll at a capped height and get a filter box past 8 names;
+agencies/IMOs show their link counts. The mapping is a master–detail pane: pick
+the parent on the left, toggle its children as pills on the right. `CarrierAdmin`
+uses the same row pattern (name, spellings inline, icon actions; the Order and
+Active columns are gone — inactive rows are muted and tagged). Behaviour, RPCs
+and writes are unchanged.
+
+**Connection map (added 2026-10-07).** The admin **Agencies** tab
+(`src/components/agency-map.tsx`, `AgencyMap`) is a read-only picture of the
+mapping below: Agencies, IMOs and Carriers in three columns with curves between
+linked names, plus link counts. Selecting or hovering a name lights its whole
+path (agency → IMOs → carriers, or carrier → IMOs → agencies) and dims the rest.
+"Show inactive" is off by default; links to hidden items are hidden with them.
+Under `lg` it falls back to one card per IMO. It reads through
+`usePlacementList`, `usePlacementLinks` and `useCarriers(false)`; editing stays here.
+
 The **Agencies, IMOs and agents** panel (`placement-admin.tsx`) sits under
 Carriers in Settings. It has two parts.
 
 **Three lists** (Agencies, IMOs, Agents): add, edit, reorder (↑/↓ rewrites the
 order as 10, 20, 30…), deactivate. Agents also carry an optional NPN. Carriers
-are still managed in their own panel.
+are still managed in their own panel. **Agents are independent**: adding an agent
+here is all it takes for it to appear in the validator's Agent Name dropdown —
+no mapping to an IMO or carrier.
 
-**Mapping**, three boxes, each "pick the parent, tick its children":
+**Mapping**, two boxes, each "pick the parent, tick its children":
 - **Agency → IMOs**
 - **IMO → Carriers.** One carrier can be ticked under several IMOs. Each
   IMO→Carrier pair is its own contract.
-- **Agent appointments.** Pick an IMO, then one of its carriers, then tick the
-  agents appointed on that contract. An agent appointed on Corbridge through
-  IMO1 is not automatically appointed on Corbridge through IMO2.
 
 Every link is many-to-many. Inactive items only appear in a checklist while
 they're still linked, so a link to something since retired can be seen and
@@ -91,9 +110,8 @@ added 2026-10-05, is built but switched **off**
 (`app_config.placement_rule_enabled = 'false'`). See "Placement rule" in
 [validation-queue.md](validation-queue.md).
 
-The mapping has to be complete and real before the switch goes on. A validator
-can only choose an agent who is appointed on the chosen IMO → carrier pair, and
-accept requires one.
+The agency → IMO → carrier mapping has to be complete and real before the switch
+goes on. A validator can choose any active agent, and accept requires one.
 
 Historical leads' `submissions.agency_id`/`imo_id`/`agent_id` are being filled in
 by hand. Those columns don't trigger sheet-sync, so editing them never re-sends a

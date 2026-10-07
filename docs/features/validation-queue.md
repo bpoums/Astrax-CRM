@@ -119,8 +119,9 @@ is `false` — the state it ships in, until the agency/IMO/agent mapping is read
 `ValidatorFields` renders five fields: **Agency** and **IMO** (free text), **Final
 Carrier** (any active carrier), **Agent Name** (free text) and **Policy Number**. No
 blocks or warnings. Agency and IMO are stored in the text columns
-`submissions.agency_name` / `imo_name` (not the `agency_id`/`imo_id` FKs, and not
-synced to Google Sheets), so nothing the validator enters is lost. Save calls the
+`submissions.agency_name` / `imo_name` (not the `agency_id`/`imo_id` FKs). They are
+synced to Google Sheets as the `Placement Agency` and `Placement IMO` columns (added
+2026-10-07), so nothing the validator enters is lost. Save calls the
 rule-off `set_validator_fields`, and both `dispose_submission` and
 `acceptBlockedReason` require all five. When the rule goes on, a lead that has typed
 agency/IMO but no ids shows them as a "Typed before the mapping" note; mapping the
@@ -130,12 +131,13 @@ Setting it to `'true'` brings back the five-field panel below with no deploy; ag
 names typed in the meantime stay in `agent_name`, unlinked to an `agent_id`.
 
 **The panel (rule on).** "To Be Filled By Validator" (`validator-fields.tsx`) has five
-fields. Four are dropdowns, each narrowed by the one before it, following the
-mapping in Admin → Settings ([admin-settings-and-config.md](admin-settings-and-config.md)):
+fields. Four are dropdowns. The first three are each narrowed by the one before it,
+following the mapping in Admin → Settings ([admin-settings-and-config.md](admin-settings-and-config.md)):
 - **Agency**
 - **IMO**: only IMOs linked to that agency.
 - **Final Carrier**: only carriers contracted through that IMO.
-- **Agent Name**: only agents appointed on that IMO→Carrier pair.
+- **Agent Name**: independent of the three above — every active agent, always
+  selectable. Changing the agency, IMO or carrier never clears it.
 
 The fifth, **Policy Number**, is free text.
 
@@ -220,8 +222,8 @@ update public.app_config set value = 'true' where key = 'placement_rule_enabled'
 
 From then on, the old two overloads raise "This screen is out of date. Refresh
 the page", and accept needs all five fields. Before going live, the real
-agencies, IMOs, carriers and agent appointments must be mapped. Otherwise
-validators can't pick an agent and can't accept.
+agencies, IMOs and carriers must be mapped and agents added. Otherwise
+validators have nothing to pick and can't accept.
 
 ## Known limitations
 - Validator self-submitted forms (`validator-form.tsx`) don't capture an IMO,
