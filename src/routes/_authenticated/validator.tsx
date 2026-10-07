@@ -25,6 +25,7 @@ import {
 } from "@/components/ops";
 import { PaymentPanel } from "@/components/payment-panel";
 import { acceptBlockedReason, ValidatorFields } from "@/components/validator-fields";
+import { usePlacementRuleEnabled } from "@/lib/placement";
 import { validationTimelineKey } from "@/components/validation-timeline";
 import { DataFlagList } from "@/components/data-flags";
 import { CarrierDeclineList } from "@/components/carrier-declines";
@@ -209,7 +210,8 @@ function ValidatorPage() {
    * editor's draft: the server gates on what is stored, so anything else would
    * enable a button the RPC then refuses.
    */
-  const acceptBlocked = selected ? acceptBlockedReason(selected) : null;
+  const ruleEnabled = usePlacementRuleEnabled();
+  const acceptBlocked = selected ? acceptBlockedReason(selected, ruleEnabled.data) : null;
   const pending = rows.find((row) => row.id === confirmId) ?? null;
   const declining = rows.find((row) => row.id === declineId) ?? null;
   const remaining =

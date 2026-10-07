@@ -43,6 +43,7 @@ import {
   useOverviewStats,
   type CenterTotalsRow,
   type OverviewTotalsRow,
+  type ValidatorStatsRow,
 } from "@/lib/overview-stats";
 import { ValidatorFields } from "@/components/validator-fields";
 import { useDeclinedCarrierMap } from "@/lib/carriers";
@@ -342,76 +343,93 @@ export function ReportingStats({
       />
 
       {showValidatorSubmissions ? null : (
-        <>
-          <section className="panel">
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <h2 className="panel-title">Validators Team Dashboard ({perValidator.length})</h2>
-              {/* Scoped on when the validator ACTED, not on when the lead
-                  arrived — a lead submitted last month and disposed today is
-                  today's work. See validator_stats_range. */}
-              <span className="text-[0.66rem] text-muted-foreground">{heading}</span>
-            </div>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Validator</TableHead>
-                  <TableHead className="text-right">Assigned</TableHead>
-                  <TableHead className="text-right">Submitted</TableHead>
-                  <TableHead className="text-right">Declined</TableHead>
-                  <TableHead className="text-right">Rejected</TableHead>
-                  <TableHead className="text-right">Timed out</TableHead>
-                  <TableHead className="text-right">Holds</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {perValidator.map((validator) => (
-                  <TableRow key={validator.validator_id ?? validator.validator_name}>
-                    <TableCell className="font-medium">
-                      {validator.validator_name ?? validator.validator_id}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {validator.assigned ?? 0}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {validator.approved ?? 0}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {validator.declined ?? 0}
-                    </TableCell>
-                    <TableCell
-                      className={`text-right tabular-nums ${
-                        (validator.rejected ?? 0) > 0 ? "text-destructive" : "text-muted-foreground"
-                      }`}
-                    >
-                      {validator.rejected ?? 0}
-                    </TableCell>
-                    <TableCell
-                      className={`text-right tabular-nums ${
-                        (validator.timed_out ?? 0) > 0
-                          ? "text-destructive"
-                          : "text-muted-foreground"
-                      }`}
-                    >
-                      {validator.timed_out ?? 0}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums text-muted-foreground">
-                      {validator.holds ?? 0}
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {perValidator.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={7} className="text-center text-muted-foreground">
-                      {validatorStats.isLoading ? "Loading…" : "No validators yet."}
-                    </TableCell>
-                  </TableRow>
-                ) : null}
-              </TableBody>
-            </Table>
-          </section>
-        </>
+        <ValidatorsTeamDashboard
+          perValidator={perValidator}
+          isLoading={validatorStats.isLoading}
+          heading={heading}
+        />
       )}
     </>
+  );
+}
+
+/**
+ * The per-validator performance table, pulled out of `ReportingStats` so the
+ * Reporting Manager screen can mount it next to `OverviewPanels` without the
+ * period picker or "the record" strip that come with the rest of that
+ * component. Fed by `validator_stats_range` — the caller passes in the rows
+ * and loading state rather than this component fetching its own, so a screen
+ * that already calls `useOverviewStats` once (and keeps one realtime
+ * channel) doesn't open a second.
+ */
+export function ValidatorsTeamDashboard({
+  perValidator,
+  isLoading,
+  heading,
+}: {
+  perValidator: ValidatorStatsRow[];
+  isLoading: boolean;
+  heading: string;
+}) {
+  return (
+    <section className="panel">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="panel-title">Validators Team Dashboard ({perValidator.length})</h2>
+        {/* Scoped on when the validator ACTED, not on when the lead arrived —
+            a lead submitted last month and disposed today is today's work.
+            See validator_stats_range. */}
+        <span className="text-[0.66rem] text-muted-foreground">{heading}</span>
+      </div>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Validator</TableHead>
+            <TableHead className="text-right">Assigned</TableHead>
+            <TableHead className="text-right">Submitted</TableHead>
+            <TableHead className="text-right">Declined</TableHead>
+            <TableHead className="text-right">Rejected</TableHead>
+            <TableHead className="text-right">Timed out</TableHead>
+            <TableHead className="text-right">Holds</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {perValidator.map((validator) => (
+            <TableRow key={validator.validator_id ?? validator.validator_name}>
+              <TableCell className="font-medium">
+                {validator.validator_name ?? validator.validator_id}
+              </TableCell>
+              <TableCell className="text-right tabular-nums">{validator.assigned ?? 0}</TableCell>
+              <TableCell className="text-right tabular-nums">{validator.approved ?? 0}</TableCell>
+              <TableCell className="text-right tabular-nums">{validator.declined ?? 0}</TableCell>
+              <TableCell
+                className={`text-right tabular-nums ${
+                  (validator.rejected ?? 0) > 0 ? "text-destructive" : "text-muted-foreground"
+                }`}
+              >
+                {validator.rejected ?? 0}
+              </TableCell>
+              <TableCell
+                className={`text-right tabular-nums ${
+                  (validator.timed_out ?? 0) > 0 ? "text-destructive" : "text-muted-foreground"
+                }`}
+              >
+                {validator.timed_out ?? 0}
+              </TableCell>
+              <TableCell className="text-right tabular-nums text-muted-foreground">
+                {validator.holds ?? 0}
+              </TableCell>
+            </TableRow>
+          ))}
+          {perValidator.length === 0 ? (
+            <TableRow>
+              <TableCell colSpan={7} className="text-center text-muted-foreground">
+                {isLoading ? "Loading…" : "No validators yet."}
+              </TableCell>
+            </TableRow>
+          ) : null}
+        </TableBody>
+      </Table>
+    </section>
   );
 }
 

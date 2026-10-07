@@ -45,7 +45,7 @@ const TABS = [
   // { id: "imports", label: "Imports" },
   { id: "settings", label: "Settings" },
   // { id: "audit", label: "Audit" },
-  { id: "voice-clone", label: "Voice Clone" },
+  { id: "voice-clone", label: "Voice Box" },
 ] as const;
 
 type AdminTab = (typeof TABS)[number]["id"];
@@ -140,6 +140,11 @@ function AdminPage() {
               </Link>
               <Link to="/validator-form" className="chip inline-block">
                 Validator Form
+              </Link>
+              {/* Read-only by construction: /reporting has no edit control
+                  for any role, and its route already admits admin. */}
+              <Link to="/reporting" search={{ tab: "reporting" }} className="chip inline-block">
+                Reporting Manager View
               </Link>
             </>
           }

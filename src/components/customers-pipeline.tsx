@@ -13,6 +13,7 @@ import {
   type LeadSource,
   type UploaderRef,
 } from "@/components/ops";
+import { useCarriers } from "@/lib/carriers";
 import { useCenterColorById } from "@/lib/centers";
 import { SSN_FIELD } from "@/lib/duplicate-ssn";
 import { formatCalendarDate, formatDate } from "@/lib/format-date";
@@ -280,33 +281,149 @@ function inValidation(row: PipelineRow) {
  * validator's own submission — that form types them itself and never passes
  * through review — so each falls back before showing a dash. Without the
  * fallback this panel would read empty on 191 of today's 412 pipeline leads.
+ *
+ * Editable for the CX roles through `cx_set_placement_fields`, which writes
+ * just these three columns — it does not touch the agency/IMO/agent chain or
+ * the placement rule, which `set_validator_fields` owns. The admin mount is
+ * read-only.
  */
-function ValidatorFilledPanel({ row }: { row: PipelineRow }) {
+function ValidatorFilledPanel({
+  row,
+  editable,
+  onSaved,
+}: {
+  row: PipelineRow;
+  editable: boolean;
+  onSaved: () => void;
+}) {
   const payloadText = (key: string) => {
     const value = row.payload[key];
     const trimmed = typeof value === "string" ? value.trim() : "";
     return trimmed || null;
   };
 
-  const fields: { label: string; value: string | null }[] = [
-    { label: "Final Carrier", value: finalCarrierOf(row) },
-    { label: "Agent Name", value: row.agent_name ?? payloadText("Agent Name") },
-    { label: "Policy Number", value: row.policy_number ?? payloadText("Policy Number") },
-  ];
+  const carriers = useCarriers(false, editable);
+  const agentValue = row.agent_name ?? payloadText("Agent Name") ?? "";
+  const policyValue = row.policy_number ?? payloadText("Policy Number") ?? "";
+  const [carrierId, setCarrierId] = useState(row.final_carrier_id ?? "");
+  const [agent, setAgent] = useState(agentValue);
+  const [policy, setPolicy] = useState(policyValue);
+
+  useEffect(() => {
+    setCarrierId(row.final_carrier_id ?? "");
+    setAgent(agentValue);
+    setPolicy(policyValue);
+  }, [row.submission_id, row.final_carrier_id, agentValue, policyValue]);
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.rpc("cx_set_placement_fields", {
+        p_sub: row.submission_id,
+        p_agent_name: agent.trim(),
+        p_policy_number: policy.trim(),
+        ...(carrierId ? { p_final_carrier_id: carrierId } : {}),
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Saved");
+      onSaved();
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  if (!editable) {
+    const fields: { label: string; value: string | null }[] = [
+      { label: "Final Carrier", value: finalCarrierOf(row) },
+      { label: "Agent Name", value: agentValue || null },
+      { label: "Policy Number", value: policyValue || null },
+    ];
+    return (
+      <div className="flex min-w-0 flex-col gap-2">
+        <h3 className="panel-title">Filled By Validator</h3>
+        <div className="divide-y divide-border rounded-md border border-border">
+          {fields.map((field) => (
+            <div
+              key={field.label}
+              className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] items-center gap-2 px-3 py-1.5"
+            >
+              <span className="field-label truncate">{field.label}</span>
+              <span className="break-words text-xs text-foreground">{field.value ?? "—"}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // A carrier the lead already holds stays offered even if since retired.
+  const options = (carriers.data ?? []).filter((c) => c.active || c.id === row.final_carrier_id);
+  const changed =
+    carrierId !== (row.final_carrier_id ?? "") ||
+    agent.trim() !== agentValue ||
+    policy.trim() !== policyValue;
+  // A validator's own lead has no carrier FK; its carrier is the payload text.
+  const carrierFallback = !row.final_carrier_id ? finalCarrierOf(row) : null;
 
   return (
     <div className="flex min-w-0 flex-col gap-2">
       <h3 className="panel-title">Filled By Validator</h3>
-      <div className="divide-y divide-border rounded-md border border-border">
-        {fields.map((field) => (
-          <div
-            key={field.label}
-            className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] items-center gap-2 px-3 py-1.5"
+      <div className="flex min-w-0 flex-col gap-2 rounded-md border border-border p-3">
+        <div className="flex min-w-0 flex-col gap-1">
+          <span className="field-label">Final Carrier</span>
+          <Select value={carrierId} onValueChange={setCarrierId} disabled={save.isPending}>
+            <SelectTrigger className="h-8 text-xs" aria-label="Final Carrier">
+              <SelectValue placeholder={carrierFallback ?? "Select a carrier…"} />
+            </SelectTrigger>
+            <SelectContent>
+              {options.map((c) => (
+                <SelectItem key={c.id} value={c.id} className="text-xs">
+                  {c.name}
+                  {c.active ? "" : " (inactive)"}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex min-w-0 flex-col gap-1">
+          <label htmlFor={`cx-agent-${row.submission_id}`} className="field-label">
+            Agent Name
+          </label>
+          <input
+            id={`cx-agent-${row.submission_id}`}
+            value={agent}
+            disabled={save.isPending}
+            onChange={(event) => setAgent(event.target.value)}
+            className="field-input"
+            autoComplete="off"
+          />
+        </div>
+        <div className="flex min-w-0 flex-col gap-1">
+          <label htmlFor={`cx-policy-${row.submission_id}`} className="field-label">
+            Policy Number
+          </label>
+          <input
+            id={`cx-policy-${row.submission_id}`}
+            value={policy}
+            disabled={save.isPending}
+            onChange={(event) => setPolicy(event.target.value)}
+            className="field-input"
+            autoComplete="off"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="chip px-2.5 py-0.5 text-[0.66rem]"
+            disabled={save.isPending || !changed}
+            onClick={() => save.mutate()}
           >
-            <span className="field-label truncate">{field.label}</span>
-            <span className="break-words text-xs text-foreground">{field.value ?? "—"}</span>
-          </div>
-        ))}
+            {save.isPending ? "Saving…" : "Save"}
+          </button>
+          <span className="text-[0.62rem] text-muted-foreground">
+            {changed ? "Unsaved changes." : "Saved."}
+          </span>
+        </div>
       </div>
     </div>
   );
@@ -336,8 +453,10 @@ function searchFilter(term: string) {
   // otherwise match nothing. The view resolves the name, which is why this is
   // one more clause here rather than a carriers lookup per keystroke.
   clauses.push(`final_carrier_name.ilike.*${safe}*`);
-  // A column on the view, not a payload key — set by the validator at review.
+  // The column is set at review; a validator's own submission never goes
+  // through review, so its policy number lives only in payload.
   clauses.push(`policy_number.ilike.*${safe}*`);
+  clauses.push(`payload->>Policy Number.ilike.*${safe}*`);
   return clauses.join(",");
 }
 
@@ -831,10 +950,13 @@ export function CustomersPipeline({
 
                 {/* Directly under Lead Details, because it reads as the rest of
                     the same record — what the validator added to what the
-                    closer typed. Read-only: `set_validator_fields` does not
-                    accept a CX role, and `ValidatorFields` is the editor for
-                    the roles it does. */}
-                <ValidatorFilledPanel row={selected} />
+                    closer typed. Editable for CX via `cx_set_placement_fields`
+                    (`set_validator_fields` does not accept a CX role). */}
+                <ValidatorFilledPanel
+                  row={selected}
+                  editable={!readOnly}
+                  onSaved={onStatusSaved}
+                />
 
                 {/* Bank fields only. Card number and CVV are never rendered as
                     inputs here and `update_payment_field` refuses them to

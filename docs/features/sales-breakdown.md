@@ -10,12 +10,15 @@ best/worst by accepted-sale count.
 Live; built in this working session. Read-only, no database change.
 
 ## Roles involved
-**admin** only (mounted on the admin-only `/admin` route; no other role has
-a route to it).
+**admin** (mounted on `/admin`) and, since **2026-10-02**, **reporting_manager**
+(mounted on its own `/reporting` route — see [reporting.md](reporting.md)).
+No other role has a route to it.
 
 ## Routes / screens
-`/admin?tab=sales-breakdown` → `src/components/sales-breakdown.tsx`
-(`SalesBreakdown`).
+`/admin?tab=sales-breakdown` and `/reporting?tab=sales-breakdown` both mount
+`src/components/sales-breakdown.tsx`'s `SalesBreakdown`, unchanged — the
+component itself has no role branching; what changed is which RPCs will
+answer it.
 
 ## Important components
 `sales-breakdown.tsx` (`SalesBreakdown`, `PivotTable`, `LeaderboardCard`,
@@ -27,6 +30,12 @@ component no longer imports `carrierName`, `useCarriers`/`carrierRefs`,
 to the SQL functions listed under Database.
 
 ## Database
+**Role guard widened 2026-10-02** (`20261002110000_reporting_manager_grants.sql`):
+both RPCs below were `my_role() is distinct from 'admin'`; now
+`my_role() is null or my_role() not in ('admin','reporting_manager')`
+(converted from `language sql` to `language plpgsql` to hold the check) —
+queries themselves unchanged. See [database.md](../database.md).
+
 **Server-side aggregation, added 2026-09-27** (`20260927120000_sales_breakdown_range.sql`).
 Previously this tab paged every accepted lead's full payload into the browser
 and pivoted client-side; that shipped customer PII to the browser purely to
@@ -47,6 +56,13 @@ aggregation server-side:
 - **`sales_closer_leaderboard_range(p_days, p_start_date, p_end_date)`** —
   the closer leaderboard, same scope as before (`closer_id is not null`,
   `submitted_by_role <> 'validator'`, `archived_at is null`).
+- **Center badge per closer** (2026-10-06): the RPC returns no center, so the
+  component reads `profiles.center_id` for the leaderboard's closer ids and
+  colors it from `useCenters(false)` (inactive centers included). It's the
+  closer's **current** profile center, not a center stamped at submission —
+  a closer who moves centers shows all their history under the new one.
+  Shown in the table's Center column and on the Top Performer / Needs
+  Support cards; a closer with no center shows "—".
 - **Date filtering**: unchanged in the UI (`This Week`/`This Month` resolve
   to calendar-boundary dates client-side; `Custom` uses the picked dates;
   `All time` sends neither) but now passed straight through to the two RPCs'

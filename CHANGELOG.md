@@ -1,5 +1,70 @@
 # Changelog
 
+## 2026-10-07 — Draft Date range filter in the Closing Desk
+
+general_manager and closing_manager can filter the Closing Desk by draft date: a
+labelled Draft from/to pair beside the Submitted pair. One date alone is that exact
+day; two are an inclusive range (reversed pairs are swapped). Filters
+`submissions.draft_date` directly, so leads with no draft date never match.
+`closing-desk.tsx` only; no database change.
+
+## 2026-10-07 — Free-text Agency and IMO while the placement rule is off
+
+Simple mode would have dropped the Agency and IMO a validator knew. Migration
+`20261007110000_free_text_agency_imo.sql` adds `submissions.agency_name` and
+`imo_name` (text), replaces the 4-argument `set_validator_fields` with a 6-argument
+rule-off version that writes them, and makes `dispose_submission` require all five
+fields on accept while the rule is off (rule-on branch unchanged). Validator form,
+Closing Desk query and the accept gate follow. Not synced to Google Sheets.
+Leads already in review need agency and IMO filled before they can be accepted.
+
+## 2026-10-07 — Interim free-text placement while the mapping is not ready
+
+Validators could not accept a lead without picking Agency → IMO → Carrier → Agent
+from a mapping that has no data yet. While `placement_rule_enabled` is `false`,
+`ValidatorFields` now shows just Final Carrier, a typed Agent Name and Policy
+Number (the server already accepted exactly this on the rule-off path), and
+`acceptBlockedReason` gates on those three. New `usePlacementRuleEnabled()` in
+`placement.ts`; `manager.tsx` and `validator.tsx` pass its value to the gate.
+Flip the `app_config` flag to `'true'` to restore the full chain. Client only,
+no migration.
+
+## 2026-10-07 — CXA/CXM can edit Final Carrier, Agent Name and Policy Number
+
+The "Filled By Validator" panel in the Customers Pipeline detail sheet was
+read-only. It is now editable for cxa/cxm (the admin Pipeline mount stays
+read-only): a Final Carrier dropdown, Agent Name and Policy Number inputs, and a
+Save chip. New migration `20261007100000_cx_set_placement_fields.sql` adds
+`cx_set_placement_fields(p_sub, p_agent_name, p_policy_number, p_final_carrier_id
+default null)` — cxa/cxm/admin, guarded by `cx_pipeline_member`, writes only
+those three columns (not agency/IMO/agent ids, not the placement rule) and logs
+a `cx_placement_fields_set` form event with old/new values. Anon has no
+execute. Note: these columns are watched by `notify_sheet_sync()`, so an edit
+re-syncs the lead to Google Sheets, same as a manager's edit would.
+
+## 2026-10-06 — Center badge on each closer in the Closer Leaderboard
+
+The leaderboard's Center column was a hardcoded "-". It now shows a colored
+`CenterBadge` per closer (also on the Top Performer / Needs Support cards),
+resolved client-side from the closer's current `profiles.center_id`.
+`sales-breakdown.tsx` only; no database change.
+
+## 2026-10-06 — Fix: policy-number search missed validator-submitted (manual) leads
+
+The new policy-number search only checked the `policy_number` column, which is
+set at review. A validator's own submission auto-accepts and never reaches
+review, so its policy number exists only in `payload->>'Policy Number'` (0 of
+224 had the column, 220 had the payload key). Both the Closing Desk and the
+Customers Pipeline now search the column **or** that payload key. Verified as
+a general manager: such a lead matched 0 before the fix and 1 after. Client
+only.
+
+## 2026-10-06 — "Reporting Manager View" button in the admin header
+
+Links to `/reporting`, next to Manager View, Closer Form and Validator Form
+(`admin.tsx`). The route already admitted admin, and the screen has no edit
+controls, so it is read-only. No database change.
+
 ## 2026-10-06 — Search by policy number (CX pipeline) and SSN + policy number (Closing Desk)
 
 Customers Pipeline's search box now also matches `policy_number`
@@ -9,6 +74,99 @@ digits of the search term, so dashed, undashed and last-4 searches all work.
 It needs at least 4 digits (`closing-desk.tsx`). Placeholders updated on both.
 Client only, no database change. See `docs/features/cx-lifecycle.md` and
 `docs/features/closing-desk.md`.
+
+## 2026-10-06 — Placement override opened to general managers
+
+`override_placement_block` now accepts a **general manager** as well as an admin
+(`20261006110000_placement_override_general_manager.sql`, applied live; the
+switch is still OFF). It's the same function and the same effect: one lead, one
+IMO → carrier, a required reason, the rejection untouched. The event now
+records the approver's `by_role`. The Override button in `validator-fields.tsx`
+shows for both roles. Managers and validators still can't override.
+
+Pass codes for bypassing the rule were considered and rejected; see
+[decisions/0009](docs/decisions/0009-placement-rule-server-side-by-ssn.md).
+
+Verified in a rolled-back dry run:
+- Admin and general manager can override, and the role is recorded.
+- A blank reason is refused.
+- Manager, validator and a caller with no role are all refused.
+
+## 2026-10-06 — Placement rule revised: same-IMO is a warning, not a block (still switched OFF)
+
+A carrier rejection at IMO X → carrier C now **blocks** only carrier C under
+other IMOs. A **different** carrier under the same IMO X is **allowed with a
+warning**, and the validator must tick "I understand" to save. See
+[decisions/0009](docs/decisions/0009-placement-rule-server-side-by-ssn.md).
+
+**Database** (`20261006100000_placement_same_imo_warning.sql`, applied live; no
+live code calls it, and `placement_rule_enabled` is still `'false'`):
+- `placement_conflict` now blocks on the same carrier only.
+- New internal `placement_warning` returns the same-IMO warning text.
+- `set_validator_fields` gains `p_acknowledge_warning` (the 6-argument version
+  was dropped, since nothing live called it). Without the tick the save is
+  refused with the warning text, and a ticked save writes `placement_warning`
+  and `warning_acknowledged` to the `validator_fields_set` event.
+
+**UI** (not deployed): an amber **Warning** box with an **I understand** tick in
+`validator-fields.tsx`, `placementWarningReason` in `lib/placement.ts`, and
+reworded text in the Decline dialog and the manager's "Prior rejections" badge.
+
+`types.ts` was regenerated through the Supabase MCP generator because
+Windows Application Control blocked `supabase.exe`. That output omits the unused
+`graphql_public` section the CLI includes. The next `npm run types` run with a
+working CLI restores it.
+
+Verified in a rolled-back dry run:
+- Same carrier is blocked, even with the tick.
+- Same IMO without the tick is refused, and with it saves.
+- A different IMO needs no tick.
+- Overrides work.
+- Legacy, fixable and closed leads are never warned.
+- Accept works.
+- Callers with no role are refused.
+
+## 2026-10-05 — Placement rule, phase 2: Agency/IMO/Agent dropdowns and the rejection block (switched OFF)
+
+Stops a customer a carrier has rejected from being re-shopped to that carrier
+through another IMO, or to another carrier through the same IMO. See
+[decisions/0009](docs/decisions/0009-placement-rule-server-side-by-ssn.md).
+
+**Database** (`20261005100000_placement_rule.sql`, applied live with
+`placement_rule_enabled = 'false'`):
+- **`carrier_declines`** gains `imo_id`, `source` and `kind`. The 301 old rows
+  were classified from their reason text: 88 `carrier_rejected`, 48 `fixable`,
+  165 `unclassified`.
+- **New table** `placement_overrides`.
+- **New functions:** `placement_conflict` (internal), `placement_blocks`,
+  `record_carrier_rejection`, `override_placement_block`,
+  `classify_decline_reason` and `placement_rule_enabled`.
+- **New overloads:** a 6-argument `set_validator_fields` and an IMO-aware
+  `decline_with_carriers`, alongside the old ones. `dispose_submission`'s
+  accept gate requires five fields and runs the rule once the switch is on.
+- **New view:** `submission_customer_rejections`.
+- **Guard fix:** the NULL-role guard is fixed in the three replaced functions.
+
+**UI** (not deployed):
+- **"To Be Filled By Validator"** is now Agency → IMO → Final Carrier → Agent
+  dropdowns, plus Policy Number. Blocked carriers are disabled with the reason;
+  admins can override per lead; managers and admins can record a carrier
+  rejection after Submit.
+- **The Decline dialog** groups IMO → carrier contracts and asks "Carrier
+  rejected" or "Fixable issue".
+- **Operations** shows a "Prior rejections" badge.
+- **Files:** `validator-fields.tsx`, `decline-dialog.tsx`, `lib/placement.ts`,
+  `manager.tsx`, `ops.tsx` and `closing-desk.tsx`.
+
+**The live app is unaffected.** It still calls the old functions, which behave
+exactly as before while the switch is off.
+
+Verified:
+- In a rolled-back dry run, every rule case passed, plus the switch-off and
+  switch-on behaviour and anon refusals.
+- After applying, `submission_totals`, the `validator_stats` hash and
+  `sheet_sync_queue` are unchanged.
+- tsc and build pass.
 
 ## 2026-10-04 — Placement hierarchy, phase 1: agencies, IMOs, agents and their mapping
 
@@ -37,6 +195,63 @@ Verified:
   identical before and after the migration.
 - 0 existing rows changed.
 - The RPCs refuse a caller with no role.
+
+## 2026-10-02 — Fix: reporting_manager saw "Unnamed closer", no centers, no validators
+
+The new role could read `submissions` but not the lookup tables the
+reporting RPCs join to. Those RPCs are `SECURITY INVOKER`, so the joins ran
+under its RLS and came back empty without raising an error. Added
+`reporting_manager` to the read policies on `profiles`, `centers`, `carriers`
+and `form_events` (`20261002120000_reporting_manager_lookup_reads.sql`). The
+`carriers` grant also fixes By Carrier, which had been falling back to raw
+proposed-carrier text. Write policies are unchanged. Verified under a
+simulated reporting_manager JWT: 3 centers, 13 validators, 40 named closers,
+0 "Unnamed closer".
+
+## 2026-10-02 — New role: reporting_manager
+
+A tenth `app_role` value for read-only, business-wide reporting with no
+queue and no edit RPCs granted anywhere. Added via two migrations (the enum
+addition has to commit before anything can reference it):
+`20261002100000_add_reporting_manager_role.sql` and
+`20261002110000_reporting_manager_grants.sql`. The second widens the
+`submissions` read policy (same scope as `general_manager` — business-wide,
+not center-scoped) and the role guards on `validator_stats_range`,
+`sales_breakdown_range` and `sales_closer_leaderboard_range` (previously
+admin-only). New route `/reporting` (`src/routes/_authenticated/reporting.tsx`)
+mounts two tabs: "Reporting" (`OverviewPanels` fixed at the "All time" window
+plus a new `ValidatorsTeamDashboard` export pulled out of `reporting.tsx`'s
+`ReportingStats`) and "Sales Breakdown" (`SalesBreakdown`, unchanged). The
+`invite-user` edge function's hardcoded `VALID_ROLES` allow-list and
+`user-admin.tsx`'s `ROLES` array both updated so the role is actually
+invitable. See `docs/features/reporting.md`, `docs/features/sales-breakdown.md`,
+`docs/features/user-management.md` and `docs/database.md`.
+
+## 2026-10-01 — Fix: center API key generation couldn't find pgcrypto
+
+`admin_generate_center_api_key`/`submit_external_lead` (added earlier today)
+failed with `function gen_random_bytes(integer) does not exist` — this
+project has `pgcrypto` installed in the `extensions` schema, not `public`,
+and both functions' `search_path` only included `public`. Widened to
+`'public', 'extensions'` on both. No logic change.
+
+## 2026-10-01 — External center intake: API-key-authenticated lead POST endpoint
+
+A center being onboarded runs its own CRM and has no Astrax closer logged in
+behind its leads. Added `ingest-center-lead`, a new edge function the
+center's CRM POSTs to (payload keyed by the closer form's exact labels, auth
+via a per-center `x-api-key` header), backed by a new RPC
+`submit_external_lead` that inserts exactly the shape a closer's own
+submission takes — `pending_manager`, assignable, synced to Sheets, the same
+accepted-match duplicate-SSN block — tagged `source='api'` instead of
+`'live'`. New table `center_api_keys` (hashed keys only, zero RLS policies)
+and two admin RPCs (`admin_generate_center_api_key`,
+`admin_list_center_api_keys`) back a new "API Key" action on each center's
+row in `CenterAdmin`, where the raw key is shown once at generation time.
+`submissions_source_chk` widened to allow `'api'`; `ops.tsx`'s `LeadSource`/
+`closerName()`/`sourceLabel()` updated so these rows show a distinct "API"
+origin badge with the center's name in place of a closer's.
+See `docs/features/closer-submission-and-forms.md` and `docs/database.md`.
 
 ## 2026-09-29 — Lead Imports "When" column shows the date, not a relative duration
 

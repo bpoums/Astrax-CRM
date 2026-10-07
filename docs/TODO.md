@@ -259,6 +259,34 @@ last-write-wins vs `Array.find` first-match). Pre-existing, found in the
 2026-09-10 audit. See
 [decisions/0003](decisions/0003-deterministic-import-normalization.md).
 
+**Update 2026-10-05:** it now fails 5 of 195. The other four are in
+`src/lib/format-date.test.ts` (`formatCalendarDate`, "renders the 17th as
+the 17th in every timezone" and three siblings). That file was last changed
+in `a826cd2` and isn't touched by the placement work. It's probably
+timezone/ICU-dependent on this machine, but this hasn't been investigated.
+
+---
+
+## Placement rule — go-live and follow-ups
+
+Built 2026-10-05, switched **off**. See "Placement rule" in
+[features/validation-queue.md](features/validation-queue.md) and
+[decisions/0009](decisions/0009-placement-rule-server-side-by-ssn.md).
+
+- **Before go-live:** enter the real agencies, IMOs, agents and every agent
+  appointment in Admin → Settings. The current entries ("test 2 imo" etc.) are
+  dummy data; deactivate or rename them. Then apply the switch migration
+  (`placement_rule_enabled = 'true'`) and deploy the app in the same window.
+- **After go-live:** a later migration drops the old 4-argument
+  `set_validator_fields` and the carrier-only `decline_with_carriers`
+  overloads, which only refuse at that point.
+- **Gap:** validator self-submitted forms (`validator-form.tsx`, auto-accepted,
+  carrier in payload key `"Agency"`) record no IMO and no `carrier_declines`,
+  so the rule neither checks nor learns from those placements.
+- **Open question:** who learns about a carrier rejection after Submit?
+  Recording it is manager/admin only for now (`record_carrier_rejection`). CX
+  may be the team that actually hears about it.
+
 ---
 
 ## Unmasked card/bank data in `PayloadTable`

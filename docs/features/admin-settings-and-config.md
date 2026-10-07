@@ -85,12 +85,15 @@ Every link is many-to-many. Inactive items only appear in a checklist while
 they're still linked, so a link to something since retired can be seen and
 switched off.
 
-**Current status:** this is phase 1. It is the vocabulary and the mapping
-only. Nothing reads it in the validation flow yet. Phase 2 (planned) turns
-"To Be Filled By Validator" into cascading Agency → IMO → Final Carrier → Agent
-dropdowns, and enforces the placement rule. Under that rule, a carrier rejection
-at IMO X → Carrier C blocks carrier C under every IMO, and every carrier under
-IMO X, for that customer (matched by SSN).
+**Current status:** the validation flow reads this mapping in the new
+"To Be Filled By Validator" dropdowns and the new Decline dialog. Phase 2,
+added 2026-10-05, is built but switched **off**
+(`app_config.placement_rule_enabled = 'false'`). See "Placement rule" in
+[validation-queue.md](validation-queue.md).
+
+The mapping has to be complete and real before the switch goes on. A validator
+can only choose an agent who is appointed on the chosen IMO → carrier pair, and
+accept requires one.
 
 Historical leads' `submissions.agency_id`/`imo_id`/`agent_id` are being filled in
 by hand. Those columns don't trigger sheet-sync, so editing them never re-sends a

@@ -11,7 +11,7 @@ migration file at all).
 
 | Enum | Values (in order) |
 |---|---|
-| `app_role` | `admin`, `closer`, `manager`, `validator`, `data_uploader`, `cxm`, `cxa`, `closing_manager`, `general_manager` |
+| `app_role` | `admin`, `closer`, `manager`, `validator`, `data_uploader`, `cxm`, `cxa`, `closing_manager`, `general_manager`, `reporting_manager` (added 2026-10-02) |
 | `sub_status` | `pending_manager`, `assigned`, `in_review`, `returned_timeout`, `closed`, `pending_import_approval`, `parked` |
 | `disposition_t` | `accepted`, `declined`, `pending` |
 
@@ -20,6 +20,13 @@ newest (`pending_import_approval`, `parked`) support the spreadsheet-import
 gate and the External Transfer / parked-lead flow respectively (both already
 present in `src/components/ops.tsx`'s `SUB_STATUSES`, just not in the root
 doc).
+
+`submissions.source` is `text`, not an enum, constrained by
+`submissions_source_chk` to `'live'` (the closer/validator forms),
+`'sheet'` (spreadsheet import) and, **added 2026-10-01**, `'api'` — a lead
+pushed in by a center's own CRM via `submit_external_lead`
+(`20261001100000_center_api_key_external_lead_ingest.sql`). See "External CRM
+intake" below.
 
 ## Tables
 
@@ -34,11 +41,13 @@ Row counts are a snapshot at audit time, for scale intuition only.
 | `card_access_log` | 0 | One row per `card_details()` call. Read-only to admin. |
 | `lead_imports` | 12 | One row per uploaded batch (`start_lead_import`). `row_count`, `imported_count`, `skipped_count`, `upload_ip` (best-effort `x-forwarded-for`, explicitly documented in its own column comment as weak identification behind shared NAT). |
 | `carriers` | 7 | Vocabulary table: `name`, `active`, `sort_order`, `aliases text[]`. Admin-writable directly (no RPC — see `centers.ts` comment pattern, same reasoning applies to carriers). |
-| `carrier_declines` | 76 | One row per (submission, carrier) decline, written only by `decline_with_carriers`. |
+| `carrier_declines` | 301 | One row per (submission, carrier) decline, written by `decline_with_carriers` (both overloads) and `record_carrier_rejection`. Added 2026-10-05 (`20261005100000_placement_rule.sql`): `imo_id` (null on every row from before), `source` (`validator`/`after_submit`) and `kind` (`carrier_rejected`/`fixable`/`unclassified`, not null). Only `carrier_rejected` rows feed the placement rule. Old rows were backfilled by `classify_decline_reason(reason)`: 88/48/165. |
+| `placement_overrides` | added 2026-10-05 | An admin's or general manager's permission for one lead to be placed at one blocked IMO → carrier (`submission_id`, `imo_id`, `carrier_id`, unique together; `reason` not null; `overridden_by`, `created_at`). Readable by admin/manager/general_manager. No write policy, and direct writes are revoked; it is written only by `override_placement_block`. |
 | `centers` | 2 | The two call centers (UMS BPO, DESCOM). Admin-writable directly. |
 | `agencies`, `imos`, `agents` | added 2026-10-04 | Placement vocabulary (`20261004100000_placement_hierarchy.sql`): `name` (unique, case/space-insensitive), `active`, `sort_order`; `agents` also has an optional `npn`. Unlike `carriers`, **not** directly writable: write grants (incl. `TRUNCATE`) are revoked from `anon`/`authenticated`, there is no write policy, and every write goes through the admin-only `placement_upsert_item`. Readable by every role. No delete — deactivate. |
 | `agency_imos`, `imo_carriers`, `agent_appointments` | added 2026-10-04 | The many-to-many links: agency↔IMO (PK pair), IMO↔carrier (`id` PK, unique pair — one IMO→Carrier *contract*), and agent↔`imo_carriers.id` (PK pair — an appointment belongs to one contract, not to the carrier in general). Each has `active`. Same grants/RLS as the lists; written only by `placement_set_link`. See [features/admin-settings-and-config.md](features/admin-settings-and-config.md). |
 | `transfer_clients` | 0 | Added 2026-09-19. Vocabulary table: `name` (unique), `active`, `sort_order`. The external parties a closer transfers a lead to with **External Transfer**. Admin-writable directly, readable by every role (the closer's transfer dialog reads it). Referenced by `submissions.transfer_client_id`, so there is no delete — deactivate instead. |
+| `center_api_keys` | added 2026-10-01 | One row per center with an API key issued: `center_id` (PK, FK `centers`), `key_hash bytea` (`digest(raw, 'sha256')` — the raw key is never stored), `key_prefix` (first 8 hex chars, display only), `created_at`, `created_by`, `last_used_at`. **RLS enabled, zero policies** — same trust boundary as `app_config`/`payment_details`: reachable only through `admin_generate_center_api_key`/`admin_list_center_api_keys`/`submit_external_lead`, never a direct `from()`. One key per center; regenerating overwrites and immediately invalidates the old one (`on conflict (center_id) do update`) — there is no separate revoke. |
 | `cx_status_options` | 26 | The configurable vocabulary for the four CX categories. `category` check-constrained to `policy|premium|commission|chargeback`. `tone` check-constrained to `muted|accent|positive|destructive|warning`. |
 | `cx_lead_status` | 2 | One row per submission (PK is `submission_id`), four independent status-option pointers (`policy_status_id`, `premium_status_id`, `commission_status_id`, `chargeback_status_id`) each with its own free-text `_reason`. |
 | `cx_status_history` | 4 | Append-only log of every `set_cx_status` change: `from_code`/`to_code`/`reason`/`actor_id`. |
@@ -67,8 +76,9 @@ agency_id, imo_id, agent_id
 ```
 
 `agency_id`/`imo_id`/`agent_id` (added 2026-10-04, FKs to `agencies`/`imos`/`agents`)
-are nullable and were added empty on every existing row. No RPC writes them yet;
-they are filled by hand for historical leads. `notify_sheet_sync` ignores them, so
+are nullable and were added empty on every existing row. They're written by the
+6-argument `set_validator_fields` (added 2026-10-05), and filled by hand for
+historical leads. `notify_sheet_sync` ignores them, so
 setting them never re-sends a row to Google Sheets. `agent_name` stays the column
 every reader uses.
 
@@ -119,6 +129,7 @@ there would become a new Sheet column).
 | `validator_stats` | Per validator: `assigned, approved, declined, pending, timed_out, rejected, holds`. |
 | `carrier_decline_stats` | Per active carrier: `total_declines`, `leads_declined` (distinct submissions), `last_decline`. |
 | `submission_declined_carriers` | Per submission that has ≥1 decline: aggregated `declined_carriers` name array, `decline_count`, `last_declined_at`. |
+| `submission_customer_rejections` | Added 2026-10-05, `security_invoker`. Per submission whose customer (same `ssn_normalized`, any lead) has ≥1 `carrier_rejected` decline: `rejection_count` and a `rejected_carriers` name array. Feeds the manager's "Prior rejections" badge. |
 | `pending_import_batches` | Batches still awaiting manager approval, with `lead_count` and `flagged_count` (rows with ≥1 data flag). |
 | `cx_pipeline` | Every submission in the CX pipeline — non-archived, `cx_removed_at is null`, and either `disposition='accepted'` or carrying `reopened_from_cx_at` — joined to its four resolved CX status codes/labels/tones. The read model for Customers Pipeline. Also carries `status`, `disposition` and `reopened_from_cx_at` so the table can mark a lead that is out for re-validation, and (2026-09-17) `submitted_by_role`, `final_carrier_id`, `final_carrier_name` (joined from `carriers`), `agent_name` and `policy_number` — the placement. The name is resolved **in the view** so the pipeline's Final Carrier column needs no second query and its search box can filter on `final_carrier_name` directly. |
 | `cx_status_summary` | Per (category, option): `lead_count` across accepted, non-archived leads — feeds the CX coverage card. |
@@ -148,7 +159,10 @@ function (converted from `language sql` to `language plpgsql` to hold it; the
 query itself is unchanged) rather than fixing the `form_events` policy, since
 the only two real-world callers — the manager Reporting tab; the Closing Desk
 never fetches it for `closing_manager`/`general_manager` — are exactly the two
-roles the guard now allows. `EXECUTE` revoked from `anon`.
+roles the guard now allows. `EXECUTE` revoked from `anon`. **Widened
+2026-10-02** (`20261002110000_reporting_manager_grants.sql`) to also allow
+`reporting_manager`, whose Reporting screen mounts the same Validators Team
+Dashboard table.
 
 **All-origin outcome columns, added 2026-09-18**
 (`20260918160000_all_origin_totals.sql`). Every disposition count in these two
@@ -243,14 +257,73 @@ each supports.
 - `parked_client_counts()` — admin or `general_manager` only (added 2026-09-19). Returns `(client_id, client_name, lead_count)` over unarchived `'parked'` leads, including a **null-id row** for the ones with no client, ordered with that row last. Drives the per-client chips above the Parked Leads table; it exists because that table is paginated, so the counts cannot be derived from the one page of rows on screen. Guard written `my_role() is distinct from ...` — see the NULL-role note in `CLAUDE.md` — and `EXECUTE` revoked from **both** `public` and `anon` (revoking from one alone leaves the other's grant in place; verified live that `anon` cannot execute it and `authenticated` can).
 - `check_duplicate_ssn(p_ssn)` — closer/validator/manager/admin. Looks up `ssn_normalized` (excluding archived rows), returns the most relevant existing match's bucket (`accepted`/`declined`/`in_progress`), `submitted_at`, and (**added 2026-09-25**) `exempt` — whether any accepted, non-archived lead sharing the SSN carries a tag with `allows_duplicate_ssn`. `exempt` is only ever `true` when `status = 'accepted'`; it's meaningless (always `false`) for a declined/in-progress match, since those never block. This RPC itself stays read-only and advisory; `exempt` only previews what `submit_form_internal` will actually decide.
 
+**External CRM intake (added 2026-10-01)** — see
+[features/closer-submission-and-forms.md](features/closer-submission-and-forms.md)'s
+"External center intake" section.
+- `admin_generate_center_api_key(p_center_id)` — admin only. Generates a
+  random 32-byte key (`encode(gen_random_bytes(32), 'hex')`), stores its
+  sha256 hash + an 8-char display prefix in `center_api_keys` (upserted —
+  regenerating replaces and invalidates the previous key), returns the raw
+  key. The **only** time the raw key is ever available; not retrievable
+  afterwards. **Fixed 2026-10-01** (`20261001110000_fix_center_api_key_search_path.sql`):
+  `pgcrypto` is installed in the `extensions` schema on this project, not
+  `public` — `set search_path to 'public'` alone made `gen_random_bytes`
+  unresolvable (`function gen_random_bytes(integer) does not exist`). Both
+  this function and `submit_external_lead` below now set
+  `search_path to 'public', 'extensions'`.
+- `admin_list_center_api_keys()` — admin only. Returns `(center_id,
+  key_prefix, created_at, last_used_at)` for every center with a key issued —
+  never the hash. Backs the "API Key" dialog in `CenterAdmin`
+  (`src/components/center-admin.tsx`).
+- `submit_external_lead(p_api_key, p_payload)` — **not role-gated** (there is
+  no caller role; the API key parameter *is* the authorization check, the
+  same trust model `ingest-sheet-lead`'s edge function already uses for
+  Apps Script). Looks up `center_api_keys` by `digest(p_api_key, 'sha256')`;
+  raises `invalid api key` on no match. On match, inserts exactly the shape
+  a closer's own submission takes — `closer_id=null`,
+  `submitted_by_role='closer'`, `status='pending_manager'`, `source='api'`,
+  `center_id`/`center_name` stamped from the matched key row,
+  `draft_date`/`future_draft_date`/`ssn_normalized` parsed via
+  `parse_lead_date`/`normalize_ssn`, and the **same accepted-match
+  duplicate-SSN block** `submit_form_internal` enforces (copied rather than
+  shared, since this path has no `auth.uid()` to key `submit_form_internal`
+  off). Payment/banking fields travel as ordinary `payload` keys, exactly
+  like a live closer submission — **not** split into `payment_details`; that
+  split is specific to `ingest_sheet_lead`'s import path. Called from the
+  `ingest-center-lead` edge function (`verify_jwt: false`, auth via the
+  `x-api-key` header), never directly from a browser session. Stamps
+  `center_api_keys.last_used_at` on success.
+
 **Manager queue**
 - `assign_to_validator(p_sub, p_validator)` — manager/admin. Only from `pending_manager`/`returned_timeout`, and only for `submitted_by_role='closer'` (a validator's own submission is never assignable).
-- `dispose_submission(p_sub, p_disposition)` — manager/admin any time; a validator only while `status='in_review'`, `assigned_to=self`, and inside `review_window()`. **Accept gate**: if `p_disposition='accepted'` and the lead is closer-originated, `final_carrier_id`/`agent_name`/`policy_number` must all be set or it raises. Accepting sets `status='closed'` (the only terminal state); declining/pending sets `status='pending_manager'` and clears the assignment.
-- `decline_with_carriers(p_sub, p_carrier_ids[], p_reason?)` — same actor rules as `dispose_submission`. Writes one `carrier_declines` row per carrier id, then disposes the lead as `declined` in the same call — this is the only path that both records *which* carriers said no and produces the decline outcome.
+- `dispose_submission(p_sub, p_disposition)` — manager/admin any time; a validator only while `status='in_review'`, `assigned_to=self`, and inside `review_window()`. **Accept gate**: if `p_disposition='accepted'` and the lead is closer-originated, it raises unless the required fields are set.
+  - With `placement_rule_enabled()` off, that's `final_carrier_id`/`agent_name`/`policy_number`.
+  - With it on, that's `agency_id`/`imo_id`/`final_carrier_id`/`agent_id`/`policy_number`, plus no `placement_conflict`.
+
+  Accepting sets `status='closed'` (the only terminal state); declining/pending sets `status='pending_manager'` and clears the assignment. Since 2026-10-05 a NULL role is refused up front.
+- `decline_with_carriers(p_sub, p_carrier_ids[], p_reason?)` — the **old** overload, same actor rules as `dispose_submission`. Writes one `carrier_declines` row per carrier id, with `kind` from `classify_decline_reason`, then disposes the lead as `declined` in the same call. Refuses once `placement_rule_enabled()` is true.
+- `decline_with_carriers(p_sub, p_imo_carrier_ids[], p_kind, p_reason?)` — the **new** overload, added 2026-10-05.
+  - Takes `imo_carriers` ids and `p_kind` (`carrier_rejected`/`fixable`, required). Each row records `imo_id`, `carrier_id` and `kind`.
+  - Refuses inactive links, and the same carrier under two IMOs in one call.
+  - Disposes exactly like the old one.
 - `archive_submission(p_sub, p_reason?)` / `unarchive_submission(p_sub)` — manager/admin only.
 - `reject_assignment(p_sub, p_reason?)` — validator only, on their own assignment. Returns the lead to `pending_manager`, increments `rejection_count`.
 - `hold_submission(p_sub)` — the assigned validator only, while `in_review`. Enforces `max_holds` from `app_config` (0 = unlimited) and raises once reached. Releases the claim (`claimed_at=null`, back to `'assigned'`) without losing the assignment; reopening restarts the full window.
-- `set_validator_fields(p_sub, p_final_carrier_id, p_agent_name, p_policy_number)` — manager/validator/admin/`general_manager`. Validates the carrier id is active if provided. Callable at any stage, not gated to `in_review`.
+- `set_validator_fields(p_sub, p_final_carrier_id, p_agent_name, p_policy_number, p_agency_name default null, p_imo_name default null)` — the **rule-off** overload, used by the app live today (6 arguments since 2026-10-07; the 4-argument form was dropped so a short call is not ambiguous). Also writes the typed `submissions.agency_name` / `imo_name` columns (added 2026-10-07, migration `20261007110000_free_text_agency_imo.sql`; plain text, not the `agency_id`/`imo_id` FKs, and not synced to Sheets). `dispose_submission` on accept, rule off, now requires agency, IMO, carrier, agent name and policy number. Manager/validator/admin/`general_manager`. Validates the carrier id is active if provided. Callable at any stage, not gated to `in_review`. Once `placement_rule_enabled()` is true it raises "This screen is out of date. Refresh the page and try again."
+- `set_validator_fields(p_sub, p_agency_id, p_imo_id, p_final_carrier_id, p_agent_id, p_policy_number, p_acknowledge_warning default false)` — the **new** overload, added 2026-10-05 as 6 arguments and given `p_acknowledge_warning` on 2026-10-06 (the 6-argument version was dropped; nothing live called it). Same roles, but a validator only on a lead assigned to them.
+  - It validates the chain: agency active; IMO linked to the agency; carrier linked to the IMO; agent appointed on that IMO→carrier. A value the lead already holds is always accepted.
+  - It refuses a placement conflict (`Blocked: …`) unless the lead is closed.
+  - It also refuses a same-IMO warning (`Warning: … Tick "I understand" to continue.`) unless `p_acknowledge_warning` is true. Closed leads skip both.
+  - It sets `agent_name` from the agent, except on a closed lead that already has one.
+  - Its `validator_fields_set` event carries `placement_warning` (text or null) and `warning_acknowledged`.
+  - It does not depend on the switch.
+- `placement_rule_enabled()` — added 2026-10-05. Returns `app_config.placement_rule_enabled = 'true'`; it is `'false'` until go-live. It's read by the old overloads and `dispose_submission`.
+- `classify_decline_reason(p_reason)` — added 2026-10-05, `IMMUTABLE`. Reads free-text reasons, fixable words first: `fixable` (account/bank/card/premium/SSN/identity/phone/beneficiary), `carrier_rejected` (underwriting/medical/ineligible/age/dupe/declined/coverage/already/state), else `unclassified`. Used for the backfill and by the old decline overload.
+- `placement_conflict(p_sub, p_imo, p_carrier)` — added 2026-10-05. **Internal**: EXECUTE is revoked from `authenticated`. It returns null when allowed, otherwise the human-readable reason. Customers are matched by `ssn_normalized`, or by the lead itself when there's no SSN. Only `carrier_rejected` rows count. **Only a same-carrier match blocks**, under any IMO (revised 2026-10-06; a same-IMO match used to block too, and is now `placement_warning`). An override for this lead and this pair lets it through.
+- `placement_warning(p_sub, p_imo, p_carrier)` — added 2026-10-06. **Internal**: EXECUTE is revoked from `authenticated`. It returns null, or the text of a warning when this customer has a `carrier_rejected` decline at the same IMO for a **different** carrier. Only rows that name an IMO can warn, so declines from before IMOs existed never do. Overrides don't affect it.
+- `placement_blocks(p_sub)` — added 2026-10-05, `jsonb {rejections, overrides}`. This is what the dropdowns grey out. Manager/admin/`general_manager` can call it, and a validator only for their assigned lead.
+- `record_carrier_rejection(p_sub, p_imo_carrier_id, p_reason?)` — added 2026-10-05, manager/admin, **closed leads only**. Inserts a `carrier_rejected`/`after_submit` row. Doesn't change the lead.
+- `override_placement_block(p_sub, p_imo_id, p_carrier_id, p_reason)` — added 2026-10-05, admin only; widened on 2026-10-06 to **admin or `general_manager`** (`is null or not in` guard, EXECUTE revoked from `anon`). The reason is required. Writes `placement_overrides` (with `overridden_by`) and a `placement_override` form event whose detail includes `by_role`.
 - `placement_upsert_item(p_kind, p_id?, p_name?, p_active?, p_sort_order?, p_npn?)` — added 2026-10-04, admin only (`is distinct from` guard, EXECUTE revoked from `anon`). `p_kind` is `agency`/`imo`/`agent`. No `p_id` adds a row (name required, appended to the end of the order); with `p_id`, omitted arguments keep their value. `p_npn` is agents only; an empty string clears it. A duplicate name raises `a <kind> named "<name>" already exists`. Writes `settings_audit` (`key = placement.<kind>:<id>`, before/after row as JSON).
 - `placement_set_link(p_kind, p_parent, p_child, p_active)` — added 2026-10-04, admin only. Creates or toggles one link: `agency_imo` (agency → IMO), `imo_carrier` (IMO → carrier), `agent_appointment` (parent is the `imo_carriers.id`, child is the agent). Writes `settings_audit`.
 - `parse_lead_date(p_text, p_from default current_date)` — added 2026-09-17, `IMMUTABLE`. One draft-date string as a date, or null. Accepts `YYYY-MM-DD`, `MM/DD/YYYY`/`M/D/YY`, `Nth of the month` and `Nth <weekday> of the month` (returning the first occurrence on or after `p_from`, searching up to a year ahead so a 5th Wednesday resolves). Pattern-matched and built with `make_date`, so `DateStyle` cannot change its answer; unrecognised text — `Every 2nd Friday` — is null rather than a guess.
@@ -262,6 +335,7 @@ each supports.
 **Payload / data-quality**
 - `update_payload_field(p_sub, p_field, p_value)` — closing_manager/general_manager/manager/admin, plus **cxa/cxm** (2026-09-16), who must additionally pass `cx_pipeline_member(p_sub)` so a CX agent can only correct a lead on their own queue. Refuses `ID`/`Submitted By Role` (system-stamped) and archived leads. Re-derives the mirrored column when the edited field is `Draft Date`, `Future Draft Date` or `SSN Number` (2026-09-17) — writing the payload alone left a correction invisible to every date filter and the duplicate check, which is exactly how the bug was found. Writes one `payload_edits` row with old/new value per call — this is the **only** write path to `submissions.payload`; there is no RLS policy that lets any role update it directly (see [decisions/0002](decisions/0002-payload-writes-via-rpc.md)).
 - `clear_data_flag(p_sub, p_field)` — manager/admin/**data_uploader**. Removes one entry from the `data_flags` jsonb array by field name. (The data_uploader grant appears unused by the current UI — see the audit summary's "unclear" section.)
+- `cx_set_placement_fields(p_sub, p_agent_name, p_policy_number, p_final_carrier_id default null)` — cxa/cxm/admin (added 2026-10-07), scoped by `cx_pipeline_member(p_sub)`. Writes only `final_carrier_id`, `agent_name`, `policy_number` (carrier must be active unless unchanged); leaves `agency_id`/`imo_id`/`agent_id` alone and skips the placement rule. Logs `cx_placement_fields_set` to `form_events`. Migration `20261007100000_cx_set_placement_fields.sql`.
 - `update_payment_field(p_sub, p_field, p_value)` — manager/admin, plus **cxa/cxm** (2026-09-16, scoped by `cx_pipeline_member(p_sub)`), for bank fields (`payment_type`, `bank_name`, `routing_number`, `account_number`, `account_title`, `card_exp`); **admin only** for `card_number`/`cvv` — the one card check refuses every non-admin role, CX included. Auto-derives `card_last4` when `card_number` changes. Creates the `payment_details` row on first write if none exists.
 
 **Payment reads**
@@ -296,13 +370,20 @@ each supports.
 - `clear_expired_suspension()` — cron only, `EXECUTE` revoked from `anon`/`authenticated`. Flips `crm_suspension.suspended` back to `false` once `resumes_at` has passed — cosmetic consistency for the admin's own Settings view; `my_role()` compares `resumes_at` to `now()` directly and never waits on this tick.
 
 **Sales reporting (added 2026-09-27)** — see [features/sales-breakdown.md](features/sales-breakdown.md).
-- `sales_breakdown_range(p_days, p_start_date, p_end_date)` — admin only. Same `reporting_window`-driven scope as `submission_totals_range` (`disposition = 'accepted' and archived_at is null`), returning one `'total'` row plus one row per resolved carrier and per resolved state (`dimension`, `label`, `level_count`/`graded_count`/`mod_count`/`gi_count`/`unspecified_count`/`total_count`). Replaces the client-side aggregation `SalesBreakdown` (`src/components/sales-breakdown.tsx`) used to do by paging every accepted lead's full payload into the browser (measured 386 rows / 393 kB live on 2026-09-18, tracked in [TODO.md](TODO.md)).
-- `sales_closer_leaderboard_range(p_days, p_start_date, p_end_date)` — admin only. Same scope as the closer leaderboard the client used to compute: `closer_id is not null`, `submitted_by_role <> 'validator'` (excludes a validator's own auto-accepted self-submissions, which would otherwise show every validator as a 100%-conversion "closer"), `archived_at is null`. Returns `(closer_id, closer_name, accepted, total)` per closer.
+`sales_breakdown_range`/`sales_closer_leaderboard_range` were admin-only until
+**2026-10-02** (`20261002110000_reporting_manager_grants.sql`), which widened
+both guards to `my_role() is null or my_role() not in ('admin','reporting_manager')`
+— converted from `language sql` to `language plpgsql` to hold the check, the
+query in each is otherwise unchanged — so the new `reporting_manager` role's
+Sales Breakdown tab can call them. `sales_plan_type_bucket`/`sales_resolve_carrier`/
+`sales_resolve_state` were untouched (no role check either before or after).
+- `sales_breakdown_range(p_days, p_start_date, p_end_date)` — admin or reporting_manager. Same `reporting_window`-driven scope as `submission_totals_range` (`disposition = 'accepted' and archived_at is null`), returning one `'total'` row plus one row per resolved carrier and per resolved state (`dimension`, `label`, `level_count`/`graded_count`/`mod_count`/`gi_count`/`unspecified_count`/`total_count`). Replaces the client-side aggregation `SalesBreakdown` (`src/components/sales-breakdown.tsx`) used to do by paging every accepted lead's full payload into the browser (measured 386 rows / 393 kB live on 2026-09-18, tracked in [TODO.md](TODO.md)).
+- `sales_closer_leaderboard_range(p_days, p_start_date, p_end_date)` — admin or reporting_manager. Same scope as the closer leaderboard the client used to compute: `closer_id is not null`, `submitted_by_role <> 'validator'` (excludes a validator's own auto-accepted self-submissions, which would otherwise show every validator as a 100%-conversion "closer"), `archived_at is null`. Returns `(closer_id, closer_name, accepted, total)` per closer.
 - `sales_plan_type_bucket(p_raw text) returns text` — pure, no role check. SQL reimplementation of `src/lib/plan-type.ts`'s `normalizePlanType`: substring match on `MOD`/`LEVEL`/`GRADED`, then an exact match on `GI` with dots stripped, else `'Unspecified'`.
 - `sales_resolve_carrier(p_final_carrier_name text, p_payload jsonb) returns text` — `STABLE`, no role check (reads only whatever `carriers` rows the caller's own RLS permits). Reimplements `sales-breakdown.tsx`'s `resolveCarrier`: the final-carrier name wins if present; else `coalesce(payload->>'Proposed Carrier', payload->>'Agency')` is matched exactly against `carriers.name` (checked first) then `carriers.aliases`, using the same non-alphanumeric-stripped lowercase key `src/lib/normalize/carriers.ts`'s `carrierKey` computes; failing that, the longest registered name/alias (≥4 characters) that the lead's key **starts with** wins (mirrors the file-local `prefixMatchCarrier`, deliberately not shared with the stricter upload-import pipeline); failing that, the raw text itself, whitespace-collapsed.
 - `sales_resolve_state(p_payload jsonb) returns text` — pure, no role check. Reimplements `resolveState`: checks `'State'`, `'Residential State'`, `'Birth State'` in order, returning the first field with either a recognized 2-letter abbreviation or a full state name (case-insensitive); a present-but-unrecognized value falls through to the next field rather than stopping; `'Unspecified'` if none resolve.
 
-All five have `EXECUTE` revoked from `anon`; the two top-level RPCs guard with `my_role() is distinct from 'admin'`.
+All five have `EXECUTE` revoked from `anon`; the two top-level RPCs guard with `my_role() is null or my_role() not in ('admin','reporting_manager')` (originally `my_role() is distinct from 'admin'`, widened 2026-10-02).
 
 **Google Sheets sync (added/changed 2026-09-10)** — see the `notify_sheet_sync` entry under Triggers below for the full story.
 - `sync_submission_to_sheet(p_sub uuid) returns bigint` — no role check (called only by the trigger and the retry job, never by a client). Re-reads the submission fresh, builds the same payload `notify_sheet_sync` always has, posts it with a 45s timeout, returns the `pg_net` request id (or `null` if sync isn't configured or the row doesn't exist). **Updated 2026-09-15** (`20260915121000`): the `final_carrier` field now falls back to `payload->>'Agency'` when `final_carrier_id` is null *and* `submitted_by_role = 'validator'`. Those submissions auto-accept on submit and so never pass through `set_validator_fields`, which left the Sheet's `Final Carrier` column blank on all 260 of them — even though their `Agency` value *is* the final carrier and matches a real `carriers` row. The fallback is gated on the role deliberately: on a closer/uploaded lead the payload only holds a *proposed* carrier, and letting it through would report a pitch as an issued policy.
@@ -430,15 +511,18 @@ nothing in this app reads the sheet back to diff against it).
 
 ## Edge Functions
 
-Four, all deployed; source for the first three is **not** in this repository
-(only visible server-side in Supabase) — `voice-clone-proxy`'s source lives
-in this repo at `supabase/functions/voice-clone-proxy/index.ts`. Confirmed to
-exist and their JWT-verification setting via the Supabase API:
+Five, all deployed; source for `invite-user`, `ingest-sheet-lead` and
+`sheet-sync` is **not** in this repository (only visible server-side in
+Supabase) — `voice-clone-proxy` and `ingest-center-lead`'s source lives in
+this repo, at `supabase/functions/voice-clone-proxy/index.ts` and
+`supabase/functions/ingest-center-lead/index.ts`. Confirmed to exist and
+their JWT-verification setting via the Supabase API:
 
 | Function | `verify_jwt` | Called from |
 |---|---|---|
-| `invite-user` | `true` | `src/components/user-admin.tsx` (`supabase.functions.invoke("invite-user", ...)`) |
+| `invite-user` | `true` | `src/components/user-admin.tsx` (`supabase.functions.invoke("invite-user", ...)`). **Hardcodes its own `VALID_ROLES` allow-list** (fetched live 2026-10-02) — kept in sync with `app_role` by hand, not read from the enum. Had drifted once already (comment in the source notes it used to block `closing_manager`/`general_manager`/`data_uploader`/`cxm`/`cxa`); `reporting_manager` was added to the list and the function redeployed (v6) as part of adding that role, so the invite flow would otherwise have 400'd on it with "role must be one of …". Any future new role needs the same manual addition here. |
 | `ingest-sheet-lead` | `false` | Not called from this client codebase at all — invoked externally (the batch-of-50/200 ceiling described in `CLAUDE.md` implies an external importer or Apps Script calls this directly with the service key, then it presumably calls the `ingest_sheet_lead` RPC per row). Not independently confirmed in this audit. |
+| `ingest-center-lead` | `false` | **Added 2026-10-01.** Not called from this client codebase — invoked externally, by a center's own CRM, authenticated with the `x-api-key` header (see `center_api_keys`/`admin_generate_center_api_key` above) rather than a Supabase JWT. Calls `submit_external_lead` with the service-role key. See [features/closer-submission-and-forms.md](features/closer-submission-and-forms.md). |
 | `sheet-sync` | `false` | Not called from the client; reached only via `sync_submission_to_sheet()`'s `net.http_post` (called from the `notify_sheet_sync()` trigger and from `retry_failed_sheet_syncs()`). **Source read directly 2026-09-10**: it validates `x-sync-secret`, reshapes the payload, then itself calls out to an Apps Script web app URL (`APPS_SCRIPT_URL`/`APPS_SCRIPT_SECRET` env vars) with no timeout of its own, and only responds to Postgres once that call resolves. Apps Script's own `doPost` (source also confirmed directly) upserts by a `Submission ID` field and holds a lock for up to 30s under concurrent requests — see the `notify_sheet_sync` entry under Triggers. **v12, 2026-09-15 — a 200 from Apps Script does not mean the row was written.** An Apps Script web app answers `200` even when `doPost` threw, with its HTML error page as the body instead of the `'ok'` the handler returns on success. Checking `res.ok` alone therefore logged every exception as a successful sync, wrote `resolved_status = 'ok'` to `sheet_sync_attempts`, and left the retry job with nothing to retry — which is how uploaded leads went missing silently. `appsScriptFailure()` now inspects the body for the three failure shapes that arrive as 200 (an HTML page, any `Exception:` text, or the literal `unauthorized` on a secret mismatch) and returns `502`, so the attempt is recorded honestly and `retry_failed_sheet_syncs` picks it up. It also logs just the extracted `Exception:` line rather than ~8KB of Google's CSP shim. |
 | `voice-clone-proxy` | `true` | **Superseded 2026-09-28, left deployed but unused.** Added 2026-09-23 to front the same external tool this described; the admin tab now proxies the tool's whole interface through the Cloudflare Worker itself (`src/lib/voicebox.ts`, `src/server.ts`) instead of calling this function for one endpoint — see `docs/features/voice-clone-studio.md`. Nothing in the app calls `supabase.functions.invoke("voice-clone-proxy", ...)` anymore. |
 
@@ -479,7 +563,12 @@ Every table has RLS **enabled**. Policy count per table, condensed:
     the CX pipeline — non-archived, not CX-removed leads that are either
     accepted or carry `reopened_from_cx_at` (2026-09-16: widened from
     "accepted only", so a lead sent back for re-validation stays visible to
-    the CX team); everyone else, nothing).
+    the CX team); `reporting_manager` (added 2026-10-02) gets the identical
+    predicate `general_manager` does — business-wide, not center-scoped —
+    which is what lets `submission_totals_range`/`submission_totals_by_center_range`
+    (both `SECURITY INVOKER`, read straight through this policy) and the
+    direct `openQueue` select in `useOverviewStats` return real company-wide
+    numbers for this role instead of zeros; everyone else, nothing).
   - Most reference/config/audit tables (`carriers`, `centers`,
     `transfer_clients`, `cx_status_options`, `cx_tags`, `carrier_declines`, `form_events`,
     `payload_edits`, `settings_audit`, `card_access_log`, `cx_lead_status`,
@@ -488,6 +577,16 @@ Every table has RLS **enabled**. Policy count per table, condensed:
     vocabulary or an audit trail rather than a specific person's work.
     `cx_tags`/`submission_tags` specifically: `admin/cxm/cxa/manager`, plus
     **`general_manager` (added 2026-09-25)**.
+    **`reporting_manager` was added on 2026-10-02 to the read policies on
+    `profiles`, `centers`, `carriers` and `form_events`**
+    (`20261002120000_reporting_manager_lookup_reads.sql`), the same lists
+    `general_manager` sits in. The reporting RPCs are `SECURITY INVOKER`, so
+    a join inside them runs under the caller's RLS. Without these grants the
+    joins came back empty with no error: "Unnamed closer" on the leaderboard,
+    an empty Validators Team Dashboard, "No active centers", and By Carrier
+    falling back to raw proposed-carrier text. **When you add a role that
+    reads reporting, grant it the joined lookup tables too, not just
+    `submissions`.**
   - `lead_imports` — `uploaded_by = (select auth.uid()) OR (select my_role())
     in (manager, admin)`.
   - `crm_suspension` — **the one table readable by literally everyone,

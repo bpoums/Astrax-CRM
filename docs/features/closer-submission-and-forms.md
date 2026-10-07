@@ -87,6 +87,51 @@ and `20260915121000` (the Sheet's `Final Carrier` column now falls back to
   `closer_lead_alerts` view.
 - See [database.md](../database.md) for full column/RPC detail.
 
+## External center intake (API) — added 2026-10-01
+
+A center onboarded with its own CRM has no Astrax closer logged in behind its
+leads, so it cannot call `submit_form`. It POSTs instead to the
+`ingest-center-lead` edge function, which lands the lead in the manager queue
+exactly like a normal closer submission — `pending_manager`, assignable,
+synced to Google Sheets, reportable — just tagged with a different origin.
+
+- **Endpoint**: `POST <project>/functions/v1/ingest-center-lead`
+  (`supabase/functions/ingest-center-lead/index.ts`).
+- **Auth**: header `x-api-key: <raw key>`. One key per center, generated (and
+  regenerated — overwrite, not append) from the "API Key" action on that
+  center's row in `CenterAdmin` (`src/components/center-admin.tsx`,
+  Admin → Settings → Centers). The raw key is shown exactly once, at
+  generation time; only its sha256 hash is stored
+  (`center_api_keys`/`admin_generate_center_api_key`). There is no separate
+  revoke — regenerating immediately invalidates whatever key existed before.
+- **Payload contract**: `{ "payload": { "Full Name": "...", "SSN Number":
+  "...", "Draft Date": "...", ... } }` — a flat object keyed by the closer
+  form's **exact labels**, `SECTIONS` in `closer-form.tsx`, Banking section
+  included (`Account Title`, `Bank Name`, `Routing Number`, `Account
+  Number`, `Card Number`, `Exp Date`, `CVC`). No field-name mapping. This
+  deliberately mirrors `submit_form`'s own payload shape rather than the
+  spreadsheet-import pipeline's: payment/banking fields travel as ordinary
+  payload keys (synced to Google Sheets like any closer submission), **not**
+  split into `payment_details` the way an uploaded lead's are — that split
+  is specific to `ingest_sheet_lead`.
+- **Response**: `200 { ok: true, id }` on success; `401` on a missing/wrong
+  `x-api-key`; `400` for bad JSON, an empty payload, or any error
+  `submit_external_lead` raises (including the duplicate-SSN block message
+  below) — the real message is returned, not a generic one.
+- **What it inserts** (`submit_external_lead`, mirroring
+  `submit_form_internal`): `closer_id=null`, `submitted_by_role='closer'`,
+  `status='pending_manager'`, `source='api'`, `center_id`/`center_name`
+  stamped from the matched API key, `draft_date`/`future_draft_date`/
+  `ssn_normalized` parsed the same way, and the **same accepted-match
+  duplicate-SSN block** described above — an API lead cannot bypass it.
+- **Shown in the UI as origin "API"**, distinct from "Live" (typed into our
+  own closer form) and "Manual" (uploader/validator) — see `sourceLabel()`/
+  `OriginBadge` in `ops.tsx`. `closerName()` shows the center's name for
+  these rows, since there is no closer to show.
+- No approval gate: unlike `ingest_sheet_lead` (`pending_import_approval`),
+  these go straight to `pending_manager` — confirmed with the business owner
+  as the intended behavior for this integration.
+
 ## Business rules
 - A **validator's own submission auto-accepts**: `submit_form` sets
   `status='closed'`, `disposition='accepted'` immediately, in the same

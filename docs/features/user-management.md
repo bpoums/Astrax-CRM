@@ -29,6 +29,13 @@ table (now with a filter bar and a capped, sticky-header scroll region).
   function itself doesn't accept it — so an invite is genuinely two writes,
   and the UI reports the second one's failure independently rather than
   swallowing it.
+- **`invite-user`'s role allow-list is hand-maintained, separately from both
+  `app_role` and `user-admin.tsx`'s own `ROLES` array.** It has drifted once
+  already (see `docs/database.md`'s Edge Functions section). Adding
+  `reporting_manager` (2026-10-02) required updating it in three places: the
+  live `app_role` enum, the edge function's `VALID_ROLES`, and the `ROLES`
+  array in this file's own component — none of the three is generated from
+  either of the others.
 - Role, center, org-label, and active-status changes: all direct writes to
   `profiles`, under the one client-reachable RLS write policy in the whole
   schema (`admin manages profiles`, `FOR ALL`, admin-only — see

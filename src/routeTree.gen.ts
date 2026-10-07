@@ -20,6 +20,7 @@ import { Route as AuthenticatedClosingRouteImport } from './routes/_authenticate
 import { Route as AuthenticatedCxRouteRouteImport } from './routes/_authenticated/cx/route'
 import { Route as AuthenticatedForwardedLeadsRouteImport } from './routes/_authenticated/forwarded-leads'
 import { Route as AuthenticatedManagerRouteImport } from './routes/_authenticated/manager'
+import { Route as AuthenticatedReportingRouteImport } from './routes/_authenticated/reporting'
 import { Route as AuthenticatedUploadRouteImport } from './routes/_authenticated/upload'
 import { Route as AuthenticatedValidatorRouteImport } from './routes/_authenticated/validator'
 import { Route as AuthenticatedValidatorFormRouteImport } from './routes/_authenticated/validator-form'
@@ -83,6 +84,11 @@ const AuthenticatedManagerRoute = AuthenticatedManagerRouteImport.update({
   path: '/manager',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedReportingRoute = AuthenticatedReportingRouteImport.update({
+  id: '/reporting',
+  path: '/reporting',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedUploadRoute = AuthenticatedUploadRouteImport.update({
   id: '/upload',
   path: '/upload',
@@ -133,6 +139,7 @@ export interface FileRoutesByFullPath {
   '/closing': typeof AuthenticatedClosingRoute
   '/forwarded-leads': typeof AuthenticatedForwardedLeadsRoute
   '/manager': typeof AuthenticatedManagerRoute
+  '/reporting': typeof AuthenticatedReportingRoute
   '/upload': typeof AuthenticatedUploadRoute
   '/validator': typeof AuthenticatedValidatorRoute
   '/validator-form': typeof AuthenticatedValidatorFormRoute
@@ -151,6 +158,7 @@ export interface FileRoutesByTo {
   '/closing': typeof AuthenticatedClosingRoute
   '/forwarded-leads': typeof AuthenticatedForwardedLeadsRoute
   '/manager': typeof AuthenticatedManagerRoute
+  '/reporting': typeof AuthenticatedReportingRoute
   '/upload': typeof AuthenticatedUploadRoute
   '/validator': typeof AuthenticatedValidatorRoute
   '/validator-form': typeof AuthenticatedValidatorFormRoute
@@ -172,6 +180,7 @@ export interface FileRoutesById {
   '/_authenticated/closing': typeof AuthenticatedClosingRoute
   '/_authenticated/forwarded-leads': typeof AuthenticatedForwardedLeadsRoute
   '/_authenticated/manager': typeof AuthenticatedManagerRoute
+  '/_authenticated/reporting': typeof AuthenticatedReportingRoute
   '/_authenticated/upload': typeof AuthenticatedUploadRoute
   '/_authenticated/validator': typeof AuthenticatedValidatorRoute
   '/_authenticated/validator-form': typeof AuthenticatedValidatorFormRoute
@@ -193,6 +202,7 @@ export interface FileRouteTypes {
     | '/closing'
     | '/forwarded-leads'
     | '/manager'
+    | '/reporting'
     | '/upload'
     | '/validator'
     | '/validator-form'
@@ -211,6 +221,7 @@ export interface FileRouteTypes {
     | '/closing'
     | '/forwarded-leads'
     | '/manager'
+    | '/reporting'
     | '/upload'
     | '/validator'
     | '/validator-form'
@@ -231,6 +242,7 @@ export interface FileRouteTypes {
     | '/_authenticated/closing'
     | '/_authenticated/forwarded-leads'
     | '/_authenticated/manager'
+    | '/_authenticated/reporting'
     | '/_authenticated/upload'
     | '/_authenticated/validator'
     | '/_authenticated/validator-form'
@@ -327,6 +339,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedManagerRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/reporting': {
+      id: '/_authenticated/reporting'
+      path: '/reporting'
+      fullPath: '/reporting'
+      preLoaderRoute: typeof AuthenticatedReportingRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/upload': {
       id: '/_authenticated/upload'
       path: '/upload'
@@ -403,6 +422,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedClosingRoute: typeof AuthenticatedClosingRoute
   AuthenticatedForwardedLeadsRoute: typeof AuthenticatedForwardedLeadsRoute
   AuthenticatedManagerRoute: typeof AuthenticatedManagerRoute
+  AuthenticatedReportingRoute: typeof AuthenticatedReportingRoute
   AuthenticatedUploadRoute: typeof AuthenticatedUploadRoute
   AuthenticatedValidatorRoute: typeof AuthenticatedValidatorRoute
   AuthenticatedValidatorFormRoute: typeof AuthenticatedValidatorFormRoute
@@ -415,6 +435,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedClosingRoute: AuthenticatedClosingRoute,
   AuthenticatedForwardedLeadsRoute: AuthenticatedForwardedLeadsRoute,
   AuthenticatedManagerRoute: AuthenticatedManagerRoute,
+  AuthenticatedReportingRoute: AuthenticatedReportingRoute,
   AuthenticatedUploadRoute: AuthenticatedUploadRoute,
   AuthenticatedValidatorRoute: AuthenticatedValidatorRoute,
   AuthenticatedValidatorFormRoute: AuthenticatedValidatorFormRoute,

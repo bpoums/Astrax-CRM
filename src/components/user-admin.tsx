@@ -30,6 +30,7 @@ const ROLES: AppRole[] = [
   "manager",
   "closing_manager",
   "general_manager",
+  "reporting_manager",
   "data_uploader",
   "cxa",
   "cxm",

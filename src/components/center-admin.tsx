@@ -1,5 +1,5 @@
 import { useState, type CSSProperties, type FormEvent } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -18,6 +18,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 /**
  * The centre list, managed.
@@ -54,6 +62,7 @@ export function CenterAdmin() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [draftColor, setDraftColor] = useState<CenterColor>("slate");
+  const [apiKeyCenter, setApiKeyCenter] = useState<Center | null>(null);
 
   const rows = centers.data ?? [];
 
@@ -301,6 +310,14 @@ export function CenterAdmin() {
                       </button>
                       <button
                         type="button"
+                        className="chip px-2.5 py-0.5 text-[0.66rem]"
+                        disabled={busy}
+                        onClick={() => setApiKeyCenter(center)}
+                      >
+                        API Key
+                      </button>
+                      <button
+                        type="button"
                         className="chip px-2.5 py-0.5 text-[0.66rem] text-muted-foreground"
                         disabled={busy}
                         title={
@@ -337,7 +354,131 @@ export function CenterAdmin() {
           </TableBody>
         </Table>
       )}
+
+      <CenterApiKeyDialog
+        center={apiKeyCenter}
+        onOpenChange={(open) => !open && setApiKeyCenter(null)}
+      />
     </section>
+  );
+}
+
+/**
+ * Generate/rotate the one API key a center's own CRM authenticates
+ * `ingest-center-lead` with (see `submit_external_lead`). The raw key is
+ * shown exactly once, right after generation — it is never stored in
+ * plaintext and cannot be read back, the same "shown once" treatment the
+ * card-number/CVV inputs in `data-flags.tsx` get for the same reason.
+ * Regenerating overwrites and immediately invalidates whatever key existed
+ * before, so there is no separate "revoke" action to offer.
+ */
+function CenterApiKeyDialog({
+  center,
+  onOpenChange,
+}: {
+  center: Center | null;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [newKey, setNewKey] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
+  const status = useQuery({
+    queryKey: ["center-api-keys"],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("admin_list_center_api_keys");
+      if (error) throw error;
+      return data ?? [];
+    },
+    enabled: !!center,
+  });
+
+  const generate = useMutation({
+    mutationFn: async (centerId: string) => {
+      const { data, error } = await supabase.rpc("admin_generate_center_api_key", {
+        p_center_id: centerId,
+      });
+      if (error) throw error;
+      return data as string;
+    },
+    onSuccess: (raw) => {
+      setNewKey(raw);
+      queryClient.invalidateQueries({ queryKey: ["center-api-keys"] });
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const existing = status.data?.find((row) => row.center_id === center?.id) ?? null;
+
+  function close(open: boolean) {
+    if (!open) setNewKey(null);
+    onOpenChange(open);
+  }
+
+  return (
+    <Dialog open={!!center} onOpenChange={close}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>API key — {center?.name}</DialogTitle>
+          <DialogDescription>
+            Authenticates POST requests from this center&apos;s own CRM to the `ingest-center-lead`
+            endpoint, as the <code>x-api-key</code> header. Leads it submits land in the manager
+            queue exactly like a normal closer submission.
+          </DialogDescription>
+        </DialogHeader>
+
+        {newKey ? (
+          <div className="flex flex-col gap-2">
+            <p className="text-xs font-medium text-destructive">
+              Shown once — copy it now. It cannot be retrieved again; generating a new one replaces
+              it immediately.
+            </p>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 overflow-x-auto rounded-md border border-border bg-muted/30 px-2 py-1.5 text-xs">
+                {newKey}
+              </code>
+              <button
+                type="button"
+                className="chip px-2.5 py-1 text-[0.66rem]"
+                onClick={() => {
+                  navigator.clipboard.writeText(newKey);
+                  toast.success("Copied");
+                }}
+              >
+                Copy
+              </button>
+            </div>
+          </div>
+        ) : status.isError ? (
+          <p className="text-xs text-destructive">{(status.error as Error).message}</p>
+        ) : status.isLoading ? (
+          <p className="text-xs text-muted-foreground">Loading…</p>
+        ) : existing ? (
+          <p className="text-xs text-muted-foreground">
+            Key issued, prefix <code>{existing.key_prefix}…</code>,{" "}
+            {new Date(existing.created_at).toLocaleString()}.{" "}
+            {existing.last_used_at
+              ? `Last used ${new Date(existing.last_used_at).toLocaleString()}.`
+              : "Never used yet."}
+          </p>
+        ) : (
+          <p className="text-xs text-muted-foreground">No key issued yet for this center.</p>
+        )}
+
+        <DialogFooter>
+          <button type="button" className="chip justify-center" onClick={() => close(false)}>
+            Done
+          </button>
+          <button
+            type="button"
+            className="btn-submit"
+            disabled={generate.isPending || !center}
+            onClick={() => center && generate.mutate(center.id)}
+          >
+            {generate.isPending ? "Generating…" : existing ? "Regenerate" : "Generate"}
+          </button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

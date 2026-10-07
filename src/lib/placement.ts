@@ -50,6 +50,24 @@ export function invalidatePlacement(queryClient: QueryClient) {
   return queryClient.invalidateQueries({ queryKey: PLACEMENT_KEY });
 }
 
+/**
+ * Is the full placement chain (agency → IMO → carrier → agent, plus the
+ * rejection rule) switched on? Read from `app_config` by `placement_rule_enabled()`.
+ * While it is off, validators fill the original three fields instead — carrier,
+ * a typed agent name and the policy number — and the server asks for no more.
+ */
+export function usePlacementRuleEnabled(enabled = true) {
+  return useQuery({
+    queryKey: [...PLACEMENT_KEY, "rule-enabled"],
+    enabled,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("placement_rule_enabled");
+      if (error) throw error;
+      return data === true;
+    },
+  });
+}
+
 /** One list, inactive rows included — callers filter, so a retired value still renders its name. */
 export function usePlacementList(kind: PlacementKind, enabled = true) {
   return useQuery({
@@ -129,4 +147,128 @@ export function agentsForLink(links: PlacementLinks | undefined, imoCarrierId: s
       .filter((link) => link.active && link.imo_carrier_id === imoCarrierId)
       .map((link) => link.agent_id),
   );
+}
+
+/**
+ * One carrier rejection on file for this customer, from any of their leads.
+ * `imo_id` is null on declines recorded before IMOs existed — those block
+ * their carrier only.
+ */
+export type PlacementRejection = {
+  imo_id: string | null;
+  imo_name: string | null;
+  carrier_id: string;
+  carrier_name: string;
+  declined_at: string;
+  source: "validator" | "after_submit";
+  same_lead: boolean;
+};
+
+export type PlacementOverride = {
+  imo_id: string;
+  carrier_id: string;
+  reason: string;
+  created_at: string;
+};
+
+export type PlacementBlocks = {
+  rejections: PlacementRejection[];
+  overrides: PlacementOverride[];
+};
+
+export function placementBlocksKey(submissionId: string | null) {
+  return [...PLACEMENT_KEY, "blocks", submissionId] as const;
+}
+
+/**
+ * The customer's carrier rejections and this lead's overrides, so the
+ * dropdowns can grey out what the server would refuse. Display only — the
+ * server enforces the rule itself in `set_validator_fields` and on accept.
+ */
+export function usePlacementBlocks(submissionId: string | null, enabled = true) {
+  return useQuery({
+    queryKey: placementBlocksKey(submissionId),
+    enabled: enabled && !!submissionId,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("placement_blocks", { p_sub: submissionId! });
+      if (error) throw error;
+      return data as unknown as PlacementBlocks;
+    },
+  });
+}
+
+/** MM/DD/YYYY in Pakistan time, the same clock the server's block messages use. */
+function blockDate(iso: string) {
+  return new Date(iso).toLocaleDateString("en-US", {
+    timeZone: "Asia/Karachi",
+    month: "2-digit",
+    day: "2-digit",
+    year: "numeric",
+  });
+}
+
+/**
+ * Why this lead may not be placed at IMO -> carrier, or null when it may.
+ * Mirrors `placement_conflict` in the database, including its wording, so the
+ * greyed-out option and the server's refusal say the same thing. Only the same
+ * carrier blocks; a different carrier under the same IMO is a warning, below.
+ */
+export function placementBlockReason(
+  blocks: PlacementBlocks | undefined,
+  imoId: string,
+  carrierId: string,
+): string | null {
+  if (!blocks || !imoId || !carrierId) return null;
+  if (blocks.overrides.some((o) => o.imo_id === imoId && o.carrier_id === carrierId)) return null;
+  const sameCarrier = blocks.rejections.find((r) => r.carrier_id === carrierId);
+  if (!sameCarrier) return null;
+  const via = sameCarrier.imo_name ? ` via ${sameCarrier.imo_name}` : "";
+  return `${sameCarrier.carrier_name} already rejected this customer${via} on ${blockDate(sameCarrier.declined_at)} — it cannot be used again under any IMO.`;
+}
+
+/**
+ * The warning, not a block: this customer was rejected by a different carrier
+ * under the SAME IMO. Saving past it needs the validator to tick "I understand".
+ * Mirrors `placement_warning` in the database, wording included. Only a
+ * rejection that names its IMO can warn — declines from before IMOs existed
+ * have none.
+ */
+export function placementWarningReason(
+  blocks: PlacementBlocks | undefined,
+  imoId: string,
+  carrierId: string,
+): string | null {
+  if (!blocks || !imoId || !carrierId) return null;
+  const sameImo = blocks.rejections.find(
+    (r) => r.imo_id !== null && r.imo_id === imoId && r.carrier_id !== carrierId,
+  );
+  if (!sameImo) return null;
+  return `${sameImo.carrier_name} rejected this customer via ${sameImo.imo_name} on ${blockDate(sameImo.declined_at)}. You are applying to a different carrier under the same IMO — confirm that is intended.`;
+}
+
+/**
+ * Per lead, how many carrier rejections are on file for that customer, as a
+ * lookup — one query for the whole queue, same as `useDeclinedCarrierMap`.
+ */
+export function useCustomerRejectionMap(enabled = true) {
+  return useQuery({
+    queryKey: [...PLACEMENT_KEY, "customer-rejections"],
+    enabled,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("submission_customer_rejections")
+        .select("submission_id, rejection_count, rejected_carriers");
+      if (error) throw error;
+      const map = new Map<string, { count: number; carriers: string[] }>();
+      for (const row of data ?? []) {
+        if (row.submission_id) {
+          map.set(row.submission_id, {
+            count: row.rejection_count ?? 0,
+            carriers: row.rejected_carriers ?? [],
+          });
+        }
+      }
+      return map;
+    },
+  });
 }

@@ -4,6 +4,8 @@ import Papa from "papaparse";
 import { supabase } from "@/integrations/supabase/client";
 import { PLAN_TYPE_COLUMNS, type PlanTypeBucket } from "@/lib/plan-type";
 import { MetricBar } from "@/components/metric-bar";
+import { CenterBadge } from "@/components/ops";
+import { useCenters, type CenterColor } from "@/lib/centers";
 import {
   Table,
   TableBody,
@@ -28,9 +30,10 @@ import {
  * elsewhere in the app.
  */
 
-type PeriodId = "week" | "month" | "all" | "custom";
+type PeriodId = "today" | "week" | "month" | "all" | "custom";
 
 const PERIOD_CHIPS: { id: PeriodId; label: string }[] = [
+  { id: "today", label: "Today" },
   { id: "week", label: "This Week" },
   { id: "month", label: "This Month" },
   { id: "all", label: "All time" },
@@ -62,6 +65,7 @@ function firstOfMonth(date: Date) {
 
 /** "of the Week" / "of the Month" / "Overall" — feeds the leaderboard headings. */
 function periodPhrase(period: PeriodId) {
+  if (period === "today") return "of the Day";
   if (period === "week") return "of the Week";
   if (period === "month") return "of the Month";
   return "Overall";
@@ -136,14 +140,24 @@ export function SalesBreakdown() {
   // by one calendar day right at midnight — the same tolerance `Custom`'s
   // plain date inputs already accept.
   let rpcArgs: { p_start_date?: string; p_end_date?: string } = {};
-  if (period === "week" || period === "month") {
+  if (period === "today" || period === "week" || period === "month") {
     const today = new Date();
-    const startDate = period === "week" ? mostRecentMonday(today) : firstOfMonth(today);
+    const startDate =
+      period === "today"
+        ? today
+        : period === "week"
+          ? mostRecentMonday(today)
+          : firstOfMonth(today);
     rpcArgs = { p_start_date: ymd(startDate), p_end_date: ymd(today) };
   } else if (isCustom && customFrom) {
     rpcArgs = { p_start_date: customFrom, p_end_date: customTo || customFrom };
   }
-  const rpcReady = period === "all" || period === "week" || period === "month" || !!customFrom;
+  const rpcReady =
+    period === "all" ||
+    period === "today" ||
+    period === "week" ||
+    period === "month" ||
+    !!customFrom;
 
   const breakdownQuery = useQuery({
     queryKey: [...SALES_BREAKDOWN_KEY, "breakdown", rpcArgs],
@@ -187,8 +201,37 @@ export function SalesBreakdown() {
       .sort((a, b) => b.total - a.total),
   };
 
+  // The RPC carries no center, so look up each closer's current profile
+  // center (readable by admin and reporting_manager) and color it from the
+  // centers list. Inactive centers included — see `useCenterColorById`.
+  const closerIds = (leaderboardQuery.data ?? []).map((row) => row.closer_id).sort();
+  const closerCentersQuery = useQuery({
+    queryKey: [...SALES_BREAKDOWN_KEY, "closer-centers", closerIds],
+    enabled: closerIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id, center_id")
+        .in("id", closerIds);
+      if (error) throw error;
+      return new Map((data ?? []).map((row) => [row.id, row.center_id] as const));
+    },
+  });
+  const centers = useCenters(false);
+  const centerById = new Map((centers.data ?? []).map((center) => [center.id, center] as const));
+
   const leaderboard = (leaderboardQuery.data ?? [])
-    .map((row) => ({ name: row.closer_name, total: row.total, accepted: row.accepted }))
+    .map((row) => {
+      const center = centerById.get(closerCentersQuery.data?.get(row.closer_id) ?? "");
+      return {
+        id: row.closer_id,
+        name: row.closer_name,
+        total: row.total,
+        accepted: row.accepted,
+        centerName: center?.name ?? null,
+        centerColor: center?.color ?? null,
+      };
+    })
     .sort((a, b) => b.accepted - a.accepted);
 
   const best = leaderboard[0] ?? null;
@@ -341,20 +384,24 @@ export function SalesBreakdown() {
             <TableHeader className="sticky top-0 z-10">
               <TableRow>
                 <TableHead className="w-12">Rank</TableHead>
+                <TableHead>Center</TableHead>
                 <TableHead>Closer</TableHead>
-                <TableHead className="text-right">Accepted</TableHead>
-                <TableHead className="text-right">Total Submitted</TableHead>
-                <TableHead className="text-right">Conversion</TableHead>
+                <TableHead>Submitted</TableHead>
+                <TableHead>Sales Closed</TableHead>
+                <TableHead>Conversion</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {leaderboard.map((entry, index) => (
-                <TableRow key={entry.name + index}>
+                <TableRow key={entry.id}>
                   <TableCell className="text-muted-foreground">{index + 1}</TableCell>
+                  <TableCell>
+                    <CenterBadge name={entry.centerName} color={entry.centerColor} />
+                  </TableCell>
                   <TableCell className="font-medium">{entry.name}</TableCell>
-                  <TableCell className="text-right tabular-nums">{entry.accepted}</TableCell>
-                  <TableCell className="text-right tabular-nums">{entry.total}</TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
+                  <TableCell className=" tabular-nums">{entry.accepted}</TableCell>
+                  <TableCell className=" tabular-nums">{entry.total}</TableCell>
+                  <TableCell className=" tabular-nums text-muted-foreground">
                     {entry.total > 0 ? `${Math.round((entry.accepted / entry.total) * 100)}%` : "—"}
                   </TableCell>
                 </TableRow>
@@ -389,7 +436,13 @@ function LeaderboardCard({
   tone,
 }: {
   title: string;
-  entry: { name: string; total: number; accepted: number } | null;
+  entry: {
+    name: string;
+    total: number;
+    accepted: number;
+    centerName: string | null;
+    centerColor: CenterColor | null;
+  } | null;
   tone: "positive" | "destructive";
 }) {
   return (
@@ -401,9 +454,12 @@ function LeaderboardCard({
       <span className="field-label">{title}</span>
       {entry ? (
         <>
-          <span className="font-display text-lg font-semibold">{entry.name}</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-display text-lg font-semibold">{entry.name}</span>
+            <CenterBadge name={entry.centerName} color={entry.centerColor} />
+          </div>
           <span className="text-xs text-muted-foreground">
-            {entry.accepted} accepted / {entry.total} submitted (
+            {entry.accepted} submitted / {entry.total} sales closed (
             {entry.total > 0 ? Math.round((entry.accepted / entry.total) * 100) : 0}%)
           </span>
         </>

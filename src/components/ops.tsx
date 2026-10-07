@@ -53,16 +53,19 @@ export function dispositionLabel(value: Disposition | null | undefined) {
 /**
  * How the row was WRITTEN: 'sheet' rows were normalised out of a spreadsheet by
  * a data uploader and have no closer behind them, 'live' rows were typed into a
- * form. An origin, not a workflow state, so it never joins the status chain.
+ * form, 'api' rows were pushed in by a center's own CRM via
+ * `submit_external_lead` / the `ingest-center-lead` edge function — also no
+ * closer behind them, but not an uploader either. An origin, not a workflow
+ * state, so it never joins the status chain.
  *
- * These two strings are the whole of `submissions_source_chk`; the database
+ * These three strings are the whole of `submissions_source_chk`; the database
  * rejects anything else, so they are the only values that can ever arrive.
  *
  * This is NOT the Live/Manual distinction an operator reads. That one also
  * counts a validator's own submission as Manual even though it was typed into a
  * form, so it cannot be answered by this column alone — see `sourceLabel`.
  */
-export type LeadSource = "live" | "sheet";
+export type LeadSource = "live" | "sheet" | "api";
 
 export type DataFlag = { field: string; issue: string; raw: string };
 
@@ -118,6 +121,13 @@ export type SubmissionRow = {
   final_carrier_id: string | null;
   agent_name: string | null;
   policy_number: string | null;
+  /** Where the lead was placed, alongside `final_carrier_id` — see `ValidatorFields`. */
+  agency_id: string | null;
+  imo_id: string | null;
+  agent_id: string | null;
+  /** Typed while the placement rule is off — see `ValidatorFields`. */
+  agency_name?: string | null;
+  imo_name?: string | null;
   /**
    * Stamped by `set_cx_status` when a declined, withdrawn or cancelled policy
    * sends an already-accepted lead back to the manager's queue. Never cleared,
@@ -333,8 +343,10 @@ export function closerName(row: {
   source?: LeadSource | null;
   closer?: { full_name: string | null } | null;
   uploader?: { full_name: string | null } | null;
+  center_name?: string | null;
 }) {
   if (row.source === "sheet") return row.uploader?.full_name ?? "Manual lead";
+  if (row.source === "api") return row.center_name ?? "API lead";
   return row.closer?.full_name ?? "—";
 }
 
@@ -398,9 +410,11 @@ export type UploaderRef = { full_name: string | null; org_name?: string | null }
  * Where a lead came from, in words an operator recognises.
  *
  * Only a closer's own submission is **Live**, whatever centre or organisation
- * they belong to. Everything else is **Manual**: a lead the uploader tool
- * imported, and a validator's own submission — which is typed into a form like
- * a closer's, so `source` alone cannot tell them apart and the role has to be
+ * they belong to. A lead pushed in by a center's own CRM is **API** — not
+ * Live (no Astrax closer typed it) and not Manual (no uploader parsed it from
+ * a file). Everything else is **Manual**: a lead the uploader tool imported,
+ * and a validator's own submission — which is typed into a form like a
+ * closer's, so `source` alone cannot tell them apart and the role has to be
  * read as well.
  *
  * An imported lead says something more specific than "Manual" where it can: the
@@ -423,6 +437,7 @@ export function sourceLabel(row: {
   // the closer form — both read "Manual" for the same reason. Who actually
   // did it is a separate question, answered by `closerName()`, not this.
   if (row.submitted_by_role === "validator") return "Manual";
+  if (row.source === "api") return "API";
   if (row.source !== "sheet") return "Live";
   return "Manual";
 }

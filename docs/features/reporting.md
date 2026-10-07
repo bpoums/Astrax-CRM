@@ -14,7 +14,18 @@ display, visual separation of waiting stages), see [CHANGELOG.md](../../CHANGELO
 **admin** (Overview + Submissions tabs — Overview is its own screen since
 2026-09-18, see below), **manager** (`ReportingStats` via the Reporting tab,
 narrower view), and since 2026-09-18 **closing_manager** / **general_manager**
-(the three panels only, on the Closing Desk's Overview tab).
+(the three panels only, on the Closing Desk's Overview tab). **Added
+2026-10-02: `reporting_manager`** — a read-only role with no queue, no edit
+RPC, and no screen besides this one; its `/reporting` route mounts the three
+panels plus the Validators Team Dashboard, and a second tab with
+`SalesBreakdown` (see [sales-breakdown.md](sales-breakdown.md)). Granted the
+same business-wide `submissions` RLS scope as `general_manager` (not
+center-scoped) purely so these aggregates read real numbers. It also needs
+read access to `profiles`, `centers`, `carriers` and `form_events`, because
+the `_range` RPCs join those under the caller's RLS. Those grants shipped as a
+follow-up the same day, after the first version showed "Unnamed closer", "No
+active centers" and an empty validator table (see
+[database.md](../database.md)).
 
 ## Routes / screens
 - `/admin?tab=overview` → `src/components/admin-overview.tsx`'s `AdminOverview`
@@ -30,10 +41,26 @@ narrower view), and since 2026-09-18 **closing_manager** / **general_manager**
 - `/closing` → Overview tab → `closing-overview.tsx`'s `ClosingOverview`
   (2026-09-18) — the same panels for a closing or general manager, scoped by
   their own RLS. See [closing-desk.md](closing-desk.md).
+- `/reporting` → `src/routes/_authenticated/reporting.tsx` (added 2026-10-02),
+  the `reporting_manager` role's only screen. "Reporting" tab: the three
+  panels (fixed at the "All time" window — no `PeriodPicker` rendered) plus
+  `ValidatorsTeamDashboard`, pulled out of `ReportingStats` into its own
+  export in `reporting.tsx` for exactly this reuse. "Sales Breakdown" tab:
+  `SalesBreakdown` unchanged. Deliberately omits `TotalsPanel` and
+  `SubmissionsExplorer` — not asked for at this role's creation, and
+  `AdminOverview` already sets the precedent of mounting the three panels
+  without `TotalsPanel` beside them. An admin reaches it from the
+  **Reporting Manager View** button in the admin header (added 2026-10-06),
+  next to Manager View / Closer Form / Validator Form. It's read-only for
+  admin the same as for the role itself, because the screen has no edit
+  controls at all.
 
 ## Important components
 `reporting.tsx` (`ReportingStats`, `SubmissionsExplorer`, `ReportingDashboard`,
-plus `TotalsPanel` and `LeadsByCenterPanel`, which both dashboards render),
+plus `TotalsPanel`, `LeadsByCenterPanel` and — since 2026-10-02 —
+`ValidatorsTeamDashboard`, extracted from inside `ReportingStats` so the
+`/reporting` route can mount the same table without the rest of that
+component),
 `admin-overview.tsx` (the admin Overview screen), `overview-panels.tsx`
 (`OverviewPanels` — the three-panel row all three screens render),
 `closing-overview.tsx` (the Closing Desk's copy, role-adapted), `queue-flow.tsx` (`QueueFlow`
@@ -240,8 +267,8 @@ no animation library was added.
   lifetime figure looking like a drop the moment the feature shipped —
   worth knowing if a future change is tempted to default to a shorter
   window.
-- No cross-center reporting view is consumed by any role except admin's
-  Overview tab (see [multi-tenancy.md](../multi-tenancy.md)).
+- Cross-center reporting is now consumed by `admin`, `general_manager` and
+  (since 2026-10-02) `reporting_manager` — see [multi-tenancy.md](../multi-tenancy.md).
 
 ## Future work
 None found as explicit TODOs; the commit history suggests this is the area

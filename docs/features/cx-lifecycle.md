@@ -124,17 +124,22 @@ Tables: `cx_status_options`, `cx_lead_status`, `cx_status_history`,
   group, so a carrier that is only a stamped FK is still findable by name.
   **The search box matches**: customer name, phone, SSN (payload), the final
   carrier (`Agency` plus `final_carrier_name`, not the closer's proposed
-  carrier, changed 2026-10-01), and, **added 2026-10-06**, `policy_number`,
-  the view's own column.
-- **The detail sheet has a read-only "Filled By Validator" panel** — Final
-  Carrier, Agent Name, Policy Number, sitting directly under Lead Details
-  because it reads as the rest of the same record: what the validator added to
-  what the closer typed. Read-only on purpose: `set_validator_fields` does not
-  accept a CX role, and `ValidatorFields` (`src/components/validator-fields.tsx`)
-  is the editor for the roles that do. For a validator-submitted lead the agent
-  and policy live in `payload` rather than in the columns, so each falls back to
-  the payload value before showing a dash — without that the panel would read
-  empty on 191 of today's 412 leads.
+  carrier, changed 2026-10-01), and, **added 2026-10-06**, policy number:
+  the view's `policy_number` column **or** `payload->>'Policy Number'`. A
+  validator's own submission never reaches review, so its policy number exists
+  only in the payload.
+- **The detail sheet has a "Filled By Validator" panel** — Final Carrier, Agent
+  Name, Policy Number, sitting directly under Lead Details because it reads as
+  the rest of the same record. **Editable for cxa/cxm** (2026-10-07) through
+  `cx_set_placement_fields`, a CX-only RPC that writes just those three columns;
+  the admin Pipeline mount stays read-only. It deliberately does **not** walk the
+  Agency → IMO → Carrier → Agent chain or the placement rule — those belong to
+  `set_validator_fields` and `ValidatorFields`, which still refuse a CX role. So
+  a CX edit can set a carrier the placement mapping would not offer. For a
+  validator-submitted lead the agent and policy live in `payload` rather than the
+  columns, so the panel seeds from the payload value and an edit writes the
+  columns, which win from then on. Saving re-syncs the lead to Google Sheets
+  (these columns are watched by `notify_sheet_sync()`).
 - **The Draft Date column reads an uploaded lead's arrangement** (2026-09-17).
   `draft_date` is derived from the payload on import now — it never was before,
   which is why the column was blank on every uploaded lead — and an uploaded

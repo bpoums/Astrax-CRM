@@ -12,6 +12,8 @@ export type OverviewTotalsRow =
   Database["public"]["Functions"]["submission_totals_range"]["Returns"][number];
 export type CenterTotalsRow =
   Database["public"]["Functions"]["submission_totals_by_center_range"]["Returns"][number];
+export type ValidatorStatsRow =
+  Database["public"]["Functions"]["validator_stats_range"]["Returns"][number];
 
 /**
  * Every figure both reporting dashboards are built out of, fetched once.

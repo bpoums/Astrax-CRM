@@ -32,6 +32,7 @@ import { PaymentPanel } from "@/components/payment-panel";
 import { DataFlagList } from "@/components/data-flags";
 import { LeadPayload } from "@/components/lead-editor";
 import { acceptBlockedReason, ValidatorFields } from "@/components/validator-fields";
+import { usePlacementRuleEnabled } from "@/lib/placement";
 import { PayloadEditHistory, payloadHistoryKey } from "@/components/payload-history";
 import { validationTimelineKey } from "@/components/validation-timeline";
 import { LeadHistoryDialog } from "@/components/lead-history-dialog";
@@ -46,6 +47,7 @@ import { DeclineDialog } from "@/components/decline-dialog";
 import { PendingImports, PENDING_IMPORTS_KEY } from "@/components/pending-imports";
 import { DraftDateDesk } from "@/components/draft-date-desk";
 import { carrierSummary, useDeclinedCarrierMap } from "@/lib/carriers";
+import { useCustomerRejectionMap } from "@/lib/placement";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -321,6 +323,9 @@ function ManagerPage() {
   // One query for the whole queue rather than one per row — the view only
   // holds leads that have been declined at least once.
   const declinedMap = useDeclinedCarrierMap();
+  // Carrier rejections for the same customer across ALL their leads, so a
+  // re-submitted customer shows up before it is assigned, not at accept.
+  const priorRejections = useCustomerRejectionMap();
 
   /**
    * Why CX sent each returned lead back.
@@ -530,7 +535,8 @@ function ManagerPage() {
    * editor's draft: the server gates on what is stored, so anything else would
    * enable a button the RPC then refuses.
    */
-  const acceptBlocked = selected ? acceptBlockedReason(selected) : null;
+  const ruleEnabled = usePlacementRuleEnabled();
+  const acceptBlocked = selected ? acceptBlockedReason(selected, ruleEnabled.data) : null;
   const declining = rows.find((row) => row.id === declineId) ?? null;
   const declinedBy = (id: string) => declinedMap.data?.get(id) ?? [];
   const returnReasonFor = (id: string) => returnReasons.data?.get(id) ?? null;
@@ -766,7 +772,10 @@ function ManagerPage() {
                               color={row.center_id ? centerColorById.get(row.center_id) : null}
                             />
                           </TableCell>
-                          <TableCell className="font-medium">{customerName(row.payload)}</TableCell>
+                          <TableCell className="font-medium">
+                            {customerName(row.payload)}
+                            <PriorRejectionsBadge entry={priorRejections.data?.get(row.id)} />
+                          </TableCell>
                           <TableCell className="text-muted-foreground">{closerName(row)}</TableCell>
                           <TableCell className="text-muted-foreground">
                             {relativeTime(row.created_at, now)}
@@ -850,7 +859,10 @@ function ManagerPage() {
                               color={row.center_id ? centerColorById.get(row.center_id) : null}
                             />
                           </TableCell>
-                          <TableCell className="font-medium">{customerName(row.payload)}</TableCell>
+                          <TableCell className="font-medium">
+                            {customerName(row.payload)}
+                            <PriorRejectionsBadge entry={priorRejections.data?.get(row.id)} />
+                          </TableCell>
                           <TableCell className="text-muted-foreground">
                             {formatDate(row.created_at)}
                           </TableCell>
@@ -936,7 +948,10 @@ function ManagerPage() {
                               color={row.center_id ? centerColorById.get(row.center_id) : null}
                             />
                           </TableCell>
-                          <TableCell className="font-medium">{customerName(row.payload)}</TableCell>
+                          <TableCell className="font-medium">
+                            {customerName(row.payload)}
+                            <PriorRejectionsBadge entry={priorRejections.data?.get(row.id)} />
+                          </TableCell>
                           <TableCell className="text-muted-foreground">
                             {sourceLabel(row)}
                           </TableCell>
@@ -1239,5 +1254,26 @@ function ManagerPage() {
         </AlertDialogContent>
       </AlertDialog>
     </main>
+  );
+}
+
+/**
+ * "This customer has been rejected before" — shown before assigning, so the
+ * manager is not surprised at accept. Counts carrier rejections on file for
+ * the same customer (by SSN) across every lead, not just this one.
+ */
+function PriorRejectionsBadge({
+  entry,
+}: {
+  entry: { count: number; carriers: string[] } | undefined;
+}) {
+  if (!entry || entry.count === 0) return null;
+  return (
+    <span
+      className="ml-2 inline-flex rounded-full border border-destructive/50 px-1.5 text-[0.62rem] font-normal text-destructive"
+      title={`Rejected before by ${entry.carriers.join(", ")} — those carriers are blocked for this customer under every IMO, and other carriers under the same IMO show a warning.`}
+    >
+      Prior rejections: {carrierSummary(entry.carriers)}
+    </span>
   );
 }

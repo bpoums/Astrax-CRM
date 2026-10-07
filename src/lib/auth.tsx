@@ -60,6 +60,8 @@ export const roleHome: Record<AppRole, string> = {
   // The same desk, with a wider scope. The difference between the two is the
   // submissions read policy, not the screen, so there is one route for both.
   general_manager: "/closing",
+  // Read-only, business-wide reporting — no queue, no edit controls.
+  reporting_manager: "/reporting",
 };
 
 export const ROLE_LABEL: Record<AppRole, string> = {
@@ -72,6 +74,7 @@ export const ROLE_LABEL: Record<AppRole, string> = {
   cxa: "CX agent",
   closing_manager: "closing manager",
   general_manager: "general manager",
+  reporting_manager: "reporting manager",
 };
 
 /**

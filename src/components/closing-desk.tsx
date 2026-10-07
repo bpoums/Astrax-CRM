@@ -126,7 +126,12 @@ const BASE_SELECT = [
   "source",
   // The review's own outcome, shown and edited in the ValidatorFields section.
   "submitted_by_role",
+  "agency_id",
+  "imo_id",
   "final_carrier_id",
+  "agent_id",
+  "agency_name",
+  "imo_name",
   "agent_name",
   "policy_number",
   // The stamped name, not a join — see `centers.ts`. Constant down the column
@@ -160,7 +165,12 @@ type ClosingRow = {
   disposed_at: string | null;
   source: LeadSource;
   submitted_by_role: "closer" | "validator" | null;
+  agency_id: string | null;
+  imo_id: string | null;
   final_carrier_id: string | null;
+  agent_id: string | null;
+  agency_name: string | null;
+  imo_name: string | null;
   agent_name: string | null;
   policy_number: string | null;
   center_name: string | null;
@@ -247,6 +257,9 @@ export function ClosingDesk() {
   // convention every other filter on this screen already uses.
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  // The draft date, a calendar day. One date filled in means exactly that day.
+  const [draftFrom, setDraftFrom] = useState("");
+  const [draftTo, setDraftTo] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
 
@@ -268,7 +281,7 @@ export function ClosingDesk() {
   // A filter or a search changes what page 1 even means.
   useEffect(() => {
     setPage(0);
-  }, [term, origin, status, disposition, center, cxKey, dateFrom, dateTo]);
+  }, [term, origin, status, disposition, center, cxKey, dateFrom, dateTo, draftFrom, draftTo]);
 
   // Names the carriers on a returned lead. The view holds only leads that have
   // been declined at least once, so it stays short whatever this page shows.
@@ -287,6 +300,8 @@ export function ClosingDesk() {
       cxKey,
       dateFrom,
       dateTo,
+      draftFrom,
+      draftTo,
     ],
     queryFn: async () => {
       // Resolved before the main query so a person match can be folded into
@@ -371,7 +386,10 @@ export function ClosingDesk() {
         const clauses = [
           ...payloadSearchClauses(term),
           ...personSearchClauses(["closer_id", "uploaded_by"], profileIds),
+          // The column is set at review; a validator's own submission never
+          // goes through review, so its policy number lives only in payload.
           `policy_number.ilike.*${term}*`,
+          `payload->>Policy Number.ilike.*${term}*`,
         ];
         // The payload's SSN is typed dashed on some leads and not on others;
         // `ssn_normalized` is digits only on every one, so "123-45-6789",
@@ -389,6 +407,18 @@ export function ClosingDesk() {
       // for a lead on page four.
       if (dateWindow?.since) query = query.gte("disposed_at", dateWindow.since);
       if (dateWindow?.until) query = query.lt("disposed_at", dateWindow.until);
+
+      // `draft_date` is a SQL date, so the YYYY-MM-DD strings compare directly:
+      // no timezone window and no RPC. Either box alone names that single day;
+      // both name an inclusive range, and a reversed pair is put the right way
+      // round rather than returning nothing. A lead with no draft date never
+      // matches — it has none to test.
+      const draftLo = draftFrom || draftTo;
+      const draftHi = draftTo || draftFrom;
+      if (draftLo) {
+        const [lo, hi] = draftLo <= draftHi ? [draftLo, draftHi] : [draftHi, draftLo];
+        query = query.gte("draft_date", lo).lte("draft_date", hi);
+      }
 
       const from = page * PAGE_SIZE;
       const { data, error, count } = await query
@@ -418,7 +448,9 @@ export function ClosingDesk() {
     center !== ANY ||
     cxKey !== UNFILTERED_CX ||
     dateFrom !== "" ||
-    dateTo !== "";
+    dateTo !== "" ||
+    draftFrom !== "" ||
+    draftTo !== "";
 
   function clearFilters() {
     setSearch("");
@@ -429,6 +461,8 @@ export function ClosingDesk() {
     setCxFilters(NO_CX_FILTERS);
     setDateFrom("");
     setDateTo("");
+    setDraftFrom("");
+    setDraftTo("");
   }
 
   return (
@@ -503,7 +537,7 @@ export function ClosingDesk() {
         </div>
 
         {/* Directly above the table it filters, spanning it. */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <input
             type="search"
             value={search}
@@ -528,6 +562,23 @@ export function ClosingDesk() {
             value={dateTo}
             onChange={(event) => setDateTo(event.target.value)}
             aria-label="Submitted to date (optional — leave blank for a single day)"
+            className="field-input w-36 shrink-0"
+          />
+          {/* The draft date is a different question from the submitted pair
+              above, so it is labelled. One date filled in is that single day. */}
+          <span className="field-label shrink-0">Draft</span>
+          <input
+            type="date"
+            value={draftFrom}
+            onChange={(event) => setDraftFrom(event.target.value)}
+            aria-label="Draft date from"
+            className="field-input w-36 shrink-0"
+          />
+          <input
+            type="date"
+            value={draftTo}
+            onChange={(event) => setDraftTo(event.target.value)}
+            aria-label="Draft date to (optional — leave blank for a single day)"
             className="field-input w-36 shrink-0"
           />
           {filtersActive ? (

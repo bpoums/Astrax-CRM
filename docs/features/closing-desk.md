@@ -30,6 +30,17 @@ bar now renders for all of them.
 `forwarded-leads.tsx` (the closer's side of the same park/release mechanism —
 see [closer-submission-and-forms.md](closer-submission-and-forms.md)).
 
+## Draft Date filter (added 2026-10-07)
+The Closing Desk's filter row has a labelled **Draft** from/to pair, separate from
+the unlabelled-by-word Submitted pair (which filters `disposed_at`). It filters
+`submissions.draft_date`, a SQL date, with a plain `gte`/`lte` — no timezone window
+and no RPC. **One date filled in, from or to, means exactly that day**; both mean an
+inclusive range, and a reversed pair is swapped. It ANDs with every other filter.
+A lead with no `draft_date` (about 185 of 1,466 live leads today) never matches,
+and a recurring draft such as "3rd of the month" matches its resolved next
+occurrence (see ADR 0006). `future_draft_date` is not consulted. The desk table
+does not show a Draft Date column.
+
 ## The Overview tab (added 2026-09-18)
 The same three panels the admin Overview and the manager's Reporting tab
 show — `OverviewPanels` in `overview-panels.tsx`: intake for the selected
@@ -84,7 +95,13 @@ disposition has actually been recorded.
 
 **The search box** (server-side, one PostgREST `or` group) matches customer
 name and phone (`payloadSearchClauses`), the closer or uploading centre by
-name, and, **added 2026-10-06**, `policy_number` and SSN. SSN searches
+name, and, **added 2026-10-06**, policy number and SSN. Policy number is
+matched in **two places**: the `policy_number` column, and
+`payload->>'Policy Number'`. The column is only set at review
+(`set_validator_fields`). A validator's own submission auto-accepts and never
+reaches review, so its policy number exists only in the payload (live: 0 of
+224 have the column, 220 have the payload key). Searching the column alone
+missed every one of them; fixed the same day. SSN searches
 `ssn_normalized` with the typed term reduced to its digits, not the payload's
 `SSN Number`. The payload value is dashed on some leads and plain on others,
 so an undashed search against it missed dashed leads (verified live: 0 hits

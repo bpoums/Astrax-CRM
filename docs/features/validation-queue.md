@@ -72,11 +72,16 @@ full-text "Returned by CX" block at the top of the detail sheet.
   cron sweep. The client's countdown is display-only — on expiry it closes
   the view and invalidates the query; it never itself fires a timeout RPC.
 - **Accept gate**: `dispose_submission` refuses `p_disposition='accepted'`
-  for a closer-originated lead unless `final_carrier_id`, `agent_name`, and
-  `policy_number` are all set. `acceptBlockedReason()` in
-  `validator-fields.tsx` mirrors this client-side against the *saved* row
-  (not the in-progress draft) purely to disable the button and explain why
-  — the actual enforcement is the RPC.
+  for a closer-originated lead unless the validator fields are set.
+  - **While `placement_rule_enabled` is off (the live state today):** the
+    original three, `final_carrier_id`, `agent_name` and `policy_number`.
+  - **Once it is on:** all five, `agency_id`, `imo_id`, `final_carrier_id`,
+    `agent_id` and `policy_number`, and no placement conflict (see "Placement
+    rule" below).
+
+  `acceptBlockedReason()` in `validator-fields.tsx` checks the five against the
+  *saved* row, not the draft. It does this only to disable the button and say
+  why; the actual enforcement is the RPC.
 - **Bulk-assign is not atomic**: it's a client-side loop of individual
   `assign_to_validator` calls, so one already-claimed row failing doesn't
   take the rest of the selection down — partial success is reported by
@@ -89,11 +94,138 @@ full-text "Returned by CX" block at the top of the detail sheet.
   records which carriers said no (`carrier_declines`, one row each) and
   disposes the lead as `declined` — replacing what used to be two separate
   steps.
+  - **New dialog:** the validator ticks **IMO → carrier** contracts, grouped by
+    IMO, and must say **why**: "Carrier rejected" or "Fixable issue".
+  - **One IMO per carrier.** The same carrier can't be ticked under two IMOs;
+    the dialog disables it and the RPC refuses it.
+  - **Already rejected:** carriers this customer was already rejected by are
+    struck through.
+  - **Old dialog:** the old carrier-only overload still works while the switch
+    is off. Its rows get a `kind` classified from the reason text.
 - `in_review` rows are deliberately excluded from bulk-assign eligibility —
   reassigning a lead a validator currently has open would yank it out from
   under them mid-review.
 
+## Placement rule (added 2026-10-05, built but switched OFF)
+
+Its purpose is license protection: a customer a carrier has rejected must not
+be re-shopped to that carrier through another IMO. Placing them with a
+different carrier under the same IMO is allowed, but only after a warning the
+validator has to acknowledge. See
+[decisions/0009](../decisions/0009-placement-rule-server-side-by-ssn.md).
+
+**Interim simple mode (added 2026-10-07).** While `app_config.placement_rule_enabled`
+is `false` — the state it ships in, until the agency/IMO/agent mapping is ready —
+`ValidatorFields` renders five fields: **Agency** and **IMO** (free text), **Final
+Carrier** (any active carrier), **Agent Name** (free text) and **Policy Number**. No
+blocks or warnings. Agency and IMO are stored in the text columns
+`submissions.agency_name` / `imo_name` (not the `agency_id`/`imo_id` FKs, and not
+synced to Google Sheets), so nothing the validator enters is lost. Save calls the
+rule-off `set_validator_fields`, and both `dispose_submission` and
+`acceptBlockedReason` require all five. When the rule goes on, a lead that has typed
+agency/IMO but no ids shows them as a "Typed before the mapping" note; mapping the
+text onto real ids is a separate job. The switch
+is read client-side by `usePlacementRuleEnabled()` (`placement_rule_enabled()` RPC).
+Setting it to `'true'` brings back the five-field panel below with no deploy; agent
+names typed in the meantime stay in `agent_name`, unlinked to an `agent_id`.
+
+**The panel (rule on).** "To Be Filled By Validator" (`validator-fields.tsx`) has five
+fields. Four are dropdowns, each narrowed by the one before it, following the
+mapping in Admin → Settings ([admin-settings-and-config.md](admin-settings-and-config.md)):
+- **Agency**
+- **IMO**: only IMOs linked to that agency.
+- **Final Carrier**: only carriers contracted through that IMO.
+- **Agent Name**: only agents appointed on that IMO→Carrier pair.
+
+The fifth, **Policy Number**, is free text.
+
+Changing a parent keeps any child that is still valid under it. A value the
+lead already holds stays offered, so an old lead with a since-retired agent
+still renders. A lead whose agent was typed before agents became a list shows
+that text beneath the dropdowns. Save calls the 7-argument
+`set_validator_fields`.
+
+**The rule.** Customers are matched by `ssn_normalized` across every lead, or
+by the lead itself when there's no SSN. A `carrier_declines` row with
+`kind = 'carrier_rejected'` at IMO X → carrier C has two effects (revised
+2026-10-06; it first also blocked the whole IMO):
+
+| The validator picks… | Result |
+|---|---|
+| carrier C under **any other IMO** | **Blocked** (admin or general manager override only) |
+| a **different carrier under IMO X** | **Allowed with a warning**; Save needs the "I understand" tick |
+| anything else | Allowed |
+
+Some declines don't block or warn, or do less:
+- `fixable` and `unclassified` declines block and warn about nothing.
+- Declines recorded before IMOs existed (`imo_id` null) block their carrier but
+  can never warn, since they name no IMO.
+- Blocks never expire.
+- Closed leads are never re-checked. Mapping an old accepted lead skips the rule
+  and keeps its typed `agent_name`, so its Sheet row isn't re-sent.
+
+**Where it's enforced:**
+- `set_validator_fields` (7-argument version) refuses a blocked combination,
+  with a reason that names the carrier, IMO and date. For the same-IMO warning
+  it refuses unless `p_acknowledge_warning` is true.
+- `dispose_submission` re-checks only the **block** on accept. The warning is
+  not re-asked there: it was acknowledged when the fields were saved.
+- `placement_blocks` feeds the dropdowns. Blocked carriers are disabled, and a
+  "Blocked for this customer" list under the selects gives each reason. It's
+  display only.
+
+**The warning.** When the chosen carrier shares an IMO with an earlier
+rejection, an amber **Warning** box appears under the dropdowns with the
+rejecting carrier, IMO and date, and an **I understand** tick. Save stays off
+until it's ticked. The tick resets whenever the lead, IMO or carrier changes,
+because that's a different decision. The save is recorded in the lead's
+`validator_fields_set` event with `placement_warning` (the text shown) and
+`warning_acknowledged: true`, so there's a trail that the validator went ahead
+knowingly.
+
+**Override.** In that list, an **admin or a general manager** can
+**Override…** one blocked carrier for one lead (general managers added
+2026-10-06, so the approvals are shared and don't queue on the admins). A reason
+is required; it's stored in `placement_overrides` with who approved it, and
+logged as a `placement_override` form event that also records the approver's
+role. The rejection itself stays on file. Managers and validators can't
+override, and there is deliberately no pass-code route around it: see
+[decisions/0009](../decisions/0009-placement-rule-server-side-by-ssn.md).
+
+**After Submit.** On an accepted lead, managers and admins get "Carrier
+rejected this after Submit…". It records a `carrier_rejected`/`after_submit`
+row without changing the lead's outcome.
+
+**Manager queue.** Every Operations table shows a red **Prior rejections:
+<carriers>** badge next to the customer when the customer has carrier
+rejections on any lead. The data comes from the `submission_customer_rejections`
+view.
+
+**Old declines.** The 301 declines from before this feature were classified by
+`classify_decline_reason()` from their reason text:
+- 88 `carrier_rejected`: underwriting, medical, ineligible, age, dupe, already
+  approved, maximum coverage, state.
+- 48 `fixable`: account, bank, card, premium, SSN, identity, phone, beneficiary.
+- 165 `unclassified`: 157 blank, plus 8 unclear.
+
+**Go-live.** The live app doesn't call the new functions. While
+`app_config.placement_rule_enabled = 'false'`, the old 4-argument
+`set_validator_fields`, the old carrier-only `decline_with_carriers` and the
+3-field accept gate all behave exactly as before. To go live, apply one
+migration and deploy the app in the same window:
+
+```sql
+update public.app_config set value = 'true' where key = 'placement_rule_enabled';
+```
+
+From then on, the old two overloads raise "This screen is out of date. Refresh
+the page", and accept needs all five fields. Before going live, the real
+agencies, IMOs, carriers and agent appointments must be mapped. Otherwise
+validators can't pick an agent and can't accept.
+
 ## Known limitations
+- Validator self-submitted forms (`validator-form.tsx`) don't capture an IMO,
+  so the placement rule doesn't see those placements. See `docs/TODO.md`.
 - No literal review-window "grace period" — the moment `claimed_at +
   review_window()` passes, the next cron tick (up to 60s later) or the next
   RLS-scoped read will treat the row as expired.

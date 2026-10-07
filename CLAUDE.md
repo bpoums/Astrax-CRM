@@ -144,7 +144,7 @@ consume it:
 
 Enums (verified directly against the live database 2026-09-10 — full detail
 in `docs/database.md`):
-`app_role` (admin|manager|closing_manager|**general_manager**|closer|validator|data_uploader|cxm|cxa) — nine values; `general_manager` was previously missing from this list,
+`app_role` (admin|manager|closing_manager|general_manager|closer|validator|data_uploader|cxm|cxa|**reporting_manager**) — ten values; `reporting_manager` added 2026-10-02 (read-only, business-wide reporting — see Roles below),
 `sub_status` (pending_manager|assigned|in_review|returned_timeout|closed|**pending_import_approval**|**parked**) — seven values; the last two support the import-approval gate and the External Transfer/parked-lead flow and were previously missing from this list,
 `disposition_t` (accepted|declined|**pending**)
 
@@ -165,8 +165,11 @@ this file's column list below until this audit.
   last_rejected_by, rejection_count,
   disposition, disposed_by, disposed_at,
   archived_at, archived_by, created_at)`
-  **plus** `source ('live'|'sheet')` — enforced by `submissions_source_chk`, so
-  those are the only two values that exist; `'form'` is not one of them —
+  **plus** `source ('live'|'sheet'|'api')` — enforced by `submissions_source_chk`,
+  so those are the only three values that exist; `'form'` is not one of them.
+  `'api'` (added 2026-10-01) is a lead pushed in by a center's own CRM via
+  `submit_external_lead`/the `ingest-center-lead` edge function — see
+  `docs/features/closer-submission-and-forms.md` —
   `source_ref`, `uploaded_by`, `import_id`,
   `data_flags jsonb`. **`closer_id` IS NULLABLE** — a sheet lead has no closer.
   Use `closerName()` from `ops.tsx`; never read `closer.full_name` directly.
@@ -295,7 +298,7 @@ any state -> archived (archived_at) -> out of every queue until unarchived
 
 ## Roles
 
-Nine of them, and RLS is what actually separates them — the client-side guard
+Ten of them, and RLS is what actually separates them — the client-side guard
 in `requireRole()` only keeps someone off a screen that would show them nothing.
 
 - **admin** — everything. User management, settings, the audit trail (the
@@ -324,6 +327,13 @@ in `requireRole()` only keeps someone off a screen that would show them nothing.
   Three of the four CX-pipeline tabs (Transfer, Chargeback, Analytics) are
   placeholders — only Customers Pipeline is built. See
   `docs/features/cx-lifecycle.md`.
+- **reporting_manager** (added 2026-10-02) — read-only, business-wide
+  reporting, its own `/reporting` route: All-time Submissions, Submissions
+  Outcome, L.A. Operations, Validators Team Dashboard, and Sales Breakdown
+  (the same `SalesBreakdown` component the admin tab mounts). No queue, no
+  assign/dispose/edit RPC grants anywhere — the `submissions` RLS scope is
+  identical to `general_manager`'s (business-wide, not center-scoped) purely
+  so these aggregates read real numbers. See `docs/features/reporting.md`.
 
 `my_role()` reads `select role from profiles where id = auth.uid() and active`,
 so **an inactive profile resolves to no role at all** — NULL. Deactivation
