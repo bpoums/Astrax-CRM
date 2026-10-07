@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-10-07 — Final carrier filter in the Closing Desk
+
+general_manager and closing_manager get a "Final carrier" box beside the search box.
+It is its own `or` group, so it is ANDed with the search (customer + carrier narrows).
+Matches `final_carrier_id` via the typed carrier name, plus `payload.Agency` for
+validator submissions, reusing `finalCarrierSearchClauses`/`matchingCarrierIds`.
+`closing-desk.tsx` only; no database change.
+
 ## 2026-10-07 — Draft Date range filter in the Closing Desk
 
 general_manager and closing_manager can filter the Closing Desk by draft date: a

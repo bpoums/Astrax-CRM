@@ -45,6 +45,8 @@ import { useCenterColorById, useCenters } from "@/lib/centers";
 import { useAuth } from "@/lib/auth";
 import {
   LEAD_PAGE_SIZE,
+  finalCarrierSearchClauses,
+  matchingCarrierIds,
   matchingProfileIds,
   payloadSearchClauses,
   personSearchClauses,
@@ -247,6 +249,9 @@ export function ClosingDesk() {
   const noCenter = profile?.role === "closing_manager" && !profile.center_id;
   const [page, setPage] = useState(0);
   const [search, setSearch] = useState("");
+  // Its own box, not a word in the search above: it is ANDed with the search,
+  // so a customer and a carrier can be combined to narrow the result.
+  const [finalCarrier, setFinalCarrier] = useState("");
   const [origin, setOrigin] = useState<OriginFilter>(ANY);
   const [status, setStatus] = useState<StatusFilter>(ANY);
   const [disposition, setDisposition] = useState<DispositionFilter>(ANY);
@@ -276,12 +281,25 @@ export function ClosingDesk() {
   const centerColorById = useCenterColorById();
 
   const term = sanitizeTerm(search);
+  const finalTerm = sanitizeTerm(finalCarrier);
   const cxKey = CX_CATEGORIES.map((category) => cxFilters[category]).join("|");
 
   // A filter or a search changes what page 1 even means.
   useEffect(() => {
     setPage(0);
-  }, [term, origin, status, disposition, center, cxKey, dateFrom, dateTo, draftFrom, draftTo]);
+  }, [
+    term,
+    finalTerm,
+    origin,
+    status,
+    disposition,
+    center,
+    cxKey,
+    dateFrom,
+    dateTo,
+    draftFrom,
+    draftTo,
+  ]);
 
   // Names the carriers on a returned lead. The view holds only leads that have
   // been declined at least once, so it stays short whatever this page shows.
@@ -293,6 +311,7 @@ export function ClosingDesk() {
       "leads",
       page,
       term,
+      finalTerm,
       origin,
       status,
       disposition,
@@ -400,6 +419,14 @@ export function ClosingDesk() {
         query = query.or(clauses.join(","));
       }
 
+      // A separate `or` group, so PostgREST ANDs it with the search above. The
+      // FK stores a uuid, so the typed name is resolved to carrier ids first;
+      // `Agency` covers a validator's own submission, which has no FK.
+      if (finalTerm) {
+        const carrierIds = await matchingCarrierIds(finalTerm);
+        query = query.or(finalCarrierSearchClauses(finalTerm, carrierIds).join(","));
+      }
+
       // Independent of everything above: narrows whatever the other filters
       // already matched rather than competing with them. Runs in the database
       // like every filter here — this table is paged, so a browser-side match
@@ -442,6 +469,7 @@ export function ClosingDesk() {
 
   const filtersActive =
     term !== "" ||
+    finalTerm !== "" ||
     origin !== ANY ||
     status !== ANY ||
     disposition !== ANY ||
@@ -454,6 +482,7 @@ export function ClosingDesk() {
 
   function clearFilters() {
     setSearch("");
+    setFinalCarrier("");
     setOrigin(ANY);
     setStatus(ANY);
     setDisposition(ANY);
@@ -545,6 +574,14 @@ export function ClosingDesk() {
             placeholder="Search customer, closer, phone, SSN, policy #…"
             className="field-input flex-1"
             aria-label="Search closer leads"
+          />
+          <input
+            type="search"
+            value={finalCarrier}
+            onChange={(event) => setFinalCarrier(event.target.value)}
+            placeholder="Final carrier…"
+            className="field-input w-40 shrink-0"
+            aria-label="Final carrier"
           />
           {/* Its own pair rather than another word in the search box: a date
               range is a different kind of question, and this narrows whatever

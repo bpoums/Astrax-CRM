@@ -1,0 +1,42 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]: Voice Clone Studio
+      - generic [ref=e5]: 24 kHz · mono
+    - generic "Backend status" [ref=e6]: offline
+  - main [ref=e9]:
+    - generic [ref=e10]:
+      - generic [ref=e11]:
+        - heading "01 Reference voice" [level=2] [ref=e12]:
+          - generic [ref=e13]: "01"
+          - text: Reference voice
+        - generic [ref=e14]: 5–20s of clean speech
+      - generic [ref=e15]:
+        - button "Choose or drop an audio file" [ref=e16] [cursor=pointer]:
+          - generic [ref=e17]: Drop an audio file or browse
+          - generic [ref=e18]: WAV · MP3 · M4A · OGG
+        - button "Record from mic" [ref=e20] [cursor=pointer]
+    - generic [ref=e22]:
+      - generic [ref=e23]:
+        - heading "02 Script" [level=2] [ref=e24]:
+          - generic [ref=e25]: "02"
+          - text: Script
+        - generic [ref=e26]: What the voice will say
+      - generic [ref=e27]:
+        - generic [ref=e28]:
+          - textbox "Type what you want spoken…" [ref=e29]
+          - generic [ref=e30]:
+            - generic [ref=e31]: 0 characters
+            - generic [ref=e32]: ~0.0s of speech
+        - generic [ref=e33]:
+          - generic [ref=e34]: Write it for me
+          - generic [ref=e35]:
+            - textbox "Topic for AI script generation" [ref=e36]:
+              - /placeholder: e.g. a 3-sentence intro for a coffee app
+            - button "Draft" [ref=e37] [cursor=pointer]
+  - generic [ref=e38]:
+    - button "Generate speech" [ref=e39] [cursor=pointer]
+    - status [ref=e40]:
+      - generic [ref=e41]: Ctrl
+      - generic [ref=e42]: Enter
+  - generic [ref=e43]: Your generated audio will appear here.

@@ -110,6 +110,14 @@ last-4 lookup works but a shorter fragment doesn't match most of the book.
 This is the one desk shared by `closing_manager` and `general_manager`, so
 both get it. RLS still decides which leads can match.
 
+**Final carrier filter, added 2026-10-07.** A separate "Final carrier" box next to
+the search box, not part of it: it is its own PostgREST `or` group, so it is ANDed
+with the search and narrows it. The typed name is resolved to carrier ids
+(`matchingCarrierIds`) and matched against `final_carrier_id`, plus
+`payload->>'Agency'` for validator submissions, which never get the FK
+(`finalCarrierSearchClauses`, the same helpers Reporting uses). Shared by
+`closing_manager` and `general_manager`; RLS still scopes the rows.
+
 **Filter by submitted date now searches `disposed_at`, changed 2026-09-28**
 (previously searched `created_at`, which under this screen's naming was the
 "SaleMade On" column, not "Submitted On" as the filter's own aria-labels and
