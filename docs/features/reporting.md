@@ -34,9 +34,10 @@ active centers" and an empty validator table (see
 - `/admin?tab=submissions` → `src/components/reporting.tsx`'s
   `SubmissionsExplorer`, on its own tab so only one of the two queries at a
   time.
-- `/manager` → Reporting tab → `ReportingDashboard` (`ReportingStats` +
-  `SubmissionsExplorer` combined, since there's no second tab to split them
-  across there). It gained the same three panels on 2026-09-18, in place of the
+- `/manager` → Reporting tab → `ReportingStats`, and (since 2026-10-08) a
+  separate Submissions tab → `SubmissionsExplorer`, the same split as the admin
+  page. Before that both sat on the one Reporting tab as `ReportingDashboard`.
+  Reporting gained the same three panels on 2026-09-18, in place of the
   standalone queue strip it used to show.
 - `/closing` → Overview tab → `closing-overview.tsx`'s `ClosingOverview`
   (2026-09-18) — the same panels for a closing or general manager, scoped by
@@ -56,7 +57,8 @@ active centers" and an empty validator table (see
   controls at all.
 
 ## Important components
-`reporting.tsx` (`ReportingStats`, `SubmissionsExplorer`, `ReportingDashboard`,
+`reporting.tsx` (`ReportingStats`, `SubmissionsExplorer`, `ReportingDashboard` —
+no longer mounted anywhere since 2026-10-08 —
 plus `TotalsPanel`, `LeadsByCenterPanel` and — since 2026-10-02 —
 `ValidatorsTeamDashboard`, extracted from inside `ReportingStats` so the
 `/reporting` route can mount the same table without the rest of that

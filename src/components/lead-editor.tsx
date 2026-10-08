@@ -214,7 +214,9 @@ function EditField({
 }) {
   const id = `lead-${label.replace(/[^a-zA-Z0-9]+/g, "-").toLowerCase()}`;
   const field = FIELD_BY_LABEL.get(label);
-  const type = field?.type ?? "text";
+  const fieldType = field?.type ?? "text";
+  // The closer form's typeahead lists are a plain text area when editing.
+  const type = fieldType === "condition" || fieldType === "medication" ? "textarea" : fieldType;
 
   // A date picker only accepts YYYY-MM-DD. Imported leads normalise to
   // MM/DD/YYYY, which a date input renders as empty — and an empty date input

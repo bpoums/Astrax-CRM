@@ -15,6 +15,7 @@ import { useCarriers } from "@/lib/carriers";
 import type { Carrier } from "@/lib/carriers";
 import { AppHeader } from "./ops";
 import { BrandLogo } from "./brand-logo";
+import { SuggestInput } from "./suggest-input";
 import { TransferClientDialog } from "./transfer-client-dialog";
 
 /**
@@ -23,7 +24,16 @@ import { TransferClientDialog } from "./transfer-client-dialog";
  * canonical NAME is what lands in the payload — an id would reach Google Sheets
  * and mean nothing to anyone reading the tab.
  */
-type FieldType = "text" | "number" | "date" | "radio" | "textarea" | "carrier" | "country";
+type FieldType =
+  | "text"
+  | "number"
+  | "date"
+  | "radio"
+  | "textarea"
+  | "carrier"
+  | "country"
+  | "condition"
+  | "medication";
 
 export type Field = {
   label: string;
@@ -74,7 +84,10 @@ export const SECTIONS: Section[] = [
         required: true,
         options: ["Smoker", "Non Smoker"],
       },
-      { label: "Health Conditions", type: "textarea", span: "sm:col-span-2" },
+      // `condition` / `medication` are chip lists with NLM typeahead; the value
+      // is still one comma-separated string, so the payload key is unchanged.
+      { label: "Health Conditions", type: "condition", span: "sm:col-span-2" },
+      { label: "Medications", type: "medication", span: "sm:col-span-2" },
     ],
   },
   {
@@ -635,6 +648,8 @@ function FieldControl({
         </div>
       ) : field.type === "country" ? (
         <BirthCountryControl id={id} value={value} onChange={onChange} />
+      ) : field.type === "condition" || field.type === "medication" ? (
+        <SuggestInput id={id} kind={field.type} value={value} onChange={onChange} />
       ) : (
         <input
           id={id}

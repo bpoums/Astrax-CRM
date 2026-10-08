@@ -113,6 +113,13 @@ const ANNOTATIONS: Record<string, Annotation> = {
     donate: true,
     aliases: ["premium", "monthly premium", "monthly", "draft amount", "payment amount"],
   },
+  // On the closer form since the typeahead landed, so it is derived from
+  // SECTIONS now rather than declared a second time under IMPORT_ONLY_FIELDS.
+  Medications: {
+    key: "medications",
+    kind: "text",
+    aliases: ["meds", "medication", "current medications", "prescriptions"],
+  },
   "Doc Name": { key: "doc_name", kind: "name", aliases: ["doctor", "physician", "doctor name"] },
   "Doc Phone": { key: "doc_phone", kind: "phone", aliases: ["doctor phone", "physician phone"] },
   "Plan Type": { key: "plan_type", kind: "text", aliases: ["plan", "product", "policy type"] },
@@ -271,16 +278,6 @@ const IMPORT_ONLY_FIELDS: { after: string; field: CanonicalField }[] = [
         "health conditions",
         "medical history",
       ],
-    },
-  },
-  {
-    after: "Smoker or Non Smoker",
-    field: {
-      key: "medications",
-      label: "Medications",
-      kind: "text",
-      target: "payload",
-      aliases: ["meds", "medication", "current medications", "prescriptions"],
     },
   },
 ];

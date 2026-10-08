@@ -15,7 +15,8 @@ only, inside the window).
 
 ## Routes / screens
 - `/manager` → `src/routes/_authenticated/manager.tsx` — tabs: Operations
-  (the queue), Pending Imports, By Draft Date, Reporting.
+  (the queue), Pending Imports, By Draft Date, Submissions (the submissions
+  explorer, moved out of Reporting 2026-10-08), Reporting.
 - `/validator` → `src/routes/_authenticated/validator.tsx` — the validator's
   own queue and detail sheet.
 
@@ -55,6 +56,24 @@ narrows **only the open tab**: the other tabs' counts stay whole totals, so a
 term that matches nothing on Live does not imply the lead does not exist.
 Changing the term clears any pending bulk selection, the same way changing
 tab does — a bulk assign must never reach a lead that is filtered off screen.
+
+**Sorting and paging are client-side too.** Each of the three tabs renders through
+the shared `DataTable` (`src/components/data-table.tsx`, TanStack Table v8) over
+the rows already loaded, so the query, the tab counts, the search and the realtime
+refresh are unchanged. The tabs keep their own columns; only the table code is shared.
+- **Sorting:** every column header sorts (click to toggle ascending/descending).
+  The default is still newest first (Submitted / Uploaded On / Returned). Status sorts
+  by need for action: timed out, then awaiting assignment, then assigned, then in review.
+  Empty cells sink to the bottom either way. Sort keys live in `src/lib/queue-sort.ts`.
+- **Paging:** 50 rows a page, with the range and Previous/Next under the table only when
+  there is more than one page. A realtime refetch keeps the reader on their page (clamped
+  if the last page disappears); a new search term or sort goes back to page one.
+- **Bulk selection is page-scoped.** The header checkbox ticks the assignable rows of the
+  page on screen only, so one click can never reach a lead that is not visible. Ticks
+  survive moving between pages, and are cleared by a tab change, a search change or a
+  sort change, as before. `in_review` rows still have no checkbox.
+- The `Reason` column on CXA Returned is still switched off (kept as a comment in the
+  column list in `manager.tsx`).
 
 The CXA's **return reason** is not on the submission row; it is the
 `detail->>'reason'` of the lead's most recent `reopened_from_cx` event. The

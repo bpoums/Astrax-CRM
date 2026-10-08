@@ -1,9 +1,10 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { ColumnDef } from "@tanstack/react-table";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { ReportingDashboard } from "@/components/reporting";
+import { ReportingStats, SubmissionsExplorer } from "@/components/reporting";
 import { requireRole, useAuth } from "@/lib/auth";
 import {
   AppHeader,
@@ -28,6 +29,8 @@ import {
 } from "@/components/ops";
 import { useCenterColorById } from "@/lib/centers";
 import { formatDate } from "@/lib/format-date";
+import { DataTable, type DataTableSelection } from "@/components/data-table";
+import { statusRank, textKey, timeKey } from "@/lib/queue-sort";
 import { PaymentPanel } from "@/components/payment-panel";
 import { DataFlagList } from "@/components/data-flags";
 import { LeadPayload } from "@/components/lead-editor";
@@ -49,7 +52,6 @@ import { DraftDateDesk } from "@/components/draft-date-desk";
 import { carrierSummary, useDeclinedCarrierMap } from "@/lib/carriers";
 import { useCustomerRejectionMap } from "@/lib/placement";
 import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Sheet,
   SheetContent,
@@ -57,14 +59,6 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import {
   Select,
   SelectContent,
@@ -558,7 +552,6 @@ function ManagerPage() {
     () => selectedIds.filter((id) => assignableIds.includes(id)),
     [selectedIds, assignableIds],
   );
-  const allSelected = assignableIds.length > 0 && selection.length === assignableIds.length;
 
   /**
    * The carriers that have already refused something in the current selection.
@@ -588,10 +581,163 @@ function ManagerPage() {
   // is no longer on screen to be unticked.
   useEffect(() => setSelectedIds([]), [queueTab, term]);
 
-  const toggleRow = (id: string, checked: boolean) =>
-    setSelectedIds((prev) =>
-      checked ? [...new Set([...prev, id])] : prev.filter((x) => x !== id),
-    );
+  /**
+   * Handed to every queue table. The ids and everything derived from them stay
+   * here; the table only reports ticks. Its header checkbox acts on the rows of
+   * the page on screen, and it drops the tick when the sort order changes.
+   */
+  const tableSelection: DataTableSelection<ManagerRow> = {
+    ids: selection,
+    onChange: setSelectedIds,
+    isSelectable: (row) => ASSIGNABLE.has(row.status),
+    rowLabel: (row) => `Select ${customerName(row.payload)}`,
+    disabled: busy,
+  };
+
+  // The three queues share Center, Customer and Status, and each carries its
+  // own remaining columns: a live lead is identified by its closer, an uploaded
+  // one by the day the file arrived, a returned one by how long CX's decision
+  // has been sitting.
+  const queueColumns = useMemo(() => {
+    const muted = { cellClassName: "text-muted-foreground" };
+    const center: ColumnDef<ManagerRow> = {
+      id: "center",
+      header: "Center",
+      accessorFn: (row) => textKey(row.center_name),
+      sortingFn: "basic",
+      sortUndefined: "last",
+      // The stamped name, not a join: a lead keeps the centre it was taken in
+      // even after that centre is renamed or the closer is moved to another one.
+      cell: ({ row }) => (
+        <CenterBadge
+          name={row.original.center_name}
+          color={row.original.center_id ? centerColorById.get(row.original.center_id) : null}
+        />
+      ),
+    };
+    const customer: ColumnDef<ManagerRow> = {
+      id: "customer",
+      header: "Customer",
+      accessorFn: (row) => textKey(customerName(row.payload)),
+      sortingFn: "basic",
+      sortUndefined: "last",
+      meta: { cellClassName: "font-medium" },
+      cell: ({ row }) => (
+        <>
+          {customerName(row.original.payload)}
+          <PriorRejectionsBadge entry={priorRejections.data?.get(row.original.id)} />
+        </>
+      ),
+    };
+    const status: ColumnDef<ManagerRow> = {
+      id: "status",
+      header: "Status",
+      accessorFn: (row) => statusRank(row.status),
+      sortingFn: "basic",
+      cell: ({ row }) => (
+        <QueueStatusCell
+          row={row.original}
+          declinedCarriers={declinedMap.data?.get(row.original.id) ?? []}
+          now={now}
+          showCountdown={showCountdown}
+          windowMs={windowMs}
+        />
+      ),
+    };
+    const handledBy: ColumnDef<ManagerRow> = {
+      id: "closer",
+      header: "Closer",
+      accessorFn: (row) => textKey(closerName(row)),
+      sortingFn: "basic",
+      sortUndefined: "last",
+      meta: muted,
+      cell: ({ row }) => closerName(row.original),
+    };
+
+    // No Source column on Live: every row there is live, so the badge would
+    // say the same thing on all of them.
+    const live: ColumnDef<ManagerRow>[] = [
+      center,
+      customer,
+      handledBy,
+      {
+        id: "submitted",
+        header: "Submitted",
+        accessorFn: (row) => timeKey(row.created_at),
+        sortingFn: "basic",
+        sortUndefined: "last",
+        meta: muted,
+        cell: ({ row }) => relativeTime(row.original.created_at, now),
+      },
+      status,
+    ];
+
+    // No Closer column on Manual: an imported lead has none. Center names the
+    // centre that supplied it instead, and the date is absolute because the
+    // column is named for one.
+    const manual: ColumnDef<ManagerRow>[] = [
+      center,
+      customer,
+      {
+        id: "uploaded",
+        header: "Uploaded On",
+        accessorFn: (row) => timeKey(row.created_at),
+        sortingFn: "basic",
+        sortUndefined: "last",
+        meta: muted,
+        cell: ({ row }) => formatDate(row.original.created_at),
+      },
+      status,
+    ];
+
+    // Rows here mix both origins (a lead CX sent back keeps whatever it started
+    // as), so Origin says which one it was, and Returned is the column that is
+    // actually the point of this tab.
+    const cxaReturned: ColumnDef<ManagerRow>[] = [
+      center,
+      customer,
+      {
+        id: "origin",
+        header: "Origin",
+        accessorFn: (row) => textKey(sourceLabel(row)),
+        sortingFn: "basic",
+        sortUndefined: "last",
+        meta: muted,
+        cell: ({ row }) => sourceLabel(row.original),
+      },
+      { ...handledBy, id: "handled_by", header: "Handled by" },
+      {
+        id: "returned",
+        header: "Returned",
+        accessorFn: (row) => timeKey(row.reopened_from_cx_at),
+        sortingFn: "basic",
+        sortUndefined: "last",
+        meta: muted,
+        cell: ({ row }) =>
+          row.original.reopened_from_cx_at
+            ? relativeTime(row.original.reopened_from_cx_at, now)
+            : "—",
+      },
+      // The reason CX gave, clamped to two lines with the whole of it on hover.
+      // Switched off for now; ReturnReasonCell and returnReasonFor are kept for
+      // when it comes back:
+      // {
+      //   id: "reason",
+      //   header: "Reason",
+      //   enableSorting: false,
+      //   meta: muted,
+      //   cell: ({ row }) => (
+      //     <ReturnReasonCell
+      //       entry={returnReasonFor(row.original.id)}
+      //       customer={customerName(row.original.payload)}
+      //     />
+      //   ),
+      // },
+      status,
+    ];
+
+    return { live, manual, cxaReturned };
+  }, [centerColorById, priorRejections.data, declinedMap.data, now, showCountdown, windowMs]);
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -622,6 +768,7 @@ function ManagerPage() {
             {/* Not part of Operations: these leads are all disposed and
                 accepted, so none of the queue's actions apply to them. */}
             <TabsTrigger value="draft-dates">By Draft Date</TabsTrigger>
+            <TabsTrigger value="submissions">Submissions</TabsTrigger>
             <TabsTrigger value="reporting">Reporting</TabsTrigger>
           </TabsList>
 
@@ -721,280 +868,65 @@ function ManagerPage() {
                   ) : null}
                 </div>
 
-                {/* No Source column here — every row on this tab is live, so
-                    the badge would say the same thing on all of them. */}
+                {/* One DataTable per queue. Sorting and paging are client-side
+                    over the rows already loaded (see the query above), so the
+                    tab counts, the search and the realtime refresh all stay
+                    as they were. */}
                 <TabsContent value="live" className="m-0">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-8">
-                          <Checkbox
-                            aria-label="Select all assignable submissions"
-                            disabled={assignableIds.length === 0 || busy}
-                            checked={
-                              allSelected ? true : selection.length > 0 ? "indeterminate" : false
-                            }
-                            onCheckedChange={(checked) =>
-                              setSelectedIds(checked === true ? assignableIds : [])
-                            }
-                          />
-                        </TableHead>
-                        <TableHead>Center</TableHead>
-                        <TableHead>Customer</TableHead>
-                        <TableHead>Closer</TableHead>
-                        <TableHead>Submitted</TableHead>
-                        <TableHead>Status</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {rows.map((row) => (
-                        <TableRow
-                          key={row.id}
-                          className="cursor-pointer"
-                          onClick={() => setOpenId(row.id)}
-                        >
-                          <TableCell className="w-8" onClick={(event) => event.stopPropagation()}>
-                            {ASSIGNABLE.has(row.status) ? (
-                              <Checkbox
-                                aria-label={`Select ${customerName(row.payload)}`}
-                                disabled={busy}
-                                checked={selection.includes(row.id)}
-                                onCheckedChange={(checked) => toggleRow(row.id, checked === true)}
-                              />
-                            ) : null}
-                          </TableCell>
-                          {/* The stamped name, not a join: a lead keeps the
-                              centre it was taken in even after that centre is
-                              renamed or the closer is moved to another one. */}
-                          <TableCell>
-                            <CenterBadge
-                              name={row.center_name}
-                              color={row.center_id ? centerColorById.get(row.center_id) : null}
-                            />
-                          </TableCell>
-                          <TableCell className="font-medium">
-                            {customerName(row.payload)}
-                            <PriorRejectionsBadge entry={priorRejections.data?.get(row.id)} />
-                          </TableCell>
-                          <TableCell className="text-muted-foreground">{closerName(row)}</TableCell>
-                          <TableCell className="text-muted-foreground">
-                            {relativeTime(row.created_at, now)}
-                          </TableCell>
-                          <TableCell>
-                            <QueueStatusCell
-                              row={row}
-                              declinedCarriers={declinedBy(row.id)}
-                              now={now}
-                              showCountdown={showCountdown}
-                              windowMs={windowMs}
-                            />
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                      {rows.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={6} className="text-center text-muted-foreground">
-                            {submissions.isLoading
-                              ? "Loading…"
-                              : term
-                                ? "No lead on this tab matches that name."
-                                : "Nothing in the queue."}
-                          </TableCell>
-                        </TableRow>
-                      ) : null}
-                    </TableBody>
-                  </Table>
+                  <DataTable
+                    columns={queueColumns.live}
+                    data={rows}
+                    getRowId={(row) => row.id}
+                    onRowClick={(row) => setOpenId(row.id)}
+                    initialSorting={[{ id: "submitted", desc: true }]}
+                    emptyMessage={
+                      submissions.isLoading
+                        ? "Loading…"
+                        : term
+                          ? "No lead on this tab matches that name."
+                          : "Nothing in the queue."
+                    }
+                    resetKey={term}
+                    selection={tableSelection}
+                  />
                 </TabsContent>
 
-                {/* No Closer column here — an imported lead has none. Center
-                    names the centre that supplied it instead (the stamped
-                    name, not a join — see the live tab's own Center column
-                    above), and the date is absolute because the column is
-                    named for one. Source used to sit here, but every row on
-                    this tab already reads "Manual" (see `sourceLabel()`), so
-                    a Source column said nothing a reader didn't already know
-                    from being on this tab at all. */}
                 <TabsContent value="manual" className="m-0">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-8">
-                          <Checkbox
-                            aria-label="Select all assignable submissions"
-                            disabled={assignableIds.length === 0 || busy}
-                            checked={
-                              allSelected ? true : selection.length > 0 ? "indeterminate" : false
-                            }
-                            onCheckedChange={(checked) =>
-                              setSelectedIds(checked === true ? assignableIds : [])
-                            }
-                          />
-                        </TableHead>
-                        <TableHead>Center</TableHead>
-                        <TableHead>Customer</TableHead>
-                        <TableHead>Uploaded On</TableHead>
-                        <TableHead>Status</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {rows.map((row) => (
-                        <TableRow
-                          key={row.id}
-                          className="cursor-pointer"
-                          onClick={() => setOpenId(row.id)}
-                        >
-                          <TableCell className="w-8" onClick={(event) => event.stopPropagation()}>
-                            {ASSIGNABLE.has(row.status) ? (
-                              <Checkbox
-                                aria-label={`Select ${customerName(row.payload)}`}
-                                disabled={busy}
-                                checked={selection.includes(row.id)}
-                                onCheckedChange={(checked) => toggleRow(row.id, checked === true)}
-                              />
-                            ) : null}
-                          </TableCell>
-                          <TableCell>
-                            <CenterBadge
-                              name={row.center_name}
-                              color={row.center_id ? centerColorById.get(row.center_id) : null}
-                            />
-                          </TableCell>
-                          <TableCell className="font-medium">
-                            {customerName(row.payload)}
-                            <PriorRejectionsBadge entry={priorRejections.data?.get(row.id)} />
-                          </TableCell>
-                          <TableCell className="text-muted-foreground">
-                            {formatDate(row.created_at)}
-                          </TableCell>
-                          <TableCell>
-                            <QueueStatusCell
-                              row={row}
-                              declinedCarriers={declinedBy(row.id)}
-                              now={now}
-                              showCountdown={showCountdown}
-                              windowMs={windowMs}
-                            />
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                      {rows.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={5} className="text-center text-muted-foreground">
-                            {submissions.isLoading
-                              ? "Loading…"
-                              : term
-                                ? "No lead on this tab matches that name."
-                                : "Nothing in the queue."}
-                          </TableCell>
-                        </TableRow>
-                      ) : null}
-                    </TableBody>
-                  </Table>
+                  <DataTable
+                    columns={queueColumns.manual}
+                    data={rows}
+                    getRowId={(row) => row.id}
+                    onRowClick={(row) => setOpenId(row.id)}
+                    initialSorting={[{ id: "uploaded", desc: true }]}
+                    emptyMessage={
+                      submissions.isLoading
+                        ? "Loading…"
+                        : term
+                          ? "No lead on this tab matches that name."
+                          : "Nothing in the queue."
+                    }
+                    resetKey={term}
+                    selection={tableSelection}
+                  />
                 </TabsContent>
 
-                {/* Rows here mix both origins — a lead CX sent back keeps
-                    whatever it started as — so neither the Live tab's Closer
-                    column nor the Manual tab's Uploaded On column fits every
-                    row. Origin (sourceLabel) says which one it was; Returned
-                    is the column that's actually the point of this tab: how
-                    long CX's decision has been sitting unassigned. */}
                 <TabsContent value="cxa_returned" className="m-0">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-8">
-                          <Checkbox
-                            aria-label="Select all assignable submissions"
-                            disabled={assignableIds.length === 0 || busy}
-                            checked={
-                              allSelected ? true : selection.length > 0 ? "indeterminate" : false
-                            }
-                            onCheckedChange={(checked) =>
-                              setSelectedIds(checked === true ? assignableIds : [])
-                            }
-                          />
-                        </TableHead>
-                        <TableHead>Center</TableHead>
-                        <TableHead>Customer</TableHead>
-                        <TableHead>Origin</TableHead>
-                        <TableHead>Handled by</TableHead>
-                        <TableHead>Returned</TableHead>
-                        {/* The reason CX gave. Without it this tab says a lead
-                            came back but not what to do about it. */}
-                        {/* <TableHead className="w-64">Reason</TableHead> */}
-                        <TableHead>Status</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {rows.map((row) => (
-                        <TableRow
-                          key={row.id}
-                          className="cursor-pointer"
-                          onClick={() => setOpenId(row.id)}
-                        >
-                          <TableCell className="w-8" onClick={(event) => event.stopPropagation()}>
-                            {ASSIGNABLE.has(row.status) ? (
-                              <Checkbox
-                                aria-label={`Select ${customerName(row.payload)}`}
-                                disabled={busy}
-                                checked={selection.includes(row.id)}
-                                onCheckedChange={(checked) => toggleRow(row.id, checked === true)}
-                              />
-                            ) : null}
-                          </TableCell>
-                          <TableCell>
-                            <CenterBadge
-                              name={row.center_name}
-                              color={row.center_id ? centerColorById.get(row.center_id) : null}
-                            />
-                          </TableCell>
-                          <TableCell className="font-medium">
-                            {customerName(row.payload)}
-                            <PriorRejectionsBadge entry={priorRejections.data?.get(row.id)} />
-                          </TableCell>
-                          <TableCell className="text-muted-foreground">
-                            {sourceLabel(row)}
-                          </TableCell>
-                          <TableCell className="text-muted-foreground">{closerName(row)}</TableCell>
-                          <TableCell className="text-muted-foreground">
-                            {row.reopened_from_cx_at
-                              ? relativeTime(row.reopened_from_cx_at, now)
-                              : "—"}
-                          </TableCell>
-                          {/* Clamped to two lines with the whole of it on
-                              hover: a reason is free text a CXA typed, and
-                              letting it set the row height would push the
-                              columns either side of it out of scanning range. */}
-                          {/* <TableCell className="text-muted-foreground">
-                            <ReturnReasonCell
-                              entry={returnReasonFor(row.id)}
-                              customer={customerName(row.payload)}
-                            />
-                          </TableCell> */}
-                          <TableCell>
-                            <QueueStatusCell
-                              row={row}
-                              declinedCarriers={declinedBy(row.id)}
-                              now={now}
-                              showCountdown={showCountdown}
-                              windowMs={windowMs}
-                            />
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                      {rows.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={8} className="text-center text-muted-foreground">
-                            {submissions.isLoading
-                              ? "Loading…"
-                              : term
-                                ? "No returned lead matches that name."
-                                : "Nothing returned by CXA."}
-                          </TableCell>
-                        </TableRow>
-                      ) : null}
-                    </TableBody>
-                  </Table>
+                  <DataTable
+                    columns={queueColumns.cxaReturned}
+                    data={rows}
+                    getRowId={(row) => row.id}
+                    onRowClick={(row) => setOpenId(row.id)}
+                    initialSorting={[{ id: "returned", desc: true }]}
+                    emptyMessage={
+                      submissions.isLoading
+                        ? "Loading…"
+                        : term
+                          ? "No returned lead matches that name."
+                          : "Nothing returned by CXA."
+                    }
+                    resetKey={term}
+                    selection={tableSelection}
+                  />
                 </TabsContent>
               </section>
             </Tabs>
@@ -1015,9 +947,15 @@ function ManagerPage() {
           </TabsContent>
 
           {/* Unfiltered by status, unlike the queue above: a lead stays on
-              this tab once it has been disposed. */}
+              this tab once it has been disposed. Its own tab rather than part
+              of Reporting, as on the admin page, so the explorer's queries run
+              only once it is opened. */}
+          <TabsContent value="submissions" className="flex flex-col gap-4">
+            <SubmissionsExplorer />
+          </TabsContent>
+
           <TabsContent value="reporting" className="flex flex-col gap-4">
-            <ReportingDashboard />
+            <ReportingStats />
           </TabsContent>
         </Tabs>
       </div>

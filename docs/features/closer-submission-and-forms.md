@@ -224,6 +224,21 @@ One such tag is seeded, "Eligible For Second Policy", but an admin/cxm can
 mark any tag this way — `cx_tags` is one of the few tables a `cxm` (not
 just admin) can write directly, via its `FOR ALL` RLS policy.
 
+## Health Conditions / Medications typeahead — added 2026-10-08
+
+On the closer form only, `Health Conditions` and `Medications` (field types
+`condition` / `medication`) render `SuggestInput` (`src/components/suggest-input.tsx`):
+removable chips plus a suggestion list, keyboard navigable. Suggestions come from the
+NLM Clinical Tables API (`conditions/v3` and `rxterms/v3`, no key, CORS-open) via
+`useSuggestions` in `src/lib/health-suggest.ts` — 250 ms debounce, 2-character minimum,
+stale requests aborted, results cached per session, failures silent. Only the typed
+characters leave the browser. The value is a single comma-separated string in
+`payload`; text the list doesn't know is accepted on Enter, comma or blur. Commas
+inside a picked name are replaced with spaces so the chips round-trip. The payload and
+lead editors treat both as plain textareas. `Medications` is derived from `SECTIONS`
+into the import catalog (`canonical-fields.ts`) and no longer declared twice.
+Not on the validator form.
+
 ## Known limitations
 - Field labels doubling as payload keys, Sheet columns, *and* import target
   fields means a label rename has three simultaneous consequences — this is

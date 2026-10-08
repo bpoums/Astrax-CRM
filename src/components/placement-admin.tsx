@@ -1,5 +1,4 @@
 import { useState, type FormEvent } from "react";
-import { Link } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, ChevronUp, Pencil, Power } from "lucide-react";
 import { toast } from "sonner";
@@ -25,11 +24,12 @@ import {
 } from "@/components/admin-list";
 
 /**
- * Agencies, IMOs and agents, and which of them belong together.
+ * Agencies, IMOs and agents.
  *
  * Carriers stay in their own panel (`CarrierAdmin`); this one adds the other
- * three lists and maps Agency -> IMO and IMO -> Carrier. Agents are just a
- * list — they are not mapped to anything. There is no delete — a lead keeps pointing at the
+ * three lists. The Agency -> IMO and IMO -> Carrier mapping (`PlacementMapping`,
+ * below) is mounted on the admin Agencies tab. Agents are just a list — they
+ * are not mapped to anything. There is no delete — a lead keeps pointing at the
  * agency, IMO and agent it was placed with, so they are deactivated instead.
  */
 export function PlacementAdmin() {
@@ -47,7 +47,6 @@ export function PlacementAdmin() {
         <ItemList kind="imo" />
         <ItemList kind="agent" />
       </div>
-      <PlacementMapping />
     </section>
   );
 }
@@ -356,7 +355,7 @@ type Option = { id: string; name: string; active: boolean };
  * something since retired can be seen and switched off rather than lingering
  * invisibly.
  */
-function PlacementMapping() {
+export function PlacementMapping() {
   const agencies = usePlacementList("agency");
   const imos = usePlacementList("imo");
   const carriers = useCarriers(false);
@@ -380,16 +379,7 @@ function PlacementMapping() {
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="panel-title">Mapping</h3>
-        <Link
-          to="/admin"
-          search={{ tab: "agencies" }}
-          className="text-[0.66rem] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-        >
-          See the whole map
-        </Link>
-      </div>
+      <h2 className="panel-title">Mapping</h2>
       {error ? <p className="text-xs text-destructive">{(error as Error).message}</p> : null}
       <div className="grid gap-3 xl:grid-cols-2">
         <MappingPane
@@ -403,7 +393,7 @@ function PlacementMapping() {
           options={imoOptions.filter((imo) => imo.active || agencyImoIds.has(imo.id))}
           checked={agencyImoIds}
           disabled={setLink.isPending}
-          empty="No IMOs yet — add one above."
+          empty="No IMOs yet — add one in Settings."
           onToggle={(child, active) => toggle("agency_imo", agencyId, child, active)}
         />
         <MappingPane
@@ -417,7 +407,7 @@ function PlacementMapping() {
           options={carrierOptions.filter((c) => c.active || imoCarrierIds.has(c.id))}
           checked={imoCarrierIds}
           disabled={setLink.isPending}
-          empty="No carriers — add them in the Carriers panel."
+          empty="No carriers — add them in the Settings Carriers panel."
           onToggle={(child, active) => toggle("imo_carrier", imoId, child, active)}
         />
       </div>

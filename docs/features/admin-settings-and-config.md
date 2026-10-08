@@ -77,17 +77,21 @@ uses the same row pattern (name, spellings inline, icon actions; the Order and
 Active columns are gone — inactive rows are muted and tagged). Behaviour, RPCs
 and writes are unchanged.
 
-**Connection map (added 2026-10-07).** The admin **Agencies** tab
-(`src/components/agency-map.tsx`, `AgencyMap`) is a read-only picture of the
-mapping below: Agencies, IMOs and Carriers in three columns with curves between
+**Mapping lives on the Agencies tab (moved 2026-10-08).** The admin **Agencies**
+tab shows the editable Mapping (`PlacementMapping`, exported from
+`placement-admin.tsx`) on top and the connection map under it, so a toggled link
+shows in the diagram straight away (both read the same placement-links query).
+
+**Connection map (added 2026-10-07).** Below the mapping, `AgencyMap`
+(`src/components/agency-map.tsx`) is a read-only picture of the mapping: Agencies, IMOs and Carriers in three columns with curves between
 linked names, plus link counts. Selecting or hovering a name lights its whole
 path (agency → IMOs → carriers, or carrier → IMOs → agencies) and dims the rest.
 "Show inactive" is off by default; links to hidden items are hidden with them.
 Under `lg` it falls back to one card per IMO. It reads through
-`usePlacementList`, `usePlacementLinks` and `useCarriers(false)`; editing stays here.
+`usePlacementList`, `usePlacementLinks` and `useCarriers(false)`.
 
 The **Agencies, IMOs and agents** panel (`placement-admin.tsx`) sits under
-Carriers in Settings. It has two parts.
+Carriers in Settings and holds the three lists; the mapping is on the Agencies tab.
 
 **Three lists** (Agencies, IMOs, Agents): add, edit, reorder (↑/↓ rewrites the
 order as 10, 20, 30…), deactivate. Agents also carry an optional NPN. Carriers
@@ -95,7 +99,7 @@ are still managed in their own panel. **Agents are independent**: adding an agen
 here is all it takes for it to appear in the validator's Agent Name dropdown —
 no mapping to an IMO or carrier.
 
-**Mapping**, two boxes, each "pick the parent, tick its children":
+**Mapping** (Agencies tab), two boxes, each "pick the parent, tick its children":
 - **Agency → IMOs**
 - **IMO → Carriers.** One carrier can be ticked under several IMOs. Each
   IMO→Carrier pair is its own contract.

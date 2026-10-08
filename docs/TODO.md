@@ -333,3 +333,16 @@ a refetch.
 confirming their open session is signed out within a few seconds, not just
 on their next manual reload.
 
+
+## `Health Condition` vs `Health Conditions` payload keys
+
+Found 2026-10-08. The closer form writes `Health Conditions` (565 live rows); the
+import-only catalog entry and `PAYLOAD_ORDER` use singular `Health Condition` (201
+rows). The same concept lives under two keys, so ordering and Sheet columns treat
+them as different fields. Needs a decision on which key wins plus a data backfill.
+
+## Does the Sheet pick up the `Medications` key?
+
+The sheet-sync Apps Script isn't deployable by us. 192 rows already carry
+`Medications`; confirm from the function logs that the column is populated before
+relying on it for closer-form leads.

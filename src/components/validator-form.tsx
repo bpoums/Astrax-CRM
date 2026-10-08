@@ -90,6 +90,8 @@ const SECTIONS: Section[] = [
       { label: "Premium", type: "text", required: true },
       { label: "Agent Name", type: "text", required: true },
       { label: "Policy Number", type: "text", required: true },
+      { label: "Agency Name", type: "text", required: true },
+      { label: "IMO Name", type: "text", required: true },
       { label: "Draft Date", type: "date", required: true },
       { label: "Future Draft Date", type: "date", required: true },
     ],

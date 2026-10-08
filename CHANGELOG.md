@@ -1,5 +1,53 @@
 # Changelog
 
+## 2026-10-08 — Agency / IMO / Carrier mapping moved to the Agencies tab
+
+The editable mapping (Agency → IMOs, IMO → Carriers) now sits at the top of the admin
+**Agencies** tab, above the connection diagram. Settings keeps the Agencies, IMOs and
+Agents lists and Carriers.
+- `PlacementMapping` is exported from `placement-admin.tsx` and mounted in `admin.tsx`.
+- Removed the "See the whole map" link (the map is on the same page); empty-state hints
+  now point to Settings.
+- No database change.
+
+## 2026-10-08 — Closer form: Health Conditions and Medications typeahead
+
+**Health Conditions** (existing field, same label and payload key) is now a chip list
+with suggestions as the closer types, and a new **Medications** field sits right under it.
+- Suggestions come from the US National Library of Medicine Clinical Tables (conditions,
+  RxTerms for drugs), called straight from the browser like the ZIP lookup. Only the typed
+  characters are sent. If the lookup fails the field still accepts typed text.
+- Stored as one comma-separated string in `payload` (`Health Conditions`, `Medications`),
+  so existing rows, Sheets sync and imports are unchanged. Enter or comma adds text the
+  list doesn't know.
+- `Medications` moved from the import-only catalog entries into the form-derived catalog
+  (one entry, same aliases) so the import catalog has no duplicate key.
+- The payload and lead editors show both as a plain text area, as before.
+- New `suggest-input.tsx`, `lib/health-suggest.ts` (+ tests). No database change.
+
+## 2026-10-08 — Manager: Submissions is its own tab
+
+The submissions table that sat under the stats on the manager's Reporting tab now has
+its own **Submissions** tab (between By Draft Date and Reporting), the same split the
+admin page already uses. Reporting keeps the stats panels only.
+- `manager.tsx` mounts `SubmissionsExplorer` and `ReportingStats` separately instead of
+  `ReportingDashboard`, which no longer has a caller (left in `reporting.tsx`).
+- No database change.
+
+## 2026-10-08 — Operations queue: sortable columns and paging
+
+The manager's Operations queue (Live, Manual, CXA Returned) now renders through one
+shared `DataTable` instead of three hand-written tables. The tabs and their columns
+are unchanged.
+- Every column header sorts; default order is still newest first.
+- 50 rows a page (client-side). The queue is still one unpaged query kept fresh by
+  realtime, so tab counts and search are unchanged.
+- The header checkbox now selects the assignable rows of the current page, not the
+  whole tab. Selection is also cleared when the sort changes.
+- New `src/components/data-table.tsx`, `src/lib/queue-sort.ts` (+ tests); new
+  dependency `@tanstack/react-table` v8 (v9 is npm's `latest` but has a different API).
+- No database change.
+
 ## 2026-10-07 — Settings: cleaner Agencies / IMOs / Agents / Carriers panels
 
 UI-only redesign. Tables of four-chip rows became cards of rows with hover icon
