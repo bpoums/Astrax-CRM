@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Weekly closer submissions</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-1: #fcfcfb;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted: #6f6e69;
+    --grid: #e6e5e1;
+    --series-1: #2a78d6;   /* UMS BPO */
+    --series-2: #eb6834;   /* DESCOM */
+    --neutral: #c9c8c2;    /* center not recorded */
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-1: #1a1a19;
+      --text-primary: #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted: #a3a298;
+      --grid: #353533;
+      --series-1: #3987e5;
+      --series-2: #d95926;
+      --neutral: #4a4a47;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --surface-1: #1a1a19;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted: #a3a298;
+    --grid: #353533;
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --neutral: #4a4a47;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--surface-1); color: var(--text-primary);
+    font: 14px/1.45 "DM Sans", system-ui, sans-serif;
+  }
+  .viz-root { max-width: 820px; margin: 0 auto; padding: 24px 16px 32px; }
+  h1 { font-size: 1.35rem; line-height: 1.25; margin: 0 0 6px; font-weight: 600; max-width: 62ch; }
+  .sub { color: var(--text-secondary); margin: 0 0 16px; max-width: 70ch; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 0 0 8px; color: var(--text-secondary); font-size: 0.85rem; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  .chart { position: relative; }
+  svg { width: 100%; height: auto; display: block; overflow: visible; }
+  svg text { fill: var(--text-secondary); font-family: inherit; }
+  .total { fill: var(--text-primary); font-weight: 600; font-size: 13px; }
+  .tick { font-size: 11.5px; }
+  .gridline { stroke: var(--grid); stroke-width: 1; }
+  .bar { cursor: default; }
+  .bar rect { stroke: var(--surface-1); stroke-width: 2; }
+  .bar:hover rect, .bar:focus rect { filter: brightness(1.12); }
+  .bar:focus { outline: none; }
+  .bar:focus-visible .hit { stroke: var(--text-primary); stroke-width: 1.5; fill: none; }
+  .hit { fill: transparent; }
+  .tip {
+    position: absolute; pointer-events: none; opacity: 0; transition: opacity .08s;
+    background: var(--surface-1); color: var(--text-primary); border: 1px solid var(--grid);
+    border-radius: 6px; padding: 8px 10px; font-size: 12.5px; box-shadow: 0 2px 10px rgba(0,0,0,.18);
+    min-width: 170px; z-index: 2;
+  }
+  .tip b { display: block; margin-bottom: 4px; }
+  .tip div { display: flex; justify-content: space-between; gap: 14px; color: var(--text-secondary); }
+  .tip div strong { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+  .note { color: var(--text-muted); font-size: 0.8rem; margin: 10px 0 0; max-width: 78ch; }
+  button.toggle {
+    margin-top: 10px; background: none; border: 1px solid var(--grid); color: var(--text-secondary);
+    border-radius: 6px; padding: 4px 10px; font: inherit; font-size: 0.8rem; cursor: pointer;
+  }
+  button.toggle:focus-visible { outline: 2px solid var(--series-1); outline-offset: 2px; }
+  table { border-collapse: collapse; margin-top: 10px; width: 100%; font-variant-numeric: tabular-nums; font-size: 0.85rem; }
+  th, td { text-align: right; padding: 5px 8px; border-bottom: 1px solid var(--grid); }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--text-secondary); font-weight: 500; }
+  [hidden] { display: none; }
+  @media (prefers-reduced-motion: reduce) { .tip { transition: none; } }
+</style>
+</head>
+<body>
+<div class="viz-root">
+  <h1>Weekly submissions rose from 66 to 161 in four weeks, and DESCOM, live since 3 Sep, now supplies about a third of them</h1>
+  <p class="sub">Closer submissions per week, by center, 24 Aug – 8 Oct 2026. Volume peaked in the week of 21 Sep and has eased since.</p>
+
+  <div class="legend" aria-label="Legend">
+    <span><i style="background:var(--series-1)"></i>UMS BPO</span>
+    <span><i style="background:var(--series-2)"></i>DESCOM (live from 3 Sep)</span>
+    <span><i style="background:var(--neutral)"></i>Center not recorded</span>
+  </div>
+
+  <div class="chart" id="chart">
+    <svg id="svg" viewBox="0 0 760 360" role="img"
+         aria-label="Stacked bar chart of weekly closer submissions by center. Totals: 66, 82, 96, 139, 161, 145, then 91 for a part week."></svg>
+    <div class="tip" id="tip" role="status"></div>
+  </div>
+
+  <p class="note">Weeks start on Monday. The last bar covers Mon 5 Oct – Thu 8 Oct only, so it is a partial week (about 23 a day against about 30 a day the week before). “Center not recorded” are early submissions made before the center was stored on each lead.</p>
+
+  <button class="toggle" id="toggle" aria-expanded="false" aria-controls="data-table">Show data table</button>
+  <table id="data-table" hidden>
+    <thead><tr><th>Week of</th><th>UMS BPO</th><th>DESCOM</th><th>Not recorded</th><th>Total</th></tr></thead>
+    <tbody></tbody>
+  </table>
+</div>
+
+<script>
+  const weeks = [
+    { label: "24 Aug", ums: 35,  descom: 0,  none: 31 },
+    { label: "31 Aug", ums: 54,  descom: 3,  none: 25 },
+    { label: "7 Sep",  ums: 62,  descom: 19, none: 15 },
+    { label: "14 Sep", ums: 104, descom: 35, none: 0 },
+    { label: "21 Sep", ums: 110, descom: 51, none: 0 },
+    { label: "28 Sep", ums: 93,  descom: 52, none: 0 },
+    { label: "5 Oct",  ums: 58,  descom: 33, none: 0, partial: true },
+  ];
+  const W = 760, H = 360, m = { t: 26, r: 8, b: 40, l: 36 };
+  const iw = W - m.l - m.r, ih = H - m.t - m.b, max = 180;
+  const y = v => m.t + ih - (v / max) * ih;
+  const slot = iw / weeks.length, bw = 56;
+  const svg = document.getElementById("svg"), tip = document.getElementById("tip");
+  const NS = "http://www.w3.org/2000/svg";
+  const el = (n, a = {}, parent = svg) => {
+    const e = document.createElementNS(NS, n);
+    for (const k in a) e.setAttribute(k, a[k]);
+    parent.appendChild(e); return e;
+  };
+  const total = w => w.ums + w.descom + w.none;
+
+  for (const v of [0, 60, 120, 180]) {
+    el("line", { class: "gridline", x1: m.l, x2: W - m.r, y1: y(v), y2: y(v) });
+    const t = el("text", { class: "tick", x: m.l - 8, y: y(v) + 4, "text-anchor": "end" }); t.textContent = v;
+  }
+
+  weeks.forEach((w, i) => {
+    const x = m.l + slot * i + (slot - bw) / 2;
+    const g = el("g", { class: "bar", tabindex: 0, "aria-label": `Week of ${w.label}: ${total(w)} submissions` });
+    let base = 0;
+    [["ums", "var(--series-1)"], ["descom", "var(--series-2)"], ["none", "var(--neutral)"]].forEach(([k, fill]) => {
+      const v = w[k]; if (!v) return;
+      const top = y(base + v), h = y(base) - top;
+      const r = el("rect", { x, y: top, width: bw, height: h, fill, rx: 0 }, g);
+      if (w.partial) { r.setAttribute("fill-opacity", "0.55"); }
+      base += v;
+    });
+    // round the data end of the topmost segment only
+    const last = g.lastElementChild; if (last) last.setAttribute("rx", 3);
+    const tl = el("text", { class: "total", x: x + bw / 2, y: y(base) - 7, "text-anchor": "middle" }, g);
+    tl.textContent = total(w) + (w.partial ? "*" : "");
+    const xl = el("text", { class: "tick", x: x + bw / 2, y: H - m.b + 18, "text-anchor": "middle" }, g);
+    xl.textContent = w.label;
+    if (w.partial) {
+      const p = el("text", { class: "tick", x: x + bw / 2, y: H - m.b + 32, "text-anchor": "middle" }, g);
+      p.textContent = "Mon–Thu";
+    }
+    el("rect", { class: "hit", x: x - 8, y: m.t, width: bw + 16, height: ih + 2 }, g);
+
+    const show = () => {
+      const rows = [["UMS BPO", w.ums], ["DESCOM", w.descom], ["Not recorded", w.none]]
+        .filter(r => r[1] > 0).map(r => `<div><span>${r[0]}</span><strong>${r[1]}</strong></div>`).join("");
+      tip.innerHTML = `<b>Week of ${w.label}${w.partial ? " (Mon–Thu)" : ""}</b>${rows}<div><span>Total</span><strong>${total(w)}</strong></div>`;
+      const box = svg.getBoundingClientRect(), pc = box.width / W;
+      let left = (x + bw / 2) * pc + 14;
+      if (left + 190 > box.width) left = (x + bw / 2) * pc - 190 - 14;
+      tip.style.left = Math.max(0, left) + "px";
+      tip.style.top = (y(total(w)) * pc) + "px";
+      tip.style.opacity = 1;
+    };
+    const hide = () => { tip.style.opacity = 0; };
+    g.addEventListener("mouseenter", show); g.addEventListener("mouseleave", hide);
+    g.addEventListener("focus", show); g.addEventListener("blur", hide);
+  });
+
+  const tbody = document.querySelector("#data-table tbody");
+  weeks.forEach(w => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${w.label}${w.partial ? " (Mon–Thu)" : ""}</td><td>${w.ums}</td><td>${w.descom}</td><td>${w.none}</td><td>${total(w)}</td>`;
+    tbody.appendChild(tr);
+  });
+  const btn = document.getElementById("toggle"), tbl = document.getElementById("data-table");
+  btn.addEventListener("click", () => {
+    tbl.hidden = !tbl.hidden;
+    btn.textContent = tbl.hidden ? "Show data table" : "Hide data table";
+    btn.setAttribute("aria-expanded", String(!tbl.hidden));
+  });
+</script>
+</body>
+</html>

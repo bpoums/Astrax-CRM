@@ -119,8 +119,16 @@ full-text "Returned by CX" block at the top of the detail sheet.
     the dialog disables it and the RPC refuses it.
   - **Already rejected:** carriers this customer was already rejected by are
     struck through.
-  - **Old dialog:** the old carrier-only overload still works while the switch
-    is off. Its rows get a `kind` classified from the reason text.
+  - **Interim simple dialog (2026-10-09):** while `placement_rule_enabled` is
+    `false` the dialog shows only the active carriers (tick one or more) and a
+    **required** reason, and calls the carrier-only overload
+    `decline_with_carriers(p_sub, p_carrier_ids, p_reason)`. No IMO grouping and
+    no "Carrier rejected / Fixable" choice; the rows get a `kind` classified
+    from the reason text and `imo_id` null, and nothing blocks while the rule is
+    off. `DeclineDialog` reads the same switch as `ValidatorFields`
+    (`usePlacementRuleEnabled()`), so setting the flag to `'true'` brings the
+    IMO → carrier dialog back with no deploy. That overload raises "This screen
+    is out of date" once the flag is on.
 - `in_review` rows are deliberately excluded from bulk-assign eligibility —
   reassigning a lead a validator currently has open would yank it out from
   under them mid-review.

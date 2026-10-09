@@ -1,0 +1,38 @@
+- generic [ref=e2]:
+  - heading "Weekly submissions rose from 66 to 161 in four weeks, with DESCOM supplying about a third of the growth" [level=1] [ref=e3]
+  - paragraph [ref=e4]: Closer submissions per week, by center, 24 Aug – 8 Oct 2026. Volume peaked in the week of 21 Sep and has eased since.
+  - generic "Legend" [ref=e5]:
+    - generic [ref=e6]: UMS BPO
+    - generic [ref=e8]: DESCOM (live from 3 Sep)
+    - generic [ref=e10]: Center not recorded
+  - generic [ref=e12]:
+    - 'img "Stacked bar chart of weekly closer submissions by center. Totals: 66, 82, 96, 139, 161, 145, then 91 for a part week." [ref=e13]':
+      - generic [ref=e14]: "0"
+      - generic [ref=e15]: "60"
+      - generic [ref=e16]: "120"
+      - generic [ref=e17]: "180"
+      - 'generic "Week of 24 Aug: 66 submissions" [ref=e18]':
+        - generic [ref=e21]: "66"
+        - generic [ref=e22]: 24 Aug
+      - 'generic "Week of 31 Aug: 82 submissions" [ref=e24]':
+        - generic [ref=e28]: "82"
+        - generic [ref=e29]: 31 Aug
+      - 'generic "Week of 7 Sep: 96 submissions" [ref=e31]':
+        - generic [ref=e35]: "96"
+        - generic [ref=e36]: 7 Sep
+      - 'generic "Week of 14 Sep: 139 submissions" [ref=e38]':
+        - generic [ref=e41]: "139"
+        - generic [ref=e42]: 14 Sep
+      - 'generic "Week of 21 Sep: 161 submissions" [ref=e44]':
+        - generic [ref=e47]: "161"
+        - generic [ref=e48]: 21 Sep
+      - 'generic "Week of 28 Sep: 145 submissions" [ref=e50]':
+        - generic [ref=e53]: "145"
+        - generic [ref=e54]: 28 Sep
+      - 'generic "Week of 5 Oct: 91 submissions" [ref=e56]':
+        - generic [ref=e59]: 91*
+        - generic [ref=e60]: 5 Oct
+        - generic [ref=e61]: Mon–Thu
+    - status
+  - paragraph [ref=e63]: Weeks start on Monday. The last bar covers Mon 5 Oct – Thu 8 Oct only, so it is a partial week (about 23 a day against about 30 a day the week before). “Center not recorded” are early submissions made before the center was stored on each lead.
+  - button "Show data table" [ref=e64] [cursor=pointer]

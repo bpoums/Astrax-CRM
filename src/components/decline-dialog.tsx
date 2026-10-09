@@ -8,6 +8,7 @@ import {
   usePlacementBlocks,
   usePlacementLinks,
   usePlacementList,
+  usePlacementRuleEnabled,
 } from "@/lib/placement";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
@@ -50,6 +51,13 @@ const KINDS: Array<{ value: DeclineKind; label: string; hint: string }> = [
  * is shown struck through. Ticking a carrier under one IMO disables the same
  * carrier under the others — one application per carrier, which the RPC also
  * enforces.
+ *
+ * Interim simple mode: while `app_config.placement_rule_enabled` is `false`
+ * (the state it ships in, until the agency/IMO mapping is ready) the dialog
+ * asks only for the carrier(s) and a required reason, and calls the carrier-only
+ * overload of `decline_with_carriers`. Flipping the flag to `true` brings the
+ * IMO → carrier flow above back with no deploy — the same switch
+ * `ValidatorFields` reads. See docs/features/validation-queue.md.
  */
 export function DeclineDialog({
   submissionId,
@@ -69,10 +77,15 @@ export function DeclineDialog({
   const [reason, setReason] = useState("");
 
   const open = !!submissionId;
-  const carriers = useCarriers(false, open);
-  const imos = usePlacementList("imo", open);
-  const links = usePlacementLinks(open);
-  const blocks = usePlacementBlocks(submissionId, open);
+  const rule = usePlacementRuleEnabled(open);
+  // Unknown (still loading) renders nothing below rather than guessing a mode,
+  // so the dialog never flashes the wrong form.
+  const simple = rule.data === false;
+  const full = rule.data === true;
+  const carriers = useCarriers(simple, open && rule.data !== undefined);
+  const imos = usePlacementList("imo", open && full);
+  const links = usePlacementLinks(open && full);
+  const blocks = usePlacementBlocks(submissionId, open && full);
 
   // A fresh dialog every time it opens: carrying a previous lead's ticks over
   // to the next one is how a carrier gets recorded against the wrong lead.
@@ -86,10 +99,24 @@ export function DeclineDialog({
   const decline = useMutation({
     mutationFn: async (vars: {
       id: string;
+      /** IMO → carrier link ids, or plain carrier ids in simple mode. */
       linkIds: string[];
-      kind: DeclineKind;
+      kind: DeclineKind | null;
       reason: string;
+      simple: boolean;
     }) => {
+      if (vars.simple) {
+        // The carrier-only overload: it classifies the kind from the reason
+        // text itself, and refuses once the placement rule is switched on.
+        const { error } = await supabase.rpc("decline_with_carriers", {
+          p_sub: vars.id,
+          p_carrier_ids: vars.linkIds,
+          p_reason: vars.reason,
+        });
+        if (error) throw error;
+        return;
+      }
+      if (!vars.kind) throw new Error("Say why it was declined.");
       // p_reason has a SQL-side default, so an empty box omits the key rather
       // than sending null — exactOptionalPropertyTypes rejects the null.
       const base = { p_sub: vars.id, p_imo_carrier_ids: vars.linkIds, p_kind: vars.kind };
@@ -113,9 +140,10 @@ export function DeclineDialog({
     onError: (error: Error) => toast.error(error.message),
   });
 
-  const loadError = [carriers, imos, links, blocks].find((q) => q.isError)?.error as
+  const loadError = [rule, carriers, imos, links, blocks].find((q) => q.isError)?.error as
     Error | undefined;
-  const loading = carriers.isLoading || imos.isLoading || links.isLoading;
+  const loading =
+    rule.isLoading || carriers.isLoading || (full && (imos.isLoading || links.isLoading));
 
   const carrierById = new Map((carriers.data ?? []).map((c) => [c.id, c]));
   const rejectedCarriers = new Set((blocks.data?.rejections ?? []).map((r) => r.carrier_id));
@@ -139,6 +167,11 @@ export function DeclineDialog({
   const linkById = new Map(activeLinks.map((l) => [l.id, l]));
   const tickedCarriers = new Set(selected.map((id) => linkById.get(id)?.carrier_id));
   const busy = decline.isPending;
+  const simpleCarriers = [...(carriers.data ?? [])].filter((c) => c.active);
+  const trimmedReason = reason.trim();
+  const canDecline = simple
+    ? selected.length > 0 && trimmedReason.length > 0
+    : selected.length > 0 && !!kind;
 
   function toggle(id: string, checked: boolean) {
     setSelected((prev) => (checked ? [...new Set([...prev, id])] : prev.filter((x) => x !== id)));
@@ -148,122 +181,165 @@ export function DeclineDialog({
     <Dialog open={open} onOpenChange={(next) => !next && onOpenChange(false)}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Which carriers declined?</DialogTitle>
+          <DialogTitle>
+            {simple ? "Which carrier declined?" : "Which carriers declined?"}
+          </DialogTitle>
           <DialogDescription>
-            {customer} — pick the IMO and carrier for every application that was declined. The lead
-            goes back to the manager with these recorded against it.
+            {simple
+              ? `${customer} — pick the carrier the application was declined on and say why. The lead goes back to the manager with this recorded against it.`
+              : `${customer} — pick the IMO and carrier for every application that was declined. The lead goes back to the manager with these recorded against it.`}
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-col gap-3">
-          <div className="flex flex-col gap-1">
-            <span className="field-label">Why was it declined?</span>
-            <div className="flex flex-col gap-1.5">
-              {KINDS.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  disabled={busy}
-                  aria-pressed={kind === option.value}
-                  onClick={() => setKind(option.value)}
-                  className={`${kind === option.value ? "chip chip-active" : "chip"} flex flex-col items-start rounded-md text-left`}
-                >
-                  <span className="text-xs font-medium">{option.label}</span>
-                  <span className="text-[0.62rem] text-muted-foreground">{option.hint}</span>
-                </button>
-              ))}
+          {simple ? (
+            <div className="flex flex-col gap-1">
+              <span className="field-label">Carrier</span>
+              {loadError ? (
+                <p className="text-xs text-destructive">{loadError.message}</p>
+              ) : loading ? (
+                <p className="text-xs text-muted-foreground">Loading…</p>
+              ) : simpleCarriers.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  No carriers are set up. An admin adds them in Settings.
+                </p>
+              ) : (
+                <div className="divide-y divide-border rounded-md border border-border">
+                  {simpleCarriers.map((carrier) => (
+                    <label
+                      key={carrier.id}
+                      htmlFor={`decline-${carrier.id}`}
+                      className="flex cursor-pointer items-center gap-2 px-3 py-1.5 hover:bg-accent/5"
+                    >
+                      <Checkbox
+                        id={`decline-${carrier.id}`}
+                        disabled={busy}
+                        checked={selected.includes(carrier.id)}
+                        onCheckedChange={(checked) => toggle(carrier.id, checked === true)}
+                      />
+                      <span className="text-xs text-foreground">{carrier.name}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
             </div>
-            {kind === "carrier_rejected" ? (
-              <p className="text-[0.66rem] text-destructive">
-                This customer can no longer be placed with these carriers under any IMO. Other
-                carriers under the same IMO are still allowed, with a warning.
-              </p>
-            ) : kind === "fixable" ? (
-              <p className="text-[0.66rem] text-muted-foreground">
-                Nothing is blocked — once the issue is fixed, the lead can go to the same carrier
-                again.
-              </p>
-            ) : null}
-          </div>
+          ) : null}
 
-          <div className="flex flex-col gap-1">
-            <span className="field-label">IMO → carrier</span>
-            {/* A refused read is not an empty carrier list: saying "nothing
+          {full ? (
+            <>
+              <div className="flex flex-col gap-1">
+                <span className="field-label">Why was it declined?</span>
+                <div className="flex flex-col gap-1.5">
+                  {KINDS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      disabled={busy}
+                      aria-pressed={kind === option.value}
+                      onClick={() => setKind(option.value)}
+                      className={`${kind === option.value ? "chip chip-active" : "chip"} flex flex-col items-start rounded-md text-left`}
+                    >
+                      <span className="text-xs font-medium">{option.label}</span>
+                      <span className="text-[0.62rem] text-muted-foreground">{option.hint}</span>
+                    </button>
+                  ))}
+                </div>
+                {kind === "carrier_rejected" ? (
+                  <p className="text-[0.66rem] text-destructive">
+                    This customer can no longer be placed with these carriers under any IMO. Other
+                    carriers under the same IMO are still allowed, with a warning.
+                  </p>
+                ) : kind === "fixable" ? (
+                  <p className="text-[0.66rem] text-muted-foreground">
+                    Nothing is blocked — once the issue is fixed, the lead can go to the same
+                    carrier again.
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <span className="field-label">IMO → carrier</span>
+                {/* A refused read is not an empty carrier list: saying "nothing
                 set up" over an authorisation error sends the reader to the
                 admin screen to fix something that is not broken. */}
-            {loadError ? (
-              <p className="text-xs text-destructive">{loadError.message}</p>
-            ) : loading ? (
-              <p className="text-xs text-muted-foreground">Loading…</p>
-            ) : groups.length === 0 ? (
-              <p className="text-xs text-muted-foreground">
-                No IMOs with carriers are set up. An admin maps them in Settings.
-              </p>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {groups.map(({ imo, links: imoLinks }) => (
-                  <div key={imo.id} className="rounded-md border border-border">
-                    <div className="table-head-band field-label px-3 py-1">{imo.name}</div>
-                    <div className="divide-y divide-border">
-                      {imoLinks.map((link) => {
-                        const carrier = carrierById.get(link.carrier_id);
-                        const spent = rejectedCarriers.has(link.carrier_id);
-                        const takenElsewhere =
-                          !selected.includes(link.id) && tickedCarriers.has(link.carrier_id);
-                        const off = spent || takenElsewhere;
-                        return (
-                          <label
-                            key={link.id}
-                            htmlFor={`decline-${link.id}`}
-                            className={`flex items-center gap-2 px-3 py-1.5 ${
-                              off ? "cursor-default" : "cursor-pointer hover:bg-accent/5"
-                            }`}
-                          >
-                            <Checkbox
-                              id={`decline-${link.id}`}
-                              disabled={off || busy}
-                              checked={selected.includes(link.id)}
-                              onCheckedChange={(checked) => toggle(link.id, checked === true)}
-                            />
-                            <span
-                              className={`text-xs ${
-                                spent ? "text-muted-foreground line-through" : "text-foreground"
-                              }`}
-                            >
-                              {carrier?.name ?? "Unknown carrier"}
-                            </span>
-                            {spent ? (
-                              <span className="ml-auto text-[0.66rem] text-muted-foreground">
-                                already rejected
-                              </span>
-                            ) : takenElsewhere ? (
-                              <span className="ml-auto text-[0.66rem] text-muted-foreground">
-                                ticked under another IMO
-                              </span>
-                            ) : null}
-                          </label>
-                        );
-                      })}
-                    </div>
+                {loadError ? (
+                  <p className="text-xs text-destructive">{loadError.message}</p>
+                ) : loading ? (
+                  <p className="text-xs text-muted-foreground">Loading…</p>
+                ) : groups.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    No IMOs with carriers are set up. An admin maps them in Settings.
+                  </p>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {groups.map(({ imo, links: imoLinks }) => (
+                      <div key={imo.id} className="rounded-md border border-border">
+                        <div className="table-head-band field-label px-3 py-1">{imo.name}</div>
+                        <div className="divide-y divide-border">
+                          {imoLinks.map((link) => {
+                            const carrier = carrierById.get(link.carrier_id);
+                            const spent = rejectedCarriers.has(link.carrier_id);
+                            const takenElsewhere =
+                              !selected.includes(link.id) && tickedCarriers.has(link.carrier_id);
+                            const off = spent || takenElsewhere;
+                            return (
+                              <label
+                                key={link.id}
+                                htmlFor={`decline-${link.id}`}
+                                className={`flex items-center gap-2 px-3 py-1.5 ${
+                                  off ? "cursor-default" : "cursor-pointer hover:bg-accent/5"
+                                }`}
+                              >
+                                <Checkbox
+                                  id={`decline-${link.id}`}
+                                  disabled={off || busy}
+                                  checked={selected.includes(link.id)}
+                                  onCheckedChange={(checked) => toggle(link.id, checked === true)}
+                                />
+                                <span
+                                  className={`text-xs ${
+                                    spent ? "text-muted-foreground line-through" : "text-foreground"
+                                  }`}
+                                >
+                                  {carrier?.name ?? "Unknown carrier"}
+                                </span>
+                                {spent ? (
+                                  <span className="ml-auto text-[0.66rem] text-muted-foreground">
+                                    already rejected
+                                  </span>
+                                ) : takenElsewhere ? (
+                                  <span className="ml-auto text-[0.66rem] text-muted-foreground">
+                                    ticked under another IMO
+                                  </span>
+                                ) : null}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
-            )}
-          </div>
+            </>
+          ) : null}
 
-          <div className="flex flex-col gap-1">
-            <label htmlFor="decline-reason" className="field-label">
-              Reason (optional)
-            </label>
-            <Textarea
-              id="decline-reason"
-              value={reason}
-              onChange={(event) => setReason(event.target.value)}
-              placeholder="Underwriting decision, invalid account number…"
-              className="field-input min-h-20"
-              maxLength={500}
-            />
-          </div>
+          {/* Hidden until the mode is known, so the form never flashes the wrong shape. */}
+          {simple || full ? (
+            <div className="flex flex-col gap-1">
+              <label htmlFor="decline-reason" className="field-label">
+                {simple ? "Reason" : "Reason (optional)"}
+              </label>
+              <Textarea
+                id="decline-reason"
+                value={reason}
+                onChange={(event) => setReason(event.target.value)}
+                placeholder="Underwriting decision, invalid account number…"
+                className="field-input min-h-20"
+                maxLength={500}
+              />
+            </div>
+          ) : null}
         </div>
 
         <DialogFooter>
@@ -278,14 +354,15 @@ export function DeclineDialog({
           <button
             type="button"
             className="chip justify-center border-destructive text-destructive"
-            disabled={busy || selected.length === 0 || !kind || !submissionId}
+            disabled={busy || !canDecline || !submissionId || (!simple && !full)}
             onClick={() => {
-              if (!submissionId || !kind) return;
+              if (!submissionId) return;
               decline.mutate({
                 id: submissionId,
                 linkIds: selected,
                 kind,
-                reason: reason.trim(),
+                reason: trimmedReason,
+                simple,
               });
             }}
           >

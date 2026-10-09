@@ -310,10 +310,16 @@ export function SalesBreakdown({ sharedPeriod }: { sharedPeriod?: ReturnType<typ
           )}
         </div>
 
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 lg:grid-cols-5">
-          <StatCard label="Total Submitted" value={breakdown.total} />
+        <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-border bg-border sm:grid-cols-3 lg:grid-cols-6">
+          <StatCard label="Total Submitted" value={breakdown.total} emphasis />
           {PLAN_TYPE_COLUMNS.map((bucket) => (
-            <StatCard key={bucket} label={bucket} value={breakdown.totals[bucket]} />
+            <StatCard
+              key={bucket}
+              label={bucket}
+              value={breakdown.totals[bucket]}
+              share={breakdown.total > 0 ? breakdown.totals[bucket] / breakdown.total : null}
+              muted={bucket === "Unspecified"}
+            />
           ))}
         </dl>
       </section>
@@ -431,11 +437,45 @@ export function SalesBreakdown({ sharedPeriod }: { sharedPeriod?: ReturnType<typ
   );
 }
 
-function StatCard({ label, value }: { label: string; value: number }) {
+function StatCard({
+  label,
+  value,
+  share = null,
+  emphasis = false,
+  muted = false,
+}: {
+  label: string;
+  value: number;
+  /** Fraction of the total (0–1); renders a share bar and percentage when set. */
+  share?: number | null;
+  emphasis?: boolean;
+  muted?: boolean;
+}) {
   return (
-    <div className="flex min-w-0 flex-col gap-0.5">
+    <div className="flex min-w-0 flex-col gap-1 bg-card px-3 py-2">
       <dt className="field-label">{label}</dt>
-      <dd className="font-display text-xl font-semibold tabular-nums">{value}</dd>
+      <dd className="flex items-baseline gap-1.5">
+        <span
+          className={`font-display text-xl font-semibold tabular-nums ${
+            emphasis ? "text-accent" : muted ? "text-muted-foreground" : ""
+          }`}
+        >
+          {value}
+        </span>
+        {share !== null ? (
+          <span className="text-[0.66rem] tabular-nums text-muted-foreground">
+            {Math.round(share * 100)}%
+          </span>
+        ) : null}
+      </dd>
+      {share !== null ? (
+        <div className="h-0.5 w-full overflow-hidden rounded-full bg-muted" aria-hidden="true">
+          <div
+            className={`h-full rounded-full ${muted ? "bg-muted-foreground/50" : "bg-accent"}`}
+            style={{ width: `${Math.round(share * 100)}%` }}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }

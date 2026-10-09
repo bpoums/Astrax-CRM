@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-10-09 — Interim simple Decline dialog (carrier + reason)
+
+While the agency/IMO mapping has no real data, declining a lead no longer asks for
+IMO → carrier and a Carrier rejected / Fixable choice. With
+`app_config.placement_rule_enabled = 'false'`, `DeclineDialog` shows the active
+carriers (multi-select) and a required reason, and calls the existing carrier-only
+`decline_with_carriers(p_sub, p_carrier_ids, p_reason)`. The full dialog is kept in
+the same file and returns when the flag is set to `'true'`, the same switch the
+Accept panel uses; nothing is commented out.
+- Code: `src/components/decline-dialog.tsx` only. Applies to validators and managers.
+- Database: none (no migration; the 3-argument overload already existed).
+- Docs: `docs/features/validation-queue.md`.
+
 ## 2026-10-08 — Agency / IMO / Carrier mapping moved to the Agencies tab
 
 The editable mapping (Agency → IMOs, IMO → Carriers) now sits at the top of the admin
