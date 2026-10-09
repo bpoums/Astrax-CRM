@@ -1,6 +1,5 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { supabase } from "@/integrations/supabase/client";
-import { roleHome, type AppRole } from "@/lib/auth";
+import { loadAuthSnapshot, roleHome } from "@/lib/auth";
 
 export const Route = createFileRoute("/")({
   ssr: false,
@@ -21,16 +20,10 @@ export const Route = createFileRoute("/")({
     ],
   }),
   beforeLoad: async () => {
-    const { data, error } = await supabase.auth.getUser();
-    if (error || !data.user) throw redirect({ to: "/login" });
+    const { user, profile } = await loadAuthSnapshot();
+    if (!user) throw redirect({ to: "/login" });
 
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("id", data.user.id)
-      .maybeSingle();
-
-    const role = (profile?.role as AppRole | undefined) ?? "closer";
+    const role = profile?.role ?? "closer";
     throw redirect({ to: roleHome[role], replace: true });
   },
   component: RedirectPage,

@@ -42,20 +42,24 @@
   TanStack Query cache before calling `supabase.auth.signOut()` — so a signed
   -out browser can never render a stale, previously-fetched screen for a
   moment before redirecting.
-- Every route's guard (`beforeLoad`) independently calls
-  `supabase.auth.getUser()` — there is no shared "wait for AuthProvider"
-  step in routing; the guard and the provider both read the session
-  independently from the same Supabase client.
+- Route guards, `routes/index.tsx` and `AuthProvider` all read one shared, cached
+  `loadAuthSnapshot()` (`{ user, profile, suspension }`): the session comes from
+  `getSession()` (local, no network), then `profiles` and `crm_suspension` are fetched
+  **in parallel**. Concurrent callers share the in-flight promise and the result is
+  reused for 10 s; it is dropped on `SIGNED_IN`/`SIGNED_OUT`/`USER_UPDATED`/
+  `TOKEN_REFRESHED` (a module-level listener) and in `signOut()`. A signed-out or
+  profile-less result is never kept. Before 2026-10-09 every guard ran
+  `getUser()` → `profiles` → `crm_suspension` itself, serially, which is what made
+  page loads slow — see [decisions/0010](decisions/0010-route-guards-read-session-locally.md).
 
 ## Route guard: `requireRole()`
 
 ```ts
 export async function requireRole(allowed: AppRole[]) {
-  const { data, error } = await supabase.auth.getUser();
-  if (error || !data.user) throw redirect({ to: "/login" });
-  const { data: profile } = await supabase.from("profiles").select("role")
-    .eq("id", data.user.id).maybeSingle();
-  const role = (profile?.role as AppRole | undefined) ?? "closer";
+  const { user, profile, suspension } = await loadAuthSnapshot();
+  if (!user) throw redirect({ to: "/login" });
+  const role = profile?.role ?? "closer";
+  if (role !== "admin" && isActiveSuspension(suspension)) throw redirect({ to: "/suspended", replace: true });
   if (!allowed.includes(role)) throw redirect({ to: roleHome[role], replace: true });
 }
 ```

@@ -1,6 +1,6 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo } from "react";
-import { requireRole } from "@/lib/auth";
+import { requireRole, useAuth } from "@/lib/auth";
 import { AppHeader } from "@/components/ops";
 import { OverviewPanels } from "@/components/overview-panels";
 import { PeriodPicker } from "@/components/period-picker";
@@ -69,6 +69,7 @@ export const Route = createFileRoute("/_authenticated/reporting")({
 function ReportingManagerPage() {
   const { tab } = Route.useSearch();
   const navigate = Route.useNavigate();
+  const { profile } = useAuth();
 
   const period = usePeriod();
   const { heading } = period;
@@ -81,7 +82,19 @@ function ReportingManagerPage() {
   return (
     <main className="min-h-screen bg-background text-foreground">
       <div className="mx-auto flex max-w-[1500px] flex-col gap-4 px-4 py-4 lg:px-8 lg:py-5">
-        <AppHeader title="Reporting" subtitle="Reporting" />
+        <AppHeader
+          title="Reporting"
+          subtitle="Reporting"
+          actions={
+            /* The way back, and only for an admin — a reporting manager has no
+               /admin to return to and the route would bounce them straight back. */
+            profile?.role === "admin" ? (
+              <Link to="/admin" search={{ tab: "overview" }} className="chip inline-block">
+                Back to Admin
+              </Link>
+            ) : null
+          }
+        />
 
         <Tabs
           value={tab}

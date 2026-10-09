@@ -135,8 +135,9 @@ row to Google Sheets.
   and navigates to `/suspended` the instant a non-admin session sees an
   active suspension — this is what turns the server-side block into an
   actual kick instead of a silently-empty screen. `requireRole()` and
-  `_authenticated/route.tsx`'s `beforeLoad` also check on every navigation,
-  covering a suspended non-admin who is not currently signed in.
+  `_authenticated/route.tsx`'s `beforeLoad` also check on navigation (through the
+  shared `loadAuthSnapshot()`, cached ~10 s), covering a suspended non-admin who
+  is not currently signed in.
 - **Timed vs. manual**: `set_crm_suspension(p_suspended, p_duration_minutes,
   p_message)`. A duration sets `resumes_at = now() + p_duration_minutes`; no
   duration means indefinite (`resumes_at = null`) until an admin calls it

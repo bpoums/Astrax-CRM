@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026-10-09 — Back to Admin button on the Reporting screen
+
+An admin who opens the Reporting Manager View had no way back except the browser's back
+button. The header now shows a **Back to Admin** chip for admins only, mirroring the manager
+queue (`manager.tsx`). The `reporting_manager` role never sees it.
+- Code: `src/routes/_authenticated/reporting.tsx` only. Database: none.
+- Docs: `docs/features/reporting.md`.
+
+## 2026-10-09 — Faster page loads: shared auth snapshot + self-hosted fonts
+
+Measured on the live site: a serial chain of ~9 auth round trips (`getUser`, `profiles`,
+`crm_suspension`, repeated by the parent route, the child route, `index.tsx` and
+`AuthProvider`) ran before any page data was requested (~2.5 s admin, ~4.3 s manager on
+sign-in), and the Google Fonts stylesheet blocked first paint (~2.5 s on `/login`).
+- `loadAuthSnapshot()` in `src/lib/auth.tsx`: session read locally with `getSession()`,
+  `profiles` + `crm_suspension` fetched in parallel, in-flight promise shared, result reused
+  for 10 s and dropped on sign-in/out/user-update/token refresh and in `signOut()`.
+  `requireRole()`, `_authenticated/route.tsx`, `routes/index.tsx` and `AuthProvider` now read it;
+  behaviour (role fallback, suspension redirect, role redirect) is unchanged.
+- Fonts self-hosted: `public/fonts/*.woff2` (Latin subset of DM Sans and Space Grotesk, same
+  families), `@font-face` in `src/styles.css`, preloads in `__root.tsx`; the Google Fonts links are gone.
+- Database: none. Docs: `docs/authentication.md`, `docs/features/admin-settings-and-config.md`,
+  `docs/decisions/0010-route-guards-read-session-locally.md`.
+
 ## 2026-10-09 — Interim simple Decline dialog (carrier + reason)
 
 While the agency/IMO mapping has no real data, declining a lead no longer asks for

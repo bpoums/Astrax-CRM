@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { redirect, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import type { Session } from "@supabase/supabase-js";
+import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 import {
@@ -77,26 +77,102 @@ export const ROLE_LABEL: Record<AppRole, string> = {
   reporting_manager: "reporting manager",
 };
 
+export type AuthSnapshot = {
+  user: User | null;
+  profile: Profile | null;
+  suspension: CrmSuspension | null;
+};
+
+/**
+ * Who is signed in, their profile, and whether the CRM is suspended — read once
+ * and shared. Every route guard, `index.tsx` and `AuthProvider` used to fetch
+ * these three facts independently and *sequentially* (`getUser()` is a network
+ * round trip, then `profiles`, then `crm_suspension`, repeated by the parent and
+ * again by the child route), which put several seconds of serial requests in
+ * front of every page load. Now: the session is read locally, `profiles` and
+ * `crm_suspension` go out in parallel, concurrent callers share the in-flight
+ * promise, and the result is reused for a few seconds.
+ *
+ * The guards that use this are cosmetic (RLS is the boundary — see
+ * `docs/decisions/0001-rls-as-the-only-boundary.md`), so reading the session
+ * locally instead of asking the auth server to validate it on every navigation
+ * does not weaken anything. A role change or deactivation is picked up within
+ * the TTL, and sign-in/out/user-update events drop the cache immediately.
+ */
+const SNAPSHOT_TTL_MS = 10_000;
+let snapshotPromise: Promise<AuthSnapshot> | null = null;
+let snapshotAt = 0;
+
+export function invalidateAuthSnapshot() {
+  snapshotPromise = null;
+}
+
+export function loadAuthSnapshot(): Promise<AuthSnapshot> {
+  if (snapshotPromise && Date.now() - snapshotAt < SNAPSHOT_TTL_MS) return snapshotPromise;
+
+  snapshotAt = Date.now();
+  const promise = (async (): Promise<AuthSnapshot> => {
+    const { data } = await supabase.auth.getSession();
+    const user = data.session?.user ?? null;
+    // A signed-out answer is never worth reusing: the next call is probably
+    // the one that follows a sign-in.
+    if (!user) return { user: null, profile: null, suspension: null };
+
+    const [profileRes, suspension] = await Promise.all([
+      supabase
+        .from("profiles")
+        .select("id, full_name, role, center_id, active")
+        .eq("id", user.id)
+        .maybeSingle(),
+      fetchCrmSuspension(),
+    ]);
+    return { user, profile: (profileRes.data as Profile | null) ?? null, suspension };
+  })();
+
+  snapshotPromise = promise;
+  promise.then(
+    (snapshot) => {
+      if (!snapshot.user || !snapshot.profile) {
+        if (snapshotPromise === promise) snapshotPromise = null;
+      }
+    },
+    () => {
+      if (snapshotPromise === promise) snapshotPromise = null;
+    },
+  );
+  return promise;
+}
+
+// Registered at module load, so it runs before any listener `AuthProvider`
+// adds and a guard can never see the previous user's snapshot after a switch.
+// The callback only clears a variable — supabase-js must not be called from
+// inside it.
+if (typeof window !== "undefined") {
+  supabase.auth.onAuthStateChange((event) => {
+    if (
+      event === "SIGNED_IN" ||
+      event === "SIGNED_OUT" ||
+      event === "USER_UPDATED" ||
+      event === "TOKEN_REFRESHED"
+    ) {
+      invalidateAuthSnapshot();
+    }
+  });
+}
+
 /**
  * Route guard for `beforeLoad`. RLS is still what actually protects the data;
  * this keeps a role out of a screen that would only ever show them an empty one
  * — and it is what confines a data uploader to /upload.
  */
 export async function requireRole(allowed: AppRole[]) {
-  const { data, error } = await supabase.auth.getUser();
-  if (error || !data.user) throw redirect({ to: "/login" });
+  const { user, profile, suspension } = await loadAuthSnapshot();
+  if (!user) throw redirect({ to: "/login" });
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", data.user.id)
-    .maybeSingle();
+  const role = profile?.role ?? "closer";
 
-  const role = (profile?.role as AppRole | undefined) ?? "closer";
-
-  if (role !== "admin") {
-    const suspension = await fetchCrmSuspension();
-    if (isActiveSuspension(suspension)) throw redirect({ to: "/suspended", replace: true });
+  if (role !== "admin" && isActiveSuspension(suspension)) {
+    throw redirect({ to: "/suspended", replace: true });
   }
 
   if (!allowed.includes(role)) throw redirect({ to: roleHome[role], replace: true });
@@ -117,12 +193,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (active) setProfile(null);
         return;
       }
-      const { data } = await supabase
-        .from("profiles")
-        .select("id, full_name, role, center_id, active")
-        .eq("id", userId)
-        .maybeSingle();
-      if (active) setProfile((data as Profile) ?? null);
+      let snapshot = await loadAuthSnapshot();
+      if (snapshot.user?.id !== userId) {
+        // Another user's (or an empty) snapshot — never show their profile.
+        invalidateAuthSnapshot();
+        snapshot = await loadAuthSnapshot();
+      }
+      if (active) setProfile(snapshot.user?.id === userId ? snapshot.profile : null);
     }
 
     supabase.auth.getSession().then(async ({ data }) => {
@@ -147,6 +224,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = async () => {
     await queryClient.cancelQueries();
     queryClient.clear();
+    invalidateAuthSnapshot();
     await supabase.auth.signOut();
     setSession(null);
     setProfile(null);
@@ -175,8 +253,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       void signOut().then(() => navigate({ to: "/suspended", replace: true }));
     };
 
-    void fetchCrmSuspension().then((data) => {
-      if (data) kickIfSuspended(data);
+    void loadAuthSnapshot().then(({ suspension }) => {
+      if (suspension) kickIfSuspended(suspension);
     });
 
     return subscribeToCrmSuspension(queryClient, kickIfSuspended);

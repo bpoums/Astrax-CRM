@@ -54,7 +54,8 @@ active centers" and an empty validator table (see
   **Reporting Manager View** button in the admin header (added 2026-10-06),
   next to Manager View / Closer Form / Validator Form. It's read-only for
   admin the same as for the role itself, because the screen has no edit
-  controls at all.
+  controls at all. Admins also get a **Back to Admin** chip in this screen's header
+  (added 2026-10-09, same pattern as the manager queue); the role itself never sees it.
 
 ## Important components
 `reporting.tsx` (`ReportingStats`, `SubmissionsExplorer`, `ReportingDashboard` —
