@@ -40,7 +40,10 @@ only by `card_details`). RPCs: `payment_summary`, `card_details`,
   unconditionally.
 - `update_payment_field`: bank fields (`payment_type`, `bank_name`,
   `routing_number`, `account_number`, `account_title`, `card_exp`) are
-  manager/admin; `card_number`/`cvv` are **admin only**, even though
+  manager/admin/**general_manager** (general_manager added 2026-10-10 so the
+  Missing bank information section works for them; the guard was also rewritten
+  fail-closed and `anon`'s EXECUTE revoked in
+  `20261010111000_revoke_anon_update_payment_field.sql`); `card_number`/`cvv` are **admin only**, even though
   manager can reach the same edit UI (`data-flags.tsx`'s correction flow) —
   the RPC itself refuses a non-admin attempting a card field, and the
   client surfaces that refusal message verbatim rather than hiding the

@@ -96,6 +96,26 @@ Tables: `cx_status_options`, `cx_lead_status`, `cx_status_history`,
   four statuses stay editable throughout. `inValidation()` in
   `customers-pipeline.tsx` is the one place that decides this
   (`reopened_from_cx_at` set and `disposition <> 'accepted'`).
+  **Seen by every role (added 2026-10-10).** The Return button column is the
+  CXA's and is not shown to admin, so the sent-back state used to be invisible
+  in the admin's read-only table. Now: a "Sent back" badge sits beside the
+  customer name (tooltip: when it was sent and the lead's current stage — Unassigned,
+  Assigned, Attempting, Timed out; hidden while the "Sent back" filter is on, since every
+  row there is one and it would only take room from the name); a **stage filter** above the table ("All",
+  "Approved", "Sent back", each with a count under the other active filters) runs in
+  the database like every other filter there; and the **Submitted leads** card
+  reads "729 approved + 71 sent back for validation" on both the Customer Pipeline
+  tab and the Overview block. The four cards above the status cards follow the same split (2026-10-10): **Submitted
+  leads** = approved (729), **In CX** = approved with at least one status (132),
+  **Untouched** = approved with no status (597), and a separate **Sent back** card (71, with
+  how many are still waiting for a manager); In CX + Untouched = Submitted leads. The
+  "CX coverage" card on the Overview reads the same figures.
+  "Approved" is `disposition = 'accepted'` — the figure on
+  the Submission Outcome card, including leads re-approved after a return — and
+  "Sent back" is the stamp with no accepted disposition; the two add up to the whole
+  pipeline (800 = 729 + 71 on 2026-10-10). The manager's "CXA Returned" tab can show a
+  few more (a returned lead CX has since removed from the pipeline stays in the manager's
+  queue but is off this table).
 - **A lead leaves the pipeline only when a CXA removes it** —
   `RemoveFromQueueButton` → `remove_from_cx_pipeline(p_sub, p_reason?)`
   (cxa/cxm/admin) stamps `cx_removed_at`/`cx_removed_by` and writes a

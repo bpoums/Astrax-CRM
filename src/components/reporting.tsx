@@ -29,6 +29,8 @@ import { useCenterColorById } from "@/lib/centers";
 import { formatDate, formatEventTime } from "@/lib/format-date";
 import { DataFlagList } from "@/components/data-flags";
 import { LeadPayload } from "@/components/lead-editor";
+import { MissingInfoBadge, MissingInfoSection } from "@/components/missing-info";
+import { PaymentPanel } from "@/components/payment-panel";
 import { SubmissionTags } from "@/components/submission-tags";
 import { PayloadEditHistory, payloadHistoryKey } from "@/components/payload-history";
 import { CarrierDeclineList } from "@/components/carrier-declines";
@@ -143,6 +145,24 @@ function applyManualTabFilter<
   return query
     .or("submitted_by_role.eq.validator,source.eq.sheet")
     .neq("status", "pending_import_approval");
+}
+
+/** The "Missing info" filter value that means any missing field, not one named. */
+const MISSING_ANY = "*";
+
+/**
+ * The Missing info filter, applied in one place for the same reason as the Manual
+ * tab's selection: the paged fetch and the chip's head-count must agree.
+ *
+ * `missing_info` is the generated column listing the required fields an uploaded
+ * lead has no value for (`{}` for every other lead). "" is off; `MISSING_ANY` is
+ * any gap; anything else is one field's label, matched with array containment.
+ */
+function applyMissingFilter<
+  T extends { neq(column: string, value: string): T; contains(column: string, value: string[]): T },
+>(query: T, filter: string, column: "missing_info" | "missing_bank" = "missing_info"): T {
+  if (!filter) return query;
+  return filter === MISSING_ANY ? query.neq(column, "{}") : query.contains(column, [filter]);
 }
 
 /**
@@ -275,6 +295,8 @@ function explorerKey(
   final: string,
   dateFrom: string,
   dateTo: string,
+  missing: string,
+  bank: string,
 ) {
   return [
     ...SUBMISSIONS_KEY,
@@ -286,6 +308,8 @@ function explorerKey(
     final,
     dateFrom,
     dateTo,
+    missing,
+    bank,
   ] as const;
 }
 
@@ -465,6 +489,12 @@ export function SubmissionsExplorer() {
   // sharing one would land the reader on an empty page four when they switch.
   const [livePage, setLivePage] = useState(0);
   const [manualPage, setManualPage] = useState(0);
+  // "" off, MISSING_ANY for any gap, else one field's label. Manual tab only —
+  // only an uploaded lead can be missing information.
+  const [missingFilter, setMissingFilter] = useState("");
+  // The same filter over the required banking fields, kept apart because it is a
+  // different group (see `missing_bank`).
+  const [bankFilter, setBankFilter] = useState("");
 
   const term = sanitizeTerm(search);
   // Same sanitiser: this ends up in an `or=` group too, so a comma or a bracket
@@ -478,7 +508,7 @@ export function SubmissionsExplorer() {
   useEffect(() => {
     setLivePage(0);
     setManualPage(0);
-  }, [term, proposedTerm, finalTerm, showArchived, leadTab, dateFrom, dateTo]);
+  }, [term, proposedTerm, finalTerm, showArchived, leadTab, dateFrom, dateTo, missingFilter, bankFilter]);
 
   /**
    * One page of one sub-tab.
@@ -501,6 +531,8 @@ export function SubmissionsExplorer() {
         finalTerm,
         dateFrom,
         dateTo,
+        tab === "manual" ? missingFilter : "",
+        tab === "manual" ? bankFilter : "",
       ),
       enabled: leadTab === tab,
       queryFn: async () => {
@@ -541,7 +573,11 @@ export function SubmissionsExplorer() {
         // column existed are null and stay here, which is correct — they
         // predate validator self-submission entirely.
         if (tab === "manual") {
-          query = applyManualTabFilter(query);
+          query = applyMissingFilter(
+            applyMissingFilter(applyManualTabFilter(query), missingFilter),
+            bankFilter,
+            "missing_bank",
+          );
         } else {
           query = query
             .eq("source", "live")
@@ -619,10 +655,14 @@ export function SubmissionsExplorer() {
         dateWindow = data;
       }
 
-      async function countFor(tab: LeadTab) {
+      async function countFor(tab: LeadTab, missing = "", bank = "") {
         let query = supabase.from("submissions").select("id", { count: "exact", head: true });
         if (tab === "manual") {
-          query = applyManualTabFilter(query);
+          query = applyMissingFilter(
+            applyMissingFilter(applyManualTabFilter(query), missing),
+            bank,
+            "missing_bank",
+          );
         } else {
           query = query
             .eq("source", "live")
@@ -641,8 +681,40 @@ export function SubmissionsExplorer() {
         return count ?? 0;
       }
 
-      const [live, manual] = await Promise.all([countFor("live"), countFor("manual")]);
-      return { live, manual } satisfies Record<LeadTab, number>;
+      const [live, manual, missing, bank] = await Promise.all([
+        countFor("live"),
+        countFor("manual"),
+        // Every other filter above still applies, so the chip's number is what
+        // the table would show with it switched on.
+        countFor("manual", MISSING_ANY),
+        countFor("manual", "", MISSING_ANY),
+      ]);
+      return { live, manual, missing, bank };
+    },
+  });
+
+  /**
+   * Per-field counts for the dropdown — how many leads are missing each field.
+   * Not narrowed by the search boxes (the RPC counts every non-archived lead the
+   * caller's RLS lets them read), and refreshed with the chip counts: it sits
+   * under their key prefix, so the realtime handler below invalidates it too.
+   */
+  const missingByField = useQuery({
+    queryKey: [...SUBMISSION_COUNTS_KEY, "missing-by-field"],
+    enabled: leadTab === "manual",
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("missing_info_by_field");
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+  const bankByField = useQuery({
+    queryKey: [...SUBMISSION_COUNTS_KEY, "missing-bank-by-field"],
+    enabled: leadTab === "manual",
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("missing_bank_by_field");
+      if (error) throw error;
+      return data ?? [];
     },
   });
 
@@ -713,7 +785,18 @@ export function SubmissionsExplorer() {
    * resubscribe the channel on every keystroke.
    */
   const activeKeyRef = useRef(
-    explorerKey(leadTab, activePage, term, showArchived, proposedTerm, finalTerm, dateFrom, dateTo),
+    explorerKey(
+      leadTab,
+      activePage,
+      term,
+      showArchived,
+      proposedTerm,
+      finalTerm,
+      dateFrom,
+      dateTo,
+      leadTab === "manual" ? missingFilter : "",
+      leadTab === "manual" ? bankFilter : "",
+    ),
   );
   activeKeyRef.current = explorerKey(
     leadTab,
@@ -724,6 +807,8 @@ export function SubmissionsExplorer() {
     finalTerm,
     dateFrom,
     dateTo,
+    leadTab === "manual" ? missingFilter : "",
+    leadTab === "manual" ? bankFilter : "",
   );
 
   useEffect(() => {
@@ -856,7 +941,74 @@ export function SubmissionsExplorer() {
               {tab.label} ({submissionCounts.data?.[tab.id] ?? "…"})
             </button>
           ))}
+
+          {/* Uploaded leads only: a closer's form refuses to submit with a
+              required field empty, so nothing on the Live tab can be missing
+              anything. The chip toggles "any gap"; the select then narrows to
+              one field. */}
+          {leadTab === "manual" ? (
+            <>
+              <button
+                type="button"
+                onClick={() => setMissingFilter((prev) => (prev ? "" : MISSING_ANY))}
+                aria-pressed={missingFilter !== ""}
+                className={`chip px-2.5 py-0.5 text-[0.66rem] ${
+                  missingFilter !== "" ? "chip-active" : ""
+                }`}
+                title="Uploaded leads that are missing a required field"
+              >
+                Missing info ({submissionCounts.data?.missing ?? "…"})
+              </button>
+              {missingFilter !== "" ? (
+                <select
+                  value={missingFilter}
+                  onChange={(event) => setMissingFilter(event.target.value)}
+                  aria-label="Narrow to leads missing one field"
+                  className="field-input h-7 w-auto text-xs"
+                >
+                  <option value={MISSING_ANY}>Any missing field</option>
+                  {(missingByField.data ?? []).map((row) => (
+                    <option key={row.field} value={row.field}>
+                      {row.field} ({Number(row.lead_count)})
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => setBankFilter((prev) => (prev ? "" : MISSING_ANY))}
+                aria-pressed={bankFilter !== ""}
+                className={`chip px-2.5 py-0.5 text-[0.66rem] ${
+                  bankFilter !== "" ? "chip-active" : ""
+                }`}
+                title="Uploaded leads that are missing a required banking field"
+              >
+                Missing bank info ({submissionCounts.data?.bank ?? "…"})
+              </button>
+              {bankFilter !== "" ? (
+                <select
+                  value={bankFilter}
+                  onChange={(event) => setBankFilter(event.target.value)}
+                  aria-label="Narrow to leads missing one banking field"
+                  className="field-input h-7 w-auto text-xs"
+                >
+                  <option value={MISSING_ANY}>Any missing bank field</option>
+                  {(bankByField.data ?? []).map((row) => (
+                    <option key={row.field} value={row.field}>
+                      {row.field} ({Number(row.lead_count)})
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+            </>
+          ) : null}
         </div>
+        {missingByField.isError ? (
+          <p className="text-xs text-destructive">{(missingByField.error as Error).message}</p>
+        ) : null}
+        {bankByField.isError ? (
+          <p className="text-xs text-destructive">{(bankByField.error as Error).message}</p>
+        ) : null}
 
         {leadTab === "live" ? (
           <Table>
@@ -972,7 +1124,12 @@ export function SubmissionsExplorer() {
                       color={row.center_id ? centerColorById.get(row.center_id) : null}
                     />
                   </TableCell>
-                  <TableCell className="font-medium">{customerName(row.payload)}</TableCell>
+                  <TableCell className="font-medium">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span>{customerName(row.payload)}</span>
+                      <MissingInfoBadge missing={row.missing_info} bank={row.missing_bank} />
+                    </div>
+                  </TableCell>
                   {/* The carrier the policy was actually written on, from the
                       FK for an uploaded lead and from "Agency" for a
                       validator's own — finalCarrierName() resolves both. A dash
@@ -1064,6 +1221,17 @@ export function SubmissionsExplorer() {
                 {/* Editable here as well as in the Operations queue: this is
                     the only place a disposed or archived lead can still be
                     reached, and a typo found after the fact is still a typo. */}
+                <MissingInfoSection
+                  submissionId={selected.id}
+                  missing={selected.missing_info}
+                  missingBank={selected.missing_bank}
+                  editable={canEditLead}
+                  onSaved={() => {
+                    queryClient.invalidateQueries({ queryKey: SUBMISSIONS_KEY });
+                    queryClient.invalidateQueries({ queryKey: payloadHistoryKey(selected.id) });
+                  }}
+                />
+
                 <LeadPayload
                   submissionId={selected.id}
                   payload={selected.payload}
@@ -1075,6 +1243,14 @@ export function SubmissionsExplorer() {
                     queryClient.invalidateQueries({ queryKey: payloadHistoryKey(selected.id) });
                   }}
                 />
+
+                {/* The bank fields live in payment_details, not the payload above,
+                    so without this panel a lead's bank name and account number
+                    are invisible here and "Missing bank info" reads as if they
+                    were absent. Admin and manager only — the roles
+                    `payment_summary` accepts on this screen; the number of a card
+                    never comes down with it. */}
+                {canEditLead ? <PaymentPanel submissionId={selected.id} editable /> : null}
 
                 {/* Below Lead Details, like everywhere else this renders —
                     the review's own outcome, not part of what was typed. */}

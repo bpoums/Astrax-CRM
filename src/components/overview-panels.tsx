@@ -9,6 +9,12 @@ import type { usePeriod } from "@/lib/period-range";
 import type { CenterTotalsRow, useOverviewStats } from "@/lib/overview-stats";
 
 /**
+ * One line under a center in the Live column: "In House 574", "Orbit 18"…
+ * Plain data, so this component still fetches nothing.
+ */
+export type BreakdownItem = { label: string; value: number };
+
+/**
  * The three questions, side by side: what came in, what happened to it, and
  * where the open work is standing.
  *
@@ -35,9 +41,18 @@ export function OverviewPanels({
   period,
   stats,
   centers,
+  liveBreakdown,
 }: {
   period: ReturnType<typeof usePeriod>;
   stats: ReturnType<typeof useOverviewStats>;
+  /**
+   * What a center's Live number is made of, keyed by center id: the leads its own
+   * closers kept in house, then the external clients it hands leads to. Passed in
+   * rather than fetched because this component never fetches, and because the
+   * parked-by-client counts are admin / general manager only — the manager's
+   * Reporting tab and the Closing Desk mount this too and simply omit it.
+   */
+  liveBreakdown?: Record<string, BreakdownItem[]>;
   /**
    * The centre rows to draw, in both columns. Usually every row the RPC
    * returned; the Closing Desk narrows it to the reader's own centre, because
@@ -115,6 +130,7 @@ export function OverviewPanels({
             max={sourceMax}
             colorById={centerColorById}
             empty={emptyMessage}
+            {...(liveBreakdown ? { breakdown: liveBreakdown } : {})}
           />
           <OriginColumn
             label="Manual"
@@ -189,6 +205,7 @@ function OriginColumn({
   colorById,
   empty,
   delayMs = 0,
+  breakdown,
 }: {
   label: string;
   total: number;
@@ -201,6 +218,8 @@ function OriginColumn({
   /** Loading, error or "none" — whichever the centre query is saying. */
   empty: string;
   delayMs?: number;
+  /** Under a center's bar: what its number is made of. See `liveBreakdown`. */
+  breakdown?: Record<string, BreakdownItem[]>;
 }) {
   return (
     <div className="flex min-w-0 flex-col gap-2">
@@ -222,6 +241,25 @@ function OriginColumn({
                 <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{value}</span>
               </div>
               <MetricBar value={value} max={max} />
+              {center.center_id && breakdown?.[center.center_id] ? (
+                <ul className="mt-0.5 flex flex-col gap-1 border-l border-border/60 pl-2">
+                  {breakdown[center.center_id]?.map((item) => (
+                    <li key={item.label} className="flex flex-col gap-0.5">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="truncate text-[0.7rem] text-muted-foreground">
+                          {item.label}
+                        </span>
+                        <span className="shrink-0 text-[0.7rem] tabular-nums text-muted-foreground">
+                          {item.value}
+                        </span>
+                      </div>
+                      {/* Scaled to the center's own number, so the lines read as
+                          shares of it. */}
+                      <MetricBar value={item.value} max={value} />
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
             </li>
           );
         })}

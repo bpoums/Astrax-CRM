@@ -3,15 +3,19 @@ import { supabase } from "@/integrations/supabase/client";
 import { groupByCategory, readStatusTone, type CxCategory, type StatusTone } from "@/lib/cx-status";
 
 /**
- * The shape of the CX backlog: how many approved leads exist, how many have had
- * any status set, and how many nobody has touched.
+ * The shape of the CX backlog, over APPROVED leads: how many exist, how many have
+ * had any status set, and how many nobody has touched — plus, separately, how
+ * many CX has sent back to the manager for re-validation.
  *
- * `cx_untouched` counts a lead as untouched when it has no `cx_lead_status` row
- * OR has one with all four dimensions null — a lead whose statuses were all
- * cleared is back in the backlog. So "in CX" is derived as total minus
- * untouched rather than counted off `cx_lead_status` directly; a raw row count
- * would claim such a lead twice and the two numbers would not add up to the
- * total the admin is looking at.
+ * `total` is the approved leads on the pipeline (the figure on the Submission
+ * Outcome card). `cx_untouched` counts an approved lead as untouched when it has
+ * no `cx_lead_status` row OR has one with all four dimensions null — a lead whose
+ * statuses were all cleared is back in the backlog. So "in CX" is derived as
+ * total minus untouched rather than counted off `cx_lead_status` directly; a raw
+ * row count would claim such a lead twice and the two numbers would not add up
+ * to `total`. Sent-back leads are on the pipeline table too but are neither
+ * approved nor untouched, so they have a count of their own (`total + sentBack`
+ * is every row of the table).
  */
 
 export const CX_COVERAGE_KEY = ["cx", "coverage"] as const;
@@ -21,16 +25,41 @@ export function useCxCoverage() {
     queryKey: CX_COVERAGE_KEY,
     queryFn: async () => {
       // head:true asks for the count without the rows.
-      const [approved, untouched] = await Promise.all([
-        supabase.from("cx_pipeline").select("submission_id", { count: "exact", head: true }),
+      const [approved, untouched, sentBack, waiting] = await Promise.all([
+        supabase
+          .from("cx_pipeline")
+          .select("submission_id", { count: "exact", head: true })
+          .eq("disposition", "accepted"),
         supabase.from("cx_untouched").select("submission_id", { count: "exact", head: true }),
+        // Sent back for re-validation and not approved again: the rule the
+        // pipeline table's own "Sent back" chip uses.
+        supabase
+          .from("cx_pipeline")
+          .select("submission_id", { count: "exact", head: true })
+          .not("reopened_from_cx_at", "is", null)
+          .or("disposition.is.null,disposition.neq.accepted"),
+        // Of those, the ones nobody has picked up yet.
+        supabase
+          .from("cx_pipeline")
+          .select("submission_id", { count: "exact", head: true })
+          .not("reopened_from_cx_at", "is", null)
+          .or("disposition.is.null,disposition.neq.accepted")
+          .eq("status", "pending_manager"),
       ]);
       if (approved.error) throw approved.error;
       if (untouched.error) throw untouched.error;
+      if (sentBack.error) throw sentBack.error;
+      if (waiting.error) throw waiting.error;
 
       const total = approved.count ?? 0;
       const idle = untouched.count ?? 0;
-      return { total, untouched: idle, inCx: Math.max(0, total - idle) };
+      return {
+        total,
+        untouched: idle,
+        inCx: Math.max(0, total - idle),
+        sentBack: sentBack.count ?? 0,
+        sentBackWaiting: waiting.count ?? 0,
+      };
     },
   });
 
@@ -39,6 +68,8 @@ export function useCxCoverage() {
     total: query.data?.total ?? 0,
     untouched: query.data?.untouched ?? 0,
     inCx: query.data?.inCx ?? 0,
+    sentBack: query.data?.sentBack ?? 0,
+    sentBackWaiting: query.data?.sentBackWaiting ?? 0,
   };
 }
 

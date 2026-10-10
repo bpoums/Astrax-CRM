@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTransferClients } from "@/lib/transfer-clients";
+import { useAuth } from "@/lib/auth";
 import {
   Dialog,
   DialogContent,
@@ -47,7 +48,13 @@ export function TransferClientDialog({
   }, [open]);
 
   const clients = useTransferClients(true, open);
-  const options = clients.data ?? [];
+  const { profile } = useAuth();
+  // Only the clients of the closer's own center (or of no center in particular).
+  // The database refuses the rest too; this just keeps the closer from picking a
+  // client that would only come back as an error.
+  const options = (clients.data ?? []).filter(
+    (client) => !client.center_id || client.center_id === profile?.center_id,
+  );
   const chosen = options.find((client) => client.id === selected) ?? null;
 
   return (

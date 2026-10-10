@@ -169,6 +169,15 @@ function AdminPage() {
 
           <TabsContent value="overview" className="flex flex-col gap-4">
             <AdminOverview />
+            {/* The same CX status block the Customer Pipeline tab opens with,
+                placed under the Closer Leaderboard (the last panel of
+                AdminOverview). Same component, same query keys, so the two
+                tabs cannot disagree. */}
+            <div className="flex items-center gap-3 pt-2">
+              <h2 className="font-display text-sm font-semibold">Customer Policy Lifetime</h2>
+              <span aria-hidden className="h-px flex-1 bg-border" />
+            </div>
+            <CxStatusBreakdown />
             {/* The closing row: two health checks, side by side. Rendered here
                 rather than inside ReportingStats, which the manager's Reporting
                 tab also mounts — both cards are admin-only. Each is a plain

@@ -26,6 +26,7 @@ import { validationTimelineKey } from "@/components/validation-timeline";
 import { LeadHistoryDialog } from "@/components/lead-history-dialog";
 import { History } from "lucide-react";
 import { PayloadEditor } from "@/components/payload-editor";
+import { MissingInfoBadge, MissingInfoSection } from "@/components/missing-info";
 import { ValidatorFields } from "@/components/validator-fields";
 import { PayloadEditHistory, payloadHistoryKey } from "@/components/payload-history";
 import { PaymentPanel } from "@/components/payment-panel";
@@ -126,6 +127,10 @@ const BASE_SELECT = [
   // is stamped once at the original closer/validator submission.
   "disposed_at",
   "source",
+  // Required fields an uploaded lead arrived without, for the badge and the
+  // fill-in section. {} for every other lead.
+  "missing_info",
+  "missing_bank",
   // The review's own outcome, shown and edited in the ValidatorFields section.
   "submitted_by_role",
   "agency_id",
@@ -166,6 +171,8 @@ type ClosingRow = {
   created_at: string;
   disposed_at: string | null;
   source: LeadSource;
+  missing_info: string[] | null;
+  missing_bank: string[] | null;
   submitted_by_role: "closer" | "validator" | null;
   agency_id: string | null;
   imo_id: string | null;
@@ -256,6 +263,12 @@ export function ClosingDesk() {
   const [status, setStatus] = useState<StatusFilter>(ANY);
   const [disposition, setDisposition] = useState<DispositionFilter>(ANY);
   const [center, setCenter] = useState<CenterFilter>(ANY);
+  // Uploaded leads missing a required field: ANY is off, NOT_SET is "any gap",
+  // otherwise one field's label. `missing_info` is a generated column, so this
+  // runs in the database like every other filter on this paged screen.
+  const [missing, setMissing] = useState<string>(ANY);
+  // The required banking fields, a separate group — see `missing_bank`.
+  const [missingBank, setMissingBank] = useState<string>(ANY);
   const [cxFilters, setCxFilters] = useState<CxFilters>(NO_CX_FILTERS);
   // A specific day, or a from/to range, over the Submitted column. Left blank,
   // nothing is filtered by date at all — the same "unset means no filter"
@@ -294,6 +307,8 @@ export function ClosingDesk() {
     status,
     disposition,
     center,
+    missing,
+    missingBank,
     cxKey,
     dateFrom,
     dateTo,
@@ -316,6 +331,8 @@ export function ClosingDesk() {
       status,
       disposition,
       center,
+      missing,
+      missingBank,
       cxKey,
       dateFrom,
       dateTo,
@@ -392,6 +409,12 @@ export function ClosingDesk() {
       if (center === NOT_SET) query = query.is("center_id", null);
       else if (center !== ANY) query = query.eq("center_id", center);
 
+      if (missing === NOT_SET) query = query.not("missing_info", "eq", "{}");
+      else if (missing !== ANY) query = query.contains("missing_info", [missing]);
+
+      if (missingBank === NOT_SET) query = query.not("missing_bank", "eq", "{}");
+      else if (missingBank !== ANY) query = query.contains("missing_bank", [missingBank]);
+
       for (const filter of setFilters) {
         query = query.eq(`setf.${filter.category}_status_id`, filter.optionId);
       }
@@ -456,6 +479,29 @@ export function ClosingDesk() {
     },
   });
 
+  /**
+   * How many leads are missing each field, for the Missing info filter. RLS
+   * scopes the count — a closing manager counts their own centre's leads — and a
+   * refused read is shown rather than leaving the list quietly empty.
+   */
+  const missingByField = useQuery({
+    queryKey: ["closing", "missing-by-field"],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("missing_info_by_field");
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  const bankByField = useQuery({
+    queryKey: ["closing", "missing-bank-by-field"],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("missing_bank_by_field");
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
   const rows = useMemo(() => leads.data?.rows ?? [], [leads.data]);
   const total = leads.data?.total ?? 0;
   const selected = rows.find((row) => row.id === openId) ?? null;
@@ -474,6 +520,8 @@ export function ClosingDesk() {
     status !== ANY ||
     disposition !== ANY ||
     center !== ANY ||
+    missing !== ANY ||
+    missingBank !== ANY ||
     cxKey !== UNFILTERED_CX ||
     dateFrom !== "" ||
     dateTo !== "" ||
@@ -487,6 +535,8 @@ export function ClosingDesk() {
     setStatus(ANY);
     setDisposition(ANY);
     setCenter(ANY);
+    setMissing(ANY);
+    setMissingBank(ANY);
     setCxFilters(NO_CX_FILTERS);
     setDateFrom("");
     setDateTo("");
@@ -508,7 +558,7 @@ export function ClosingDesk() {
           {origin === ANY ? "Leads" : `${ORIGIN_LABEL[origin]} Leads`} ({total})
         </h2>
 
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
           <FilterSelect
             label="Submitted By"
             value={origin}
@@ -548,7 +598,35 @@ export function ClosingDesk() {
               label: entry.active ? entry.name : `${entry.name} (inactive)`,
             }))}
           />
+          {/* Only an uploaded lead can be missing information, so this finds
+              nothing among a closer's own. Counts come from the database. */}
+          <FilterSelect
+            label="Missing info"
+            value={missing}
+            onChange={setMissing}
+            notSet="Any missing field"
+            options={(missingByField.data ?? []).map((row) => ({
+              value: row.field,
+              label: `${row.field} (${Number(row.lead_count)})`,
+            }))}
+          />
+          <FilterSelect
+            label="Missing bank info"
+            value={missingBank}
+            onChange={setMissingBank}
+            notSet="Any missing bank field"
+            options={(bankByField.data ?? []).map((row) => ({
+              value: row.field,
+              label: `${row.field} (${Number(row.lead_count)})`,
+            }))}
+          />
         </div>
+        {missingByField.isError ? (
+          <p className="text-xs text-destructive">{(missingByField.error as Error).message}</p>
+        ) : null}
+        {bankByField.isError ? (
+          <p className="text-xs text-destructive">{(bankByField.error as Error).message}</p>
+        ) : null}
 
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
           {CX_CATEGORIES.map((category) => (
@@ -684,7 +762,10 @@ export function ClosingDesk() {
                     {closer}
                   </TableCell>
                   <TableCell title={sourceLabel(row)}>
-                    <OriginBadge row={row} />
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <OriginBadge row={row} />
+                      <MissingInfoBadge missing={row.missing_info} bank={row.missing_bank} />
+                    </div>
                   </TableCell>
                   <TableCell className="whitespace-nowrap text-muted-foreground">
                     {formatDate(row.created_at)}
@@ -797,6 +878,17 @@ export function ClosingDesk() {
                     Set by the CX team; read-only here.
                   </span>
                 </div>
+
+                {/* The editor below only lists keys the lead already has; a
+                    required field an uploaded lead arrived without is filled
+                    in here. */}
+                <MissingInfoSection
+                  submissionId={selected.id}
+                  missing={selected.missing_info}
+                  missingBank={selected.missing_bank}
+                  editable
+                  onSaved={onEdited}
+                />
 
                 <PayloadEditor
                   submissionId={selected.id}

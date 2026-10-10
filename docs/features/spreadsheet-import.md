@@ -134,6 +134,107 @@ pipeline shows the wording itself rather than an empty cell.
 The backfill filled 31 of 44 uploaded leads' `draft_date` and all 44
 `ssn_normalized`.
 
+## Missing information (added 2026-10-10)
+
+An uploaded (`source = 'sheet'`) lead that has no value for one of its required
+fields is labelled **Missing info (N)** and can be completed by the people who
+may edit the lead. Measured on 2026-10-10: only 171 of 500 uploaded leads had
+all 15 core fields; draft date was blank on 175, zip on 28, state on 7.
+
+- **A generated column, not a flag.** `submissions.missing_info` (a stored
+  generated `text[]`, from `missing_required_fields()` — migration
+  `20261010100000_missing_info_filter.sql`) lists the labels each uploaded lead
+  has no value for. Postgres recomputes it on every payload write, so it is right
+  for every lead already imported, clears itself when the value is saved, and the
+  database can filter and count by it. No flag to clear and no `ingest-sheet-lead`
+  change. A closer's lead can never be missing anything (the form refuses to
+  submit), so only `sheet` leads report. The SQL function is the **only**
+  definition of the list; the browser reads the column. To change the list, see
+  the maintenance note in `docs/database.md` (drop and re-add the column; do not
+  `UPDATE` rows).
+- **Required for an uploaded lead:** Full Name, Gender, Date of Birth, Age, State,
+  SSN Number, Phone Number, Residential Address, Customer Zip Code, Proposed
+  Carrier, Coverage Amount, Premium, Plan Type, Beneficiary Name, Draft Date.
+  Deliberately not the closer form's whole required list: Birth State, Birth
+  Country, Height and Weight are empty on 459-492 of 500 uploaded leads, so
+  counting them would label every one. Bank fields live in `payment_details` and
+  are not covered. If the closer form relabels one of these fields, the SQL list
+  has to move with it (the labels are the payload keys).
+- **Where:** the completeness strip (`MissingInfoBadge`, see below) is in the manager queue's status cell,
+  the Submissions Manual list, the Closing Desk Source column and the import
+  batch's lead table. The fill-in list (`MissingInfoSection`, above the payload
+  editor in each lead panel) saves each field through `update_payload_field`.
+  Editable for manager and admin (manager queue, Submissions), admin
+  (import history) and closing_manager / general_manager (Closing Desk); everyone
+  else sees the list read-only.
+- Label only. It does not block assigning, validating or approving the lead.
+- **Filter and counts (added 2026-10-10).** Submissions → Manual has a
+  "Missing info (N)" chip (N respects the search, carrier and date filters) and,
+  once on, a dropdown narrowing to one field with its count (from
+  `missing_info_by_field()`), both applied in the database so paging is correct.
+  The manager's Manual queue has the same chip, filtered in the browser (the whole
+  open queue is already loaded). Import history has a "Missing info" count per
+  batch and a "Missing info" toggle inside an opened batch. Counts exclude
+  archived (rejected) leads. The Closing Desk has a "Missing info" dropdown among
+  its filters ("Any missing field" plus each field with its count; counts are
+  RLS-scoped, so a closing manager counts their own centre).
+
+### Banking fields and the uploader's pre-import count (added 2026-10-10)
+
+- **Banking is a second, separate group.** Account Title, Bank Name, Bank Type,
+  Routing Number and Account Number are required for an uploaded lead (they are
+  required on the closer's form); Card Number, Exp Date and CVC are optional.
+  They are tracked in `submissions.missing_bank`, apart from the 15 core fields in
+  `missing_info`, because Account Title was empty on **all 500** uploaded leads
+  and Bank Type on 468 when this was built — one combined label would have been
+  on every lead. Its ring is grey rather than amber for the same
+  reason; amber stays on the core group. Four of the five are `payment_details`
+  columns, Bank Type is a payload key (see `docs/database.md` for how
+  `missing_bank` is kept current).
+- **The fill rings (2026-10-10).** The list badges are two small rings, not two
+  count pills: one for the 15 core fields (amber) and one for the 5 banking fields
+  (grey), about 64px wide on one line. A ring fills in proportion to how many of
+  its group's fields are present, and the number in the middle is how many are
+  still **missing**, so nobody counts anything; a complete group is a dim ring with
+  a tick, which keeps the two rings in the same positions down a column. The two
+  pills ("Missing info (6)" + "Missing bank info (5)") did not fit beside a
+  customer name and wrapped most uploaded rows onto two lines; a one-tick-per-field
+  strip replaced them first but was too small to read, so it was dropped. It is a
+  `role="img"` with a text label, and the missing field names are in its `title`.
+  The group totals come from `uploaded_required_fields()` through
+  `useUploadedRequiredFields()` (`src/lib/required-fields.ts`, also used by the
+  uploader's review step), so they cannot drift from the database; if that read
+  fails it falls back to the two counts. A lead missing nothing shows nothing. The
+  host cells keep `flex-wrap`, so on a narrow window the rings drop under the name
+  instead of widening the table.
+- **Filling them in.** The lead panel's "Missing bank information" list saves
+  Bank Type through `update_payload_field` and the other four through
+  `update_payment_field`, then refreshes the banking panel. Inputs show for
+  **admin, manager and general_manager**; any other role (including a closing
+  manager) sees the field names read-only.
+- **Seeing what a lead already has.** The Submissions detail (admin, manager) now
+  mounts the Banking panel (`PaymentPanel`, editable) beneath Lead details. Bank
+  values are in `payment_details`, not the payload, so before this a lead with a
+  bank name and account number looked as if it had neither.
+- **Filters and counts.** Every place that has the core filter has a bank one:
+  Submissions → Manual (chip + per-field dropdown, from `missing_bank_by_field()`),
+  the manager's Manual queue (chip), the Closing Desk ("Missing bank info"
+  dropdown) and Import history (per-batch "Missing bank" count and a toggle inside
+  an opened batch).
+- **The uploader's review step shows it before import.** A "Missing required
+  fields" panel reads the live list from `uploaded_required_fields()` and counts,
+  over the rows that will actually be sent, how many lack a core field and how many
+  lack a banking field, with the fields most often missing named. It says when a
+  required field has **no column mapped to it** (every row is then missing it, and
+  the fix is the mapping, not 400 typed values). Each row gets a "Missing" cell
+  (Info N / Bank N; the names are in the tooltip) and two filter chips ("Missing
+  info", "Missing bank info"). Counts update as cells are edited. Informational
+  only: it never blocks Import, same as flags. Calculation:
+  `src/lib/missing-upload.ts` (pure, tested); the list itself is not restated in
+  the browser.
+- Not covered yet: nothing on the uploader's side blocks or warns on import
+  itself, by design.
+
 ## Known limitations
 - **`npm test` currently fails 1 of 140 tests** (`review-columns.test.ts`,
   "does not lose the card columns when the only card number is cleared").

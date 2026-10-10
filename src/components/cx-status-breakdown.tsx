@@ -25,7 +25,27 @@ export function CxStatusBreakdown() {
     <>
       {/* The backlog first: it is the number that decides whether anything else
           on this screen matters today. */}
-      <section className="grid gap-3 sm:grid-cols-3">
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {/* In the order the leads flow: every approved lead, those CX has started
+            on, those it has not, and — apart from all three — those it sent back.
+            The first is the Submission Outcome figure, and In CX + Untouched add
+            up to it. */}
+        <div className="panel gap-1">
+          <span className="panel-title">Submitted leads</span>
+          <span className="font-display text-3xl font-semibold tabular-nums">{coverage.total}</span>
+          <span className="text-[0.66rem] text-muted-foreground">
+            Approved leads on the pipeline.
+          </span>
+        </div>
+
+        <div className="panel gap-1">
+          <span className="panel-title">In CX</span>
+          <span className="font-display text-3xl font-semibold tabular-nums">{coverage.inCx}</span>
+          <span className="text-[0.66rem] text-muted-foreground">
+            Approved leads with at least one status set.
+          </span>
+        </div>
+
         <div className="panel gap-1">
           <span className="panel-title">Untouched</span>
           <span
@@ -36,22 +56,21 @@ export function CxStatusBreakdown() {
             {coverage.untouched}
           </span>
           <span className="text-[0.66rem] text-muted-foreground">
-            Submitted leads with no status set at all — nobody has picked these up.
+            Approved leads with no status set at all — nobody has picked these up.
           </span>
         </div>
 
+        {/* Not part of the three above: these are on the pipeline table but are
+            with the manager for re-validation, not approved again. */}
         <div className="panel gap-1">
-          <span className="panel-title">In CX</span>
-          <span className="font-display text-3xl font-semibold tabular-nums">{coverage.inCx}</span>
-          <span className="text-[0.66rem] text-muted-foreground">At least one status set.</span>
-        </div>
-
-        <div className="panel gap-1">
-          <span className="panel-title">Submitted leads</span>
-          <span className="font-display text-3xl font-semibold tabular-nums">{coverage.total}</span>
-          {/* <span className="text-[0.66rem] text-muted-foreground">
-            Everything approved and not archived.
-          </span> */}
+          <span className="panel-title">Sent back</span>
+          <span className="font-display text-3xl font-semibold tabular-nums">
+            {coverage.sentBack}
+          </span>
+          <span className="text-[0.66rem] text-muted-foreground">
+            With the manager for re-validation, not approved again.
+            {coverage.sentBack > 0 ? ` ${coverage.sentBackWaiting} waiting for a manager.` : ""}
+          </span>
         </div>
       </section>
 

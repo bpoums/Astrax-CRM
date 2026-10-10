@@ -219,8 +219,9 @@ Full list with role gates in `docs/database.md`.
 - `clear_data_flag(p_sub uuid, p_field text)` — manager/admin resolve action
 - `payment_summary(p_sub uuid)` — bank fields plus `card_last4`, never the number
 - `card_details(p_sub uuid)` — full card; validator, in_review, theirs, **logged**
-- `update_payment_field(p_sub uuid, p_field text, p_value text)` — manager/admin
-  (and cxa/cxm on their own pipeline lead) for `payment_type`, `bank_name`,
+- `update_payment_field(p_sub uuid, p_field text, p_value text)` — manager/admin/
+  general_manager (added 2026-10-10, for the Missing bank information section;
+  and cxa/cxm on their own pipeline lead) for `payment_type`, `bank_name`,
   `routing_number`, `account_number`, `account_title`, `card_exp`;
   **admin only** for `card_number` and `cvv`. It
   raises its own authorisation message; show that message rather than a generic

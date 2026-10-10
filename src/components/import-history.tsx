@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { PaginationBar } from "@/components/pagination-bar";
 import { LeadPayload } from "@/components/lead-editor";
+import { MissingInfoBadge, MissingInfoSection } from "@/components/missing-info";
 import { PaymentPanel } from "@/components/payment-panel";
 import { DataFlagList } from "@/components/data-flags";
 import {
@@ -67,7 +68,15 @@ type ImportRow = {
  * it went, and a lead archived later for some ordinary reason is not mistaken
  * for a rejected one.
  */
-type DecisionCounts = { pending: number; approved: number; rejected: number };
+type DecisionCounts = {
+  pending: number;
+  approved: number;
+  rejected: number;
+  /** Not-rejected leads in the batch still missing a required field. */
+  missing: number;
+  /** Same, for the required banking fields. */
+  bank: number;
+};
 
 /**
  * Age / State / Zip for the batch leads table below. Same shape as
@@ -227,6 +236,10 @@ export function ImportHistory({ allUploaders = false }: { allUploaders?: boolean
   const [openId, setOpenId] = useState<string | null>(null);
   /** One lead's detail sheet, opened from the batch table below. */
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
+  /** Narrow the opened batch to the leads still missing a required field. */
+  const [missingOnly, setMissingOnly] = useState(false);
+  /** Same, for the required banking fields. */
+  const [bankOnly, setBankOnly] = useState(false);
   /**
    * `payment_summary` (behind `PaymentPanel`) does not accept `data_uploader`
    * — only admin reaches full read/edit here; an uploader viewing their own
@@ -383,16 +396,26 @@ export function ImportHistory({ allUploaders = false }: { allUploaders?: boolean
     queryFn: async () => {
       const { data, error } = await supabase
         .from("submissions")
-        .select("import_id, status, archived_at")
+        .select("import_id, status, archived_at, missing_info, missing_bank")
         .in("import_id", ids);
       if (error) throw error;
       const counts = new Map<string, DecisionCounts>();
       for (const row of data ?? []) {
         if (!row.import_id) continue;
-        const entry = counts.get(row.import_id) ?? { pending: 0, approved: 0, rejected: 0 };
+        const entry = counts.get(row.import_id) ?? {
+          pending: 0,
+          approved: 0,
+          rejected: 0,
+          missing: 0,
+          bank: 0,
+        };
         if (row.status !== "pending_import_approval") entry.approved += 1;
         else if (row.archived_at) entry.rejected += 1;
         else entry.pending += 1;
+        // A rejected lead is archived and will never be worked, so a gap in it
+        // is not work to do.
+        if (!row.archived_at && (row.missing_info?.length ?? 0) > 0) entry.missing += 1;
+        if (!row.archived_at && (row.missing_bank?.length ?? 0) > 0) entry.bank += 1;
         counts.set(row.import_id, entry);
       }
       return counts;
@@ -405,7 +428,9 @@ export function ImportHistory({ allUploaders = false }: { allUploaders?: boolean
     queryFn: async () => {
       const { data, error } = await supabase
         .from("submissions")
-        .select("id, payload, status, archived_at, created_at, data_flags")
+        .select(
+          "id, payload, status, archived_at, created_at, data_flags, missing_info, missing_bank",
+        )
         .eq("import_id", openId!)
         .order("created_at", { ascending: true });
       if (error) throw error;
@@ -416,6 +441,15 @@ export function ImportHistory({ allUploaders = false }: { allUploaders?: boolean
   // Found in the already-loaded batch, not a second fetch by id — the same
   // row `leads` just queried carries everything the sheet needs.
   const selectedLead = (leads.data ?? []).find((lead) => lead.id === selectedLeadId) ?? null;
+  const allLeads = leads.data ?? [];
+  const missingLeads = allLeads.filter((lead) => (lead.missing_info?.length ?? 0) > 0);
+  const bankLeads = allLeads.filter((lead) => (lead.missing_bank?.length ?? 0) > 0);
+  const shownLeads = allLeads.filter(
+    (lead) =>
+      (!missingOnly || (lead.missing_info?.length ?? 0) > 0) &&
+      (!bankOnly || (lead.missing_bank?.length ?? 0) > 0),
+  );
+  const narrowed = missingOnly || bankOnly;
 
   return (
     <section className="panel">
@@ -442,6 +476,8 @@ export function ImportHistory({ allUploaders = false }: { allUploaders?: boolean
             <TableHead className="text-right">Imported</TableHead>
             <TableHead className="text-right">Skipped</TableHead>
             <TableHead>Decision</TableHead>
+            <TableHead className="text-right">Missing info</TableHead>
+            <TableHead className="text-right">Missing bank</TableHead>
             <TableHead>When</TableHead>
           </TableRow>
         </TableHeader>
@@ -484,6 +520,18 @@ export function ImportHistory({ allUploaders = false }: { allUploaders?: boolean
               <TableCell>
                 <DecisionBadge counts={decisions.data?.get(row.id)} />
               </TableCell>
+              <TableCell
+                className={`text-right tabular-nums ${
+                  (decisions.data?.get(row.id)?.missing ?? 0) > 0
+                    ? "text-accent"
+                    : "text-muted-foreground"
+                }`}
+              >
+                {decisions.data ? (decisions.data.get(row.id)?.missing ?? 0) : "…"}
+              </TableCell>
+              <TableCell className="text-right tabular-nums text-muted-foreground">
+                {decisions.data ? (decisions.data.get(row.id)?.bank ?? 0) : "…"}
+              </TableCell>
               <TableCell className="text-muted-foreground" title={relativeTime(row.created_at, now)}>
                 {formatDate(row.created_at)}
               </TableCell>
@@ -492,7 +540,7 @@ export function ImportHistory({ allUploaders = false }: { allUploaders?: boolean
           {rows.length === 0 ? (
             <TableRow>
               <TableCell
-                colSpan={(allUploaders ? 7 : 6) + (showIp ? 1 : 0) + (canDownload ? 1 : 0)}
+                colSpan={(allUploaders ? 9 : 8) + (showIp ? 1 : 0) + (canDownload ? 1 : 0)}
                 className="text-center text-muted-foreground"
               >
                 {imports.isLoading ? "Loading…" : "No imports yet."}
@@ -550,7 +598,30 @@ export function ImportHistory({ allUploaders = false }: { allUploaders?: boolean
 
       {openId ? (
         <div className="flex flex-col gap-2 rounded-md border border-border p-3">
-          <h3 className="panel-title">Leads in this batch ({leads.data?.length ?? 0})</h3>
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="panel-title">
+              Leads in this batch ({shownLeads.length}
+              {narrowed ? ` of ${allLeads.length}` : ""})
+            </h3>
+            <button
+              type="button"
+              onClick={() => setMissingOnly((prev) => !prev)}
+              aria-pressed={missingOnly}
+              className={`chip px-2.5 py-0.5 text-[0.66rem] ${missingOnly ? "chip-active" : ""}`}
+              title="Leads in this batch that are missing a required field"
+            >
+              Missing info ({missingLeads.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setBankOnly((prev) => !prev)}
+              aria-pressed={bankOnly}
+              className={`chip px-2.5 py-0.5 text-[0.66rem] ${bankOnly ? "chip-active" : ""}`}
+              title="Leads in this batch that are missing a required banking field"
+            >
+              Missing bank info ({bankLeads.length})
+            </button>
+          </div>
           <Table>
             <TableHeader>
               <TableRow>
@@ -563,7 +634,7 @@ export function ImportHistory({ allUploaders = false }: { allUploaders?: boolean
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(leads.data ?? []).map((lead) => {
+              {shownLeads.map((lead) => {
                 const flags = dataFlags(lead.data_flags);
                 const payload = (lead.payload ?? {}) as Record<string, unknown>;
                 return (
@@ -572,7 +643,12 @@ export function ImportHistory({ allUploaders = false }: { allUploaders?: boolean
                     className="cursor-pointer"
                     onClick={() => setSelectedLeadId(lead.id)}
                   >
-                    <TableCell className="font-medium">{customerName(payload)}</TableCell>
+                    <TableCell className="font-medium">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span>{customerName(payload)}</span>
+                        <MissingInfoBadge missing={lead.missing_info} bank={lead.missing_bank} />
+                      </div>
+                    </TableCell>
                     <TableCell className="text-muted-foreground">
                       {payloadField(payload, "Age")}
                     </TableCell>
@@ -601,10 +677,14 @@ export function ImportHistory({ allUploaders = false }: { allUploaders?: boolean
                   </TableRow>
                 );
               })}
-              {(leads.data ?? []).length === 0 ? (
+              {shownLeads.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={6} className="text-center text-muted-foreground">
-                    {leads.isLoading ? "Loading…" : "No leads found for this batch."}
+                    {leads.isLoading
+                      ? "Loading…"
+                      : narrowed
+                        ? "No lead in this batch matches those missing-information filters."
+                        : "No leads found for this batch."}
                   </TableCell>
                 </TableRow>
               ) : null}
@@ -635,6 +715,18 @@ export function ImportHistory({ allUploaders = false }: { allUploaders?: boolean
               </SheetHeader>
 
               <div className="flex min-w-0 max-w-full flex-col gap-4 px-4 pb-4">
+                <MissingInfoSection
+                  submissionId={selectedLead.id}
+                  missing={selectedLead.missing_info}
+                  missingBank={selectedLead.missing_bank}
+                  editable={canEditLead}
+                  onSaved={() => {
+                    void queryClient.invalidateQueries({
+                      queryKey: ["lead-imports", "leads", openId],
+                    });
+                  }}
+                />
+
                 <LeadPayload
                   submissionId={selectedLead.id}
                   payload={(selectedLead.payload ?? {}) as Record<string, unknown>}

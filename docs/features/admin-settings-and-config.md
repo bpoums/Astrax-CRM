@@ -178,6 +178,13 @@ row to Google Sheets.
   are exactly what the closer's transfer dialog offers, and Parked Leads
   groups its chips by them — see
   [closer-submission-and-forms.md](closer-submission-and-forms.md).
+  **Linked to a center (2026-10-10, `transfer_clients.center_id`).** A client
+  belongs to a center, chosen on the add form and editable in the table (Settings
+  → Transfer Clients); "Any center" (null) offers it to every center. A closer
+  is offered only the clients of their own center, and `submit_form_parked`
+  enforces it server-side ("client is not available for your center"). A linked
+  client is listed under its center in the Overview's Live | Manual card (see
+  [reporting.md](reporting.md)). Both existing clients were linked to UMS BPO.
 - **Reordering** (carriers, centers and transfer clients alike) rewrites every
   changed row's `sort_order` as `(index+1)*10` rather than swapping two
   values — chosen

@@ -17,6 +17,8 @@ import {
   type LeadFlag,
 } from "@/lib/normalize";
 import { downloadCsv, toCleanedCsv } from "@/lib/parse-file";
+import { missingForLead, unmappedRequired, type RowMissing } from "@/lib/missing-upload";
+import { useUploadedRequiredFields } from "@/lib/required-fields";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -33,14 +35,19 @@ const BATCH_SIZE = 50;
 /** How many rows the grid draws at once. See `drawn` below. */
 const PAGE_SIZE = 100;
 
-type Filter = "all" | "fixed" | "review" | "duplicates";
+type Filter = "all" | "fixed" | "review" | "duplicates" | "missing" | "missing-bank";
 
 const FILTERS: { id: Filter; label: string }[] = [
   { id: "all", label: "All" },
   { id: "fixed", label: "Fixed" },
   { id: "review", label: "Needs review" },
   { id: "duplicates", label: "Duplicates" },
+  { id: "missing", label: "Missing info" },
+  { id: "missing-bank", label: "Missing bank info" },
 ];
+
+/** How many fields the "most often missing" lists name. */
+const TOP_MISSING = 6;
 
 const STATUS_CLASS: Record<FieldStatus, string> = {
   clean: "",
@@ -113,6 +120,52 @@ export function UploadReview({
     [groups],
   );
 
+  /**
+   * The required fields, from the database — the same list that fills
+   * `missing_info` / `missing_bank` once these leads are imported, so what the
+   * uploader sees here is what a manager will see after. Read once and cached:
+   * it only changes in a migration. A refused read is shown, not swallowed into
+   * a summary that quietly says nothing is missing.
+   */
+  const requiredQuery = useUploadedRequiredFields();
+  const required = useMemo(() => requiredQuery.data ?? [], [requiredQuery.data]);
+
+  /** Per row, recomputed whenever a cell is edited. Informational only. */
+  const missingByRow = useMemo(() => {
+    const map = new Map<number, RowMissing>();
+    for (const lead of leads) map.set(lead.index, missingForLead(lead, required, CANONICAL_FIELDS));
+    return map;
+  }, [leads, required]);
+
+  /** Over what Import actually sends: a merged-away duplicate is not imported. */
+  const missingStats = useMemo(() => {
+    const perField = { core: new Map<string, number>(), bank: new Map<string, number>() };
+    let coreRows = 0;
+    let bankRows = 0;
+    for (const lead of sending) {
+      const row = missingByRow.get(lead.index);
+      if (!row) continue;
+      if (row.core.length > 0) coreRows += 1;
+      if (row.bank.length > 0) bankRows += 1;
+      for (const label of row.core) perField.core.set(label, (perField.core.get(label) ?? 0) + 1);
+      for (const label of row.bank) perField.bank.set(label, (perField.bank.get(label) ?? 0) + 1);
+    }
+    const top = (map: Map<string, number>) =>
+      [...map.entries()].sort((a, b) => b[1] - a[1]).slice(0, TOP_MISSING);
+    return {
+      coreRows,
+      bankRows,
+      topCore: top(perField.core),
+      topBank: top(perField.bank),
+    };
+  }, [sending, missingByRow]);
+
+  /** Required fields no column of this file is mapped to — a mapping problem. */
+  const unmapped = useMemo(
+    () => unmappedRequired(required, columns, CANONICAL_FIELDS),
+    [required, columns],
+  );
+
   const counts = useMemo(() => {
     let fixed = 0;
     let review = 0;
@@ -134,6 +187,12 @@ export function UploadReview({
   const visible = useMemo(() => {
     if (filter === "all") return leads;
     if (filter === "duplicates") return leads.filter((lead) => grouped.has(lead.index));
+    if (filter === "missing") {
+      return leads.filter((lead) => (missingByRow.get(lead.index)?.core.length ?? 0) > 0);
+    }
+    if (filter === "missing-bank") {
+      return leads.filter((lead) => (missingByRow.get(lead.index)?.bank.length ?? 0) > 0);
+    }
     if (filter === "review") {
       return leads.filter(
         (lead) =>
@@ -144,7 +203,7 @@ export function UploadReview({
     return leads.filter((lead) =>
       Object.values(lead.fields).some((field) => field.status === "fixed"),
     );
-  }, [leads, filter, liveFlags, grouped]);
+  }, [leads, filter, liveFlags, grouped, missingByRow]);
 
   // Every cell is a controlled input, so a five-thousand-row file would be
   // twenty thousand of them and one keystroke would stall the tab. Drawing is
@@ -273,6 +332,48 @@ export function UploadReview({
         </span>
       </div>
 
+      {/* Which required fields these rows still lack. Informational, like the
+          flags: nothing is blocked, and a manager can fill the gaps after
+          import. It is here so the uploader can fix them from the source file
+          instead, which is cheaper than somebody typing 400 values later. */}
+      <div className="flex flex-col gap-1.5 rounded-md border border-border p-2.5">
+        <h3 className="panel-title">Missing required fields</h3>
+        {requiredQuery.isError ? (
+          <p className="text-xs text-destructive">{(requiredQuery.error as Error).message}</p>
+        ) : requiredQuery.isLoading ? (
+          <p className="text-xs text-muted-foreground">Loading…</p>
+        ) : (
+          <>
+            <MissingLine
+              label="Core fields"
+              rows={missingStats.coreRows}
+              total={counts.sending}
+              top={missingStats.topCore}
+              tone="accent"
+            />
+            <MissingLine
+              label="Banking fields"
+              rows={missingStats.bankRows}
+              total={counts.sending}
+              top={missingStats.topBank}
+            />
+            {unmapped.length > 0 ? (
+              <p className="text-[0.66rem] text-muted-foreground">
+                No column is mapped to {unmapped.join(", ")}, so every row is missing{" "}
+                {unmapped.length === 1 ? "it" : "them"}. If the file has{" "}
+                {unmapped.length === 1 ? "that column" : "those columns"}, go back to mapping and
+                assign {unmapped.length === 1 ? "it" : "them"}. Card number, expiry and CVC are
+                optional.
+              </p>
+            ) : (
+              <p className="text-[0.66rem] text-muted-foreground">
+                Card number, expiry and CVC are optional.
+              </p>
+            )}
+          </>
+        )}
+      </div>
+
       {/* Above the grid on purpose. Merging is a decision the import makes on
           the operator's behalf, so it is shown as a review step they can read
           and overturn — by correcting the losing row until it wins — rather
@@ -327,6 +428,7 @@ export function UploadReview({
                   {field.label}
                 </TableHead>
               ))}
+              <TableHead className="min-w-28">Missing</TableHead>
               <TableHead className="min-w-56">Flags</TableHead>
             </TableRow>
           </TableHeader>
@@ -370,6 +472,9 @@ export function UploadReview({
                   </TableCell>
                 ))}
                 <TableCell className="align-top">
+                  <MissingCell row={missingByRow.get(lead.index)} />
+                </TableCell>
+                <TableCell className="align-top">
                   {liveFlags(lead).length === 0 ? (
                     <span className="text-muted-foreground">—</span>
                   ) : (
@@ -401,7 +506,7 @@ export function UploadReview({
             {drawn.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={columns.length + 3}
+                  colSpan={columns.length + 4}
                   className="text-center text-muted-foreground"
                 >
                   Nothing matches that filter.
@@ -672,6 +777,76 @@ function Cell({
         status === "review" ? "border-destructive" : status === "fixed" ? "border-accent/60" : ""
       }`}
     />
+  );
+}
+
+/**
+ * One group's headline ("37 of 500 rows") and the fields it is most often
+ * missing on. The names sit in the text, not in a tooltip: a count nobody can
+ * name is not something the uploader can act on.
+ */
+function MissingLine({
+  label,
+  rows,
+  total,
+  top,
+  tone,
+}: {
+  label: string;
+  rows: number;
+  total: number;
+  top: [string, number][];
+  tone?: "accent";
+}) {
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+      <span className="field-label">{label}</span>
+      <span
+        className={`font-display text-sm font-semibold tabular-nums ${
+          rows > 0 && tone === "accent" ? "text-accent" : ""
+        }`}
+      >
+        {rows} of {total} rows
+      </span>
+      {top.length > 0 ? (
+        <span className="text-[0.68rem] text-muted-foreground">
+          Most often missing:{" "}
+          {top.map(([field, count], index) => (
+            <span key={field}>
+              {index > 0 ? ", " : ""}
+              {field} <span className="tabular-nums">{count}</span>
+            </span>
+          ))}
+        </span>
+      ) : (
+        <span className="text-[0.68rem] text-muted-foreground">None missing.</span>
+      )}
+    </div>
+  );
+}
+
+/** Per-row badges. The names are in the `title`, so a thousand rows mount no tooltips. */
+function MissingCell({ row }: { row: RowMissing | undefined }) {
+  const core = row?.core.length ?? 0;
+  const bank = row?.bank.length ?? 0;
+  if (core === 0 && bank === 0) return <span className="text-muted-foreground">—</span>;
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      {core > 0 ? (
+        <Badge variant="outline" className="border-accent text-accent" title={row?.core.join(", ")}>
+          Info {core}
+        </Badge>
+      ) : null}
+      {bank > 0 ? (
+        <Badge
+          variant="outline"
+          className="border-border text-muted-foreground"
+          title={row?.bank.join(", ")}
+        >
+          Bank {bank}
+        </Badge>
+      ) : null}
+    </div>
   );
 }
 

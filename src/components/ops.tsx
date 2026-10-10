@@ -89,6 +89,14 @@ export type SubmissionRow = {
   uploaded_by: string | null;
   import_id: string | null;
   data_flags: unknown;
+  /**
+   * Required fields an uploaded lead has no value for — the generated column
+   * `submissions.missing_info`, `{}` for every other lead. Optional because only
+   * the queries that `select *` (or name it) carry it.
+   */
+  missing_info?: string[] | null;
+  /** Required banking fields an uploaded lead has no value for — `submissions.missing_bank`. */
+  missing_bank?: string[] | null;
   payload: Record<string, unknown>;
   status: SubStatus;
   assigned_to: string | null;

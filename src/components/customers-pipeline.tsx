@@ -10,9 +10,11 @@ import {
   finalCarrierName,
   proposedCarrierName,
   sourceLabel,
+  STATUS_LABEL,
   type LeadSource,
   type UploaderRef,
 } from "@/components/ops";
+import { Badge } from "@/components/ui/badge";
 import { useCarriers } from "@/lib/carriers";
 import { useCenterColorById } from "@/lib/centers";
 import { SSN_FIELD } from "@/lib/duplicate-ssn";
@@ -114,6 +116,27 @@ const ANY = "any";
 const NOT_SET = "none";
 
 type Filters = Record<CxCategory, string>;
+
+/**
+ * Which leads on the pipeline: all of them, those approved (what the Submission
+ * Outcome card counts), or those CX sent back for re-validation that the manager
+ * has not approved again. The two halves add up to the whole.
+ */
+type Stage = "all" | "approved" | "sent-back";
+
+const STAGES: { id: Stage; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "approved", label: "Approved" },
+  { id: "sent-back", label: "Sent back" },
+];
+
+/** The slice of a PostgREST builder the shared filters need. */
+type Filterable<T> = {
+  is(column: string, value: null): T;
+  eq(column: string, value: string): T;
+  or(filters: string): T;
+  not(column: string, operator: string, value: unknown): T;
+};
 
 const NO_FILTERS: Filters = {
   policy: ANY,
@@ -272,6 +295,32 @@ function DraftDateCell({ row }: { row: PipelineRow }) {
  */
 function inValidation(row: PipelineRow) {
   return row.reopened_from_cx_at !== null && row.disposition !== "accepted";
+}
+
+/**
+ * Marks a lead CX sent back to the manager. It is on the row, for every role, so
+ * an admin reading the pipeline can see which leads are away without opening
+ * each one — the Return button that says so is the CXA's and is not shown to
+ * them. The tooltip says when it was sent and where it is now.
+ */
+function SentBackBadge({ row }: { row: PipelineRow }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Badge variant="outline" className="shrink-0 border-accent text-accent">
+          Sent back
+        </Badge>
+      </TooltipTrigger>
+      <TooltipBody>
+        <TooltipHeading>Sent back for validation</TooltipHeading>
+        <span className="text-[0.62rem] text-muted-foreground">
+          {row.reopened_from_cx_at ? formatDate(row.reopened_from_cx_at) : "—"} ·{" "}
+          {/* The view types `status` as plain text, so an unknown value falls back to itself. */}
+          {row.status ? ((STATUS_LABEL as Record<string, string>)[row.status] ?? row.status) : "—"}
+        </span>
+      </TooltipBody>
+    </Tooltip>
+  );
 }
 
 /**
@@ -483,6 +532,7 @@ export function CustomersPipeline({
   const [search, setSearch] = useState("");
   const [draftDate, setDraftDate] = useState("");
   const [filters, setFilters] = useState<Filters>(NO_FILTERS);
+  const [stage, setStage] = useState<Stage>("all");
   const [openId, setOpenId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
 
@@ -496,31 +546,79 @@ export function CustomersPipeline({
   // A filter or a search changes what page 1 even means.
   useEffect(() => {
     setPage(0);
-  }, [term, draftDate, filterKey]);
+  }, [term, draftDate, filterKey, stage]);
+
+  /**
+   * Every filter on this table, in one place: the page query and the three stage
+   * counts both go through it, so a chip's number is exactly what that chip would
+   * show — a chip whose count disagrees with its own table is worse than none.
+   */
+  function applyFilters<T extends Filterable<T>>(base: T, withStage: Stage): T {
+    let query = base;
+
+    for (const category of CX_CATEGORIES) {
+      const value = filters[category];
+      if (value === ANY) continue;
+      // Each view column belongs to exactly one category, and codes are
+      // unique per category, so matching on the code needs no extra scoping.
+      if (value === NOT_SET) query = query.is(`${category}_code`, null);
+      else query = query.eq(`${category}_code`, value);
+    }
+
+    // An exact date, not a range: this answers "what is drafting on the
+    // 14th", which is the question a CXA works a day's list from. Applied
+    // server-side like every other filter here, because the table is paged —
+    // matching in the browser would only ever see the current page.
+    if (draftDate) query = query.eq("draft_date", draftDate);
+
+    const filter = term ? searchFilter(term) : null;
+    if (filter) query = query.or(filter);
+
+    // Repeated `or` groups are ANDed by PostgREST, so these narrow the search
+    // above rather than widening it. A sent-back lead has the stamp and no
+    // longer carries an accepted disposition; the two halves are exhaustive.
+    if (withStage === "approved") query = query.eq("disposition", "accepted");
+    if (withStage === "sent-back") {
+      query = query
+        .not("reopened_from_cx_at", "is", null)
+        .or("disposition.is.null,disposition.neq.accepted");
+    }
+    return query;
+  }
+
+  /**
+   * How many leads each stage chip stands for, under the other active filters.
+   * Kept under the `["cx", "pipeline", …]` prefix so the existing invalidation
+   * after a status change or a return refreshes it with the table.
+   */
+  const stageCounts = useQuery({
+    queryKey: ["cx", "pipeline", "stage-counts", term, draftDate, filterKey],
+    queryFn: async () => {
+      const count = async (which: Stage) => {
+        const { count: n, error } = await applyFilters(
+          supabase.from("cx_pipeline").select("submission_id", { count: "exact", head: true }),
+          which,
+        );
+        if (error) throw error;
+        return n ?? 0;
+      };
+      const [all, approved, sentBack] = await Promise.all([
+        count("all"),
+        count("approved"),
+        count("sent-back"),
+      ]);
+      return { all, approved, "sent-back": sentBack } satisfies Record<Stage, number>;
+    },
+  });
 
   const pipeline = useQuery({
-    queryKey: ["cx", "pipeline", page, term, draftDate, filterKey],
+    queryKey: ["cx", "pipeline", page, term, draftDate, filterKey, stage],
     queryFn: async () => {
       const from = page * PAGE_SIZE;
-      let query = supabase.from("cx_pipeline").select(SELECT_COLUMNS, { count: "exact" });
-
-      for (const category of CX_CATEGORIES) {
-        const value = filters[category];
-        if (value === ANY) continue;
-        // Each view column belongs to exactly one category, and codes are
-        // unique per category, so matching on the code needs no extra scoping.
-        if (value === NOT_SET) query = query.is(`${category}_code`, null);
-        else query = query.eq(`${category}_code`, value);
-      }
-
-      // An exact date, not a range: this answers "what is drafting on the
-      // 14th", which is the question a CXA works a day's list from. Applied
-      // server-side like every other filter here, because the table is paged —
-      // matching in the browser would only ever see the current page.
-      if (draftDate) query = query.eq("draft_date", draftDate);
-
-      const filter = term ? searchFilter(term) : null;
-      if (filter) query = query.or(filter);
+      const query = applyFilters(
+        supabase.from("cx_pipeline").select(SELECT_COLUMNS, { count: "exact" }),
+        stage,
+      );
 
       const { data, error, count } = await query
         .order("submitted_on", { ascending: false, nullsFirst: false })
@@ -600,7 +698,8 @@ export function CustomersPipeline({
 
   const firstShown = total === 0 ? 0 : page * PAGE_SIZE + 1;
   const lastShown = page * PAGE_SIZE + rows.length;
-  const filtersActive = term !== "" || draftDate !== "" || filterKey !== UNFILTERED;
+  const filtersActive =
+    term !== "" || draftDate !== "" || filterKey !== UNFILTERED || stage !== "all";
 
   return (
     // One provider for the table and the detail sheet alike. 120ms instead of
@@ -640,6 +739,25 @@ export function CustomersPipeline({
           ))}
         </div>
 
+        {/* Which half of the pipeline: approved, or sent back to the manager for
+            re-validation and not approved again. The numbers add up to the whole
+            and the first two are the figures on the cards above. */}
+        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Stage">
+          {STAGES.map((entry) => (
+            <button
+              key={entry.id}
+              type="button"
+              onClick={() => setStage(entry.id)}
+              aria-pressed={stage === entry.id}
+              className={`chip px-2.5 py-0.5 text-[0.66rem] ${
+                stage === entry.id ? "chip-active" : ""
+              }`}
+            >
+              {entry.label} ({stageCounts.data?.[entry.id] ?? "…"})
+            </button>
+          ))}
+        </div>
+
         {/* Directly above the table it filters, spanning it. */}
         <div className="flex items-center gap-2">
           <input
@@ -669,6 +787,7 @@ export function CustomersPipeline({
                 setSearch("");
                 setDraftDate("");
                 setFilters(NO_FILTERS);
+                setStage("all");
               }}
             >
               Clear filters
@@ -722,19 +841,26 @@ export function CustomersPipeline({
                     />
                   </TableCell>
                   <TableCell className="font-medium">
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span className="free-text block max-w-full truncate">
-                          {customerName(row.payload)}
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipBody>
-                        <TooltipHeading>{customerName(row.payload)}</TooltipHeading>
-                        <span className="free-text text-[0.62rem] text-muted-foreground">
-                          {carrierName(row.payload)} · submitted {formatDate(row.submitted_on)}
-                        </span>
-                      </TooltipBody>
-                    </Tooltip>
+                    {/* The badge is `shrink-0` beside a name that truncates, so
+                        the row stays one line. Not drawn under the "Sent back"
+                        filter: every row there is sent back, so it would only
+                        take room from the name. */}
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="free-text block min-w-0 truncate">
+                            {customerName(row.payload)}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipBody>
+                          <TooltipHeading>{customerName(row.payload)}</TooltipHeading>
+                          <span className="free-text text-[0.62rem] text-muted-foreground">
+                            {carrierName(row.payload)} · submitted {formatDate(row.submitted_on)}
+                          </span>
+                        </TooltipBody>
+                      </Tooltip>
+                      {inValidation(row) && stage !== "sent-back" ? <SentBackBadge row={row} /> : null}
+                    </div>
                   </TableCell>
                   {/* Same field the intake forms write and the detail sheet
                       already shows unmasked — every role that

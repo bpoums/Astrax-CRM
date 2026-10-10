@@ -34,6 +34,7 @@ import { statusRank, textKey, timeKey } from "@/lib/queue-sort";
 import { PaymentPanel } from "@/components/payment-panel";
 import { DataFlagList } from "@/components/data-flags";
 import { LeadPayload } from "@/components/lead-editor";
+import { MissingInfoBadge, MissingInfoSection } from "@/components/missing-info";
 import { acceptBlockedReason, ValidatorFields } from "@/components/validator-fields";
 import { usePlacementRuleEnabled } from "@/lib/placement";
 import { PayloadEditHistory, payloadHistoryKey } from "@/components/payload-history";
@@ -264,6 +265,7 @@ function QueueStatusCell({
         </Badge>
       ) : null}
       <FlagBadge count={dataFlags(row.data_flags).length} />
+      <MissingInfoBadge missing={row.missing_info} bank={row.missing_bank} />
     </div>
   );
 }
@@ -504,11 +506,28 @@ function ManagerPage() {
   // identical, so a second (or third) request would only duplicate the
   // realtime work.
   const term = search.trim().toLowerCase();
+  // Uploaded leads that arrived without a required field. The whole open queue
+  // is already in the browser, so this narrows it here rather than in the
+  // database — unlike the paged Submissions list, which has to ask the server.
+  const [missingOnly, setMissingOnly] = useState(false);
+  // Banking is its own group: every uploaded lead lacked Account Title when this
+  // was added, so it cannot share a chip with the core fields.
+  const [bankOnly, setBankOnly] = useState(false);
+  const missingCount = useMemo(
+    () => allRows.filter((row) => (row.missing_info?.length ?? 0) > 0).length,
+    [allRows],
+  );
+  const bankCount = useMemo(
+    () => allRows.filter((row) => (row.missing_bank?.length ?? 0) > 0).length,
+    [allRows],
+  );
   const rows = useMemo(() => {
-    const onTab = allRows.filter((row) => queueTabOf(row) === queueTab);
+    let onTab = allRows.filter((row) => queueTabOf(row) === queueTab);
+    if (missingOnly) onTab = onTab.filter((row) => (row.missing_info?.length ?? 0) > 0);
+    if (bankOnly) onTab = onTab.filter((row) => (row.missing_bank?.length ?? 0) > 0);
     if (!term) return onTab;
     return onTab.filter((row) => customerName(row.payload).toLowerCase().includes(term));
-  }, [allRows, queueTab, term]);
+  }, [allRows, queueTab, term, missingOnly, bankOnly]);
   // Per tab, over the WHOLE set rather than the active filter — so a reader
   // can see how many manual leads are open without clicking over to that
   // tab first. Deliberately NOT narrowed by the search: the search narrows the
@@ -579,7 +598,7 @@ function ManagerPage() {
   // selection the reader has long since moved on from. A changed search term
   // clears it for the same reason: a bulk assign must never reach a lead that
   // is no longer on screen to be unticked.
-  useEffect(() => setSelectedIds([]), [queueTab, term]);
+  useEffect(() => setSelectedIds([]), [queueTab, term, missingOnly, bankOnly]);
 
   /**
    * Handed to every queue table. The ids and everything derived from them stay
@@ -819,6 +838,34 @@ function ManagerPage() {
                           Clear
                         </button>
                       ) : null}
+                      {/* Only the Manual queue can hold such a lead: a closer's
+                          form refuses to submit with a required field empty. */}
+                      {queueTab === "manual" ? (
+                        <button
+                          type="button"
+                          onClick={() => setMissingOnly((prev) => !prev)}
+                          aria-pressed={missingOnly}
+                          className={`chip px-2.5 py-0.5 text-[0.66rem] ${
+                            missingOnly ? "chip-active" : ""
+                          }`}
+                          title="Uploaded leads that are missing a required field"
+                        >
+                          Missing info ({missingCount})
+                        </button>
+                      ) : null}
+                      {queueTab === "manual" ? (
+                        <button
+                          type="button"
+                          onClick={() => setBankOnly((prev) => !prev)}
+                          aria-pressed={bankOnly}
+                          className={`chip px-2.5 py-0.5 text-[0.66rem] ${
+                            bankOnly ? "chip-active" : ""
+                          }`}
+                          title="Uploaded leads that are missing a required banking field"
+                        >
+                          Missing bank info ({bankCount})
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                   {/* The bulk bar belongs to whichever queue is open. Crossing
@@ -1013,6 +1060,19 @@ function ManagerPage() {
                     the sheet-sync trigger pushes, so every field goes through
                     update_payload_field rather than the table — which is what
                     puts the before/after into the edit history below. */}
+                {/* Required fields an uploaded lead arrived without — the
+                    payload editor below can only edit keys the lead has. */}
+                <MissingInfoSection
+                  submissionId={selected.id}
+                  missing={selected.missing_info}
+                  missingBank={selected.missing_bank}
+                  editable={canEditLead}
+                  onSaved={() => {
+                    queryClient.invalidateQueries({ queryKey: ["manager", "submissions"] });
+                    queryClient.invalidateQueries({ queryKey: payloadHistoryKey(selected.id) });
+                  }}
+                />
+
                 <LeadPayload
                   submissionId={selected.id}
                   payload={selected.payload}

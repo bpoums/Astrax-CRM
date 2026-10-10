@@ -66,3 +66,26 @@ Three consequences follow deliberately:
   queue, since `reopened_from_cx_at` was already stamped on all of them. That is
   the rule working as intended — they were leads the CX team never got an answer
   about — but it is a visible one-off jump in the queue's size.
+
+## Amendment, 2026-10-10: `cx_status_summary` follows the pipeline
+
+The bullet above says `cx_status_summary` keeps its own `disposition = 'accepted'` filter. In
+practice that filter never applied: it sat in the ON clause of a LEFT JOIN, which removes no
+rows, so the view counted the status of every lead that ever had one — archived leads and leads
+CX had removed included. The status cards read 86 "Approved" against 73 in the table directly
+below them. Applying the accepted-only filter literally would have given 24, because 49 leads CX
+sent back for re-validation are still on the pipeline table with their statuses.
+
+Decision: the cards count what the table shows. `cx_status_summary` now joins `cx_pipeline`
+(migration `20261010120000_cx_status_summary_matches_pipeline.sql`), so there is one
+membership rule and the two cannot drift. `closer_lead_alerts` is unchanged and still
+accepted-only.
+
+Follow-up the same day: the top cards were redefined over **approved** leads, with sent-back leads
+as a separate card. `cx_untouched` now reads `cx_pipeline` (sharing the table's not-archived,
+not-removed rule) but keeps its approved-only test
+(`20261010121000_...`, then `20261010130000_cx_untouched_approved_only.sql`). The cards read
+Submitted leads 729 (approved), In CX 132 (approved with a status), Untouched 597 (approved
+without), Sent back 71 — so 132 + 597 = 729, and 729 + 71 = 800, every row of the table. The four
+status cards below still count all 800 rows (the sent-back leads keep their statuses), so they
+equal the table with the stage filter on "All", not the In CX figure.

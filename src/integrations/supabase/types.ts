@@ -1451,6 +1451,8 @@ export type Database = {
           last_held_at: string | null
           last_rejected_by: string | null
           last_timeout_by: string | null
+          missing_bank: string[]
+          missing_info: string[] | null
           payload: Json
           policy_number: string | null
           rejection_count: number
@@ -1498,6 +1500,8 @@ export type Database = {
           last_held_at?: string | null
           last_rejected_by?: string | null
           last_timeout_by?: string | null
+          missing_bank?: string[]
+          missing_info?: string[] | null
           payload: Json
           policy_number?: string | null
           rejection_count?: number
@@ -1545,6 +1549,8 @@ export type Database = {
           last_held_at?: string | null
           last_rejected_by?: string | null
           last_timeout_by?: string | null
+          missing_bank?: string[]
+          missing_info?: string[] | null
           payload?: Json
           policy_number?: string | null
           rejection_count?: number
@@ -1761,6 +1767,7 @@ export type Database = {
       transfer_clients: {
         Row: {
           active: boolean
+          center_id: string | null
           created_at: string
           id: string
           name: string
@@ -1768,6 +1775,7 @@ export type Database = {
         }
         Insert: {
           active?: boolean
+          center_id?: string | null
           created_at?: string
           id?: string
           name: string
@@ -1775,12 +1783,28 @@ export type Database = {
         }
         Update: {
           active?: boolean
+          center_id?: string | null
           created_at?: string
           id?: string
           name?: string
           sort_order?: number
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "transfer_clients_center_id_fkey"
+            columns: ["center_id"]
+            isOneToOne: false
+            referencedRelation: "centers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transfer_clients_center_id_fkey"
+            columns: ["center_id"]
+            isOneToOne: false
+            referencedRelation: "submission_totals_by_center"
+            referencedColumns: ["center_id"]
+          },
+        ]
       }
     }
     Views: {
@@ -2060,6 +2084,8 @@ export type Database = {
           last_held_at: string | null
           last_rejected_by: string | null
           last_timeout_by: string | null
+          missing_bank: string[]
+          missing_info: string[] | null
           payload: Json
           policy_number: string | null
           rejection_count: number
@@ -2116,6 +2142,8 @@ export type Database = {
           last_held_at: string | null
           last_rejected_by: string | null
           last_timeout_by: string | null
+          missing_bank: string[]
+          missing_info: string[] | null
           payload: Json
           policy_number: string | null
           rejection_count: number
@@ -2178,6 +2206,8 @@ export type Database = {
           last_held_at: string | null
           last_rejected_by: string | null
           last_timeout_by: string | null
+          missing_bank: string[]
+          missing_info: string[] | null
           payload: Json
           policy_number: string | null
           rejection_count: number
@@ -2235,6 +2265,8 @@ export type Database = {
           last_held_at: string | null
           last_rejected_by: string | null
           last_timeout_by: string | null
+          missing_bank: string[]
+          missing_info: string[] | null
           payload: Json
           policy_number: string | null
           rejection_count: number
@@ -2298,6 +2330,8 @@ export type Database = {
           last_held_at: string | null
           last_rejected_by: string | null
           last_timeout_by: string | null
+          missing_bank: string[]
+          missing_info: string[] | null
           payload: Json
           policy_number: string | null
           rejection_count: number
@@ -2355,6 +2389,8 @@ export type Database = {
               last_held_at: string | null
               last_rejected_by: string | null
               last_timeout_by: string | null
+              missing_bank: string[]
+              missing_info: string[] | null
               payload: Json
               policy_number: string | null
               rejection_count: number
@@ -2416,6 +2452,8 @@ export type Database = {
               last_held_at: string | null
               last_rejected_by: string | null
               last_timeout_by: string | null
+              missing_bank: string[]
+              missing_info: string[] | null
               payload: Json
               policy_number: string | null
               rejection_count: number
@@ -2475,6 +2513,8 @@ export type Database = {
           last_held_at: string | null
           last_rejected_by: string | null
           last_timeout_by: string | null
+          missing_bank: string[]
+          missing_info: string[] | null
           payload: Json
           policy_number: string | null
           rejection_count: number
@@ -2533,6 +2573,8 @@ export type Database = {
           last_held_at: string | null
           last_rejected_by: string | null
           last_timeout_by: string | null
+          missing_bank: string[]
+          missing_info: string[] | null
           payload: Json
           policy_number: string | null
           rejection_count: number
@@ -2596,6 +2638,8 @@ export type Database = {
           last_held_at: string | null
           last_rejected_by: string | null
           last_timeout_by: string | null
+          missing_bank: string[]
+          missing_info: string[] | null
           payload: Json
           policy_number: string | null
           rejection_count: number
@@ -2616,6 +2660,35 @@ export type Database = {
           isOneToOne: true
           isSetofReturn: false
         }
+      }
+      missing_bank_by_field: {
+        Args: never
+        Returns: {
+          field: string
+          lead_count: number
+        }[]
+      }
+      missing_bank_fields: {
+        Args: {
+          p_account_number: string
+          p_account_title: string
+          p_bank_name: string
+          p_payload: Json
+          p_routing_number: string
+          p_source: string
+        }
+        Returns: string[]
+      }
+      missing_info_by_field: {
+        Args: never
+        Returns: {
+          field: string
+          lead_count: number
+        }[]
+      }
+      missing_required_fields: {
+        Args: { p_payload: Json; p_source: string }
+        Returns: string[]
       }
       move_to_validation: {
         Args: { p_sub: string }
@@ -2652,6 +2725,8 @@ export type Database = {
           last_held_at: string | null
           last_rejected_by: string | null
           last_timeout_by: string | null
+          missing_bank: string[]
+          missing_info: string[] | null
           payload: Json
           policy_number: string | null
           rejection_count: number
@@ -2706,6 +2781,15 @@ export type Database = {
       parked_client_counts: {
         Args: never
         Returns: {
+          client_id: string
+          client_name: string
+          lead_count: number
+        }[]
+      }
+      parked_client_counts_range: {
+        Args: { p_days?: number; p_end_date?: string; p_start_date?: string }
+        Returns: {
+          center_id: string
           client_id: string
           client_name: string
           lead_count: number
@@ -2787,6 +2871,8 @@ export type Database = {
           last_held_at: string | null
           last_rejected_by: string | null
           last_timeout_by: string | null
+          missing_bank: string[]
+          missing_info: string[] | null
           payload: Json
           policy_number: string | null
           rejection_count: number
@@ -2884,6 +2970,8 @@ export type Database = {
           last_held_at: string | null
           last_rejected_by: string | null
           last_timeout_by: string | null
+          missing_bank: string[]
+          missing_info: string[] | null
           payload: Json
           policy_number: string | null
           rejection_count: number
@@ -3001,6 +3089,8 @@ export type Database = {
               last_held_at: string | null
               last_rejected_by: string | null
               last_timeout_by: string | null
+              missing_bank: string[]
+              missing_info: string[] | null
               payload: Json
               policy_number: string | null
               rejection_count: number
@@ -3064,6 +3154,8 @@ export type Database = {
               last_held_at: string | null
               last_rejected_by: string | null
               last_timeout_by: string | null
+              missing_bank: string[]
+              missing_info: string[] | null
               payload: Json
               policy_number: string | null
               rejection_count: number
@@ -3174,6 +3266,8 @@ export type Database = {
           last_held_at: string | null
           last_rejected_by: string | null
           last_timeout_by: string | null
+          missing_bank: string[]
+          missing_info: string[] | null
           payload: Json
           policy_number: string | null
           rejection_count: number
@@ -3230,6 +3324,8 @@ export type Database = {
           last_held_at: string | null
           last_rejected_by: string | null
           last_timeout_by: string | null
+          missing_bank: string[]
+          missing_info: string[] | null
           payload: Json
           policy_number: string | null
           rejection_count: number
@@ -3289,6 +3385,8 @@ export type Database = {
           last_held_at: string | null
           last_rejected_by: string | null
           last_timeout_by: string | null
+          missing_bank: string[]
+          missing_info: string[] | null
           payload: Json
           policy_number: string | null
           rejection_count: number
@@ -3345,6 +3443,8 @@ export type Database = {
           last_held_at: string | null
           last_rejected_by: string | null
           last_timeout_by: string | null
+          missing_bank: string[]
+          missing_info: string[] | null
           payload: Json
           policy_number: string | null
           rejection_count: number
@@ -3402,6 +3502,8 @@ export type Database = {
           last_held_at: string | null
           last_rejected_by: string | null
           last_timeout_by: string | null
+          missing_bank: string[]
+          missing_info: string[] | null
           payload: Json
           policy_number: string | null
           rejection_count: number
@@ -3430,6 +3532,16 @@ export type Database = {
       update_payment_field: {
         Args: { p_field: string; p_sub: string; p_value: string }
         Returns: Json
+      }
+      uploaded_required_fields: {
+        Args: never
+        Returns: {
+          grp: string
+          label: string
+          ord: number
+          pay_col: string
+          store: string
+        }[]
       }
       validator_stats_range: {
         Args: { p_days?: number; p_end_date?: string; p_start_date?: string }

@@ -5,6 +5,8 @@ import { TotalsPanel } from "@/components/reporting";
 import { SalesBreakdown } from "@/components/sales-breakdown";
 import { usePeriod } from "@/lib/period-range";
 import { useOverviewStats } from "@/lib/overview-stats";
+import { useParkedClientsByCenter, useTransferClients } from "@/lib/transfer-clients";
+import type { BreakdownItem } from "@/components/overview-panels";
 
 /**
  * The admin Overview — three questions, side by side, over the record.
@@ -35,6 +37,47 @@ export function AdminOverview() {
   const { centerTotals, totals } = stats;
 
   const perCenter = useMemo(() => centerTotals.data ?? [], [centerTotals.data]);
+
+  /**
+   * What each center's Live number is made of: In House, then the external
+   * clients linked to that center. The clients' numbers are the leads still
+   * parked with them that were submitted in the selected window, so they are a
+   * subset of the center's live total and In House = live - clients cannot go
+   * negative. A client shows even at 0 so a newly linked one is visible. A
+   * refused read is shown rather than silently dropping the breakdown.
+   */
+  const clients = useTransferClients(true);
+  const parked = useParkedClientsByCenter(period.range);
+  const liveBreakdown = useMemo(() => {
+    const out: Record<string, BreakdownItem[]> = {};
+    const clientList = clients.data ?? [];
+    const order = new Map(clientList.map((client, index) => [client.id, index]));
+    const counts = parked.data ?? [];
+    for (const center of perCenter) {
+      if (!center.center_id) continue;
+      const rows = counts.filter((row) => row.center_id === center.center_id);
+      const names = new Map<string, string>();
+      for (const client of clientList) {
+        if (client.center_id === center.center_id) names.set(client.id, client.name);
+      }
+      for (const row of rows) if (!names.has(row.client_id)) names.set(row.client_id, row.client_name);
+      if (names.size === 0) continue;
+
+      const items = [...names.entries()]
+        .map(([id, label]) => ({
+          id,
+          label,
+          value: rows.find((row) => row.client_id === id)?.lead_count ?? 0,
+        }))
+        .sort((a, b) => (order.get(a.id) ?? 999) - (order.get(b.id) ?? 999));
+      const away = items.reduce((sum, item) => sum + item.value, 0);
+      out[center.center_id] = [
+        { label: "In House", value: Math.max(0, (center.total_submissions ?? 0) - away) },
+        ...items.map(({ label, value }) => ({ label, value })),
+      ];
+    }
+    return out;
+  }, [perCenter, clients.data, parked.data]);
   const totalsRow = totals.data ?? null;
 
   return (
@@ -55,7 +98,15 @@ export function AdminOverview() {
         />
       </div>
 
-      <OverviewPanels period={period} stats={stats} centers={perCenter} />
+      <OverviewPanels
+        period={period}
+        stats={stats}
+        centers={perCenter}
+        liveBreakdown={liveBreakdown}
+      />
+      {parked.isError ? (
+        <p className="text-xs text-destructive">{(parked.error as Error).message}</p>
+      ) : null}
 
       {/* Approved sales over the same window. */}
       <div className="flex items-center gap-3 pt-2">

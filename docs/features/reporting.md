@@ -124,9 +124,19 @@ The panels:
    chips, and the panel says so.
 
 **Where each screen puts them:**
-- **admin** `/admin?tab=overview` — the row, then `TotalsPanel` and
-  `LeadsByCenterPanel` as the record for the selected window, and finally a
-  two-column closing row of health checks: `CxCoverageCard` and
+- **admin** `/admin?tab=overview` — the row (in its Live | Manual panel, a center
+  that has external clients linked to it breaks its Live number down: **In House**
+  (its own closers' leads that were not transferred) and each linked client with the
+  leads still parked with it — e.g. UMS BPO 594 = In House 574 + Orbit 18 + Top Dawg 2.
+  Passed in through `OverviewPanels`' `liveBreakdown` prop, admin only, built in
+  `AdminOverview` from `parked_client_counts_range()`; the client numbers are leads
+  *still parked* that were *submitted in the selected window*, so they follow the date
+  chips and stay a subset of the center's live total. Replaced the earlier
+  "Parked with clients" footer), then `TotalsPanel` and
+  `LeadsByCenterPanel` as the record for the selected window, then (since
+  2026-10-10, under the Closer Leaderboard) `CxStatusBreakdown` — the same
+  component the Customer Pipeline tab opens with — under a "Customer Policy
+  Lifetime" divider, and finally a two-column closing row of health checks: `CxCoverageCard` and
   `SheetSyncBacklogCard`. Both are plain panels placed by `admin.tsx`; before
   2026-09-18 each positioned itself and so sat alone on a mostly empty row.
 - **manager** `/manager` → Reporting — the row **in place of the standalone

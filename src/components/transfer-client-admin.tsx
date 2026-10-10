@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { useCenters } from "@/lib/centers";
 import {
   TRANSFER_CLIENTS_KEY,
   useTransferClients,
@@ -45,6 +46,13 @@ export function TransferClientAdmin() {
   const clients = useTransferClients(false);
 
   const [name, setName] = useState("");
+  // "" = any center, i.e. no link: the client is offered to every center.
+  const [centerId, setCenterId] = useState("");
+  const [draftCenter, setDraftCenter] = useState("");
+  // Inactive centers included, so a client linked to one still names it.
+  const centers = useCenters(false);
+  const centerName = (id: string | null) =>
+    id ? ((centers.data ?? []).find((center) => center.id === id)?.name ?? "—") : "Any center";
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
 
@@ -57,13 +65,14 @@ export function TransferClientAdmin() {
   }
 
   const create = useMutation({
-    mutationFn: async (values: { name: string; sort_order: number }) => {
+    mutationFn: async (values: { name: string; sort_order: number; center_id: string | null }) => {
       const { error } = await supabase.from("transfer_clients").insert(values);
       if (error) throw error;
     },
     onSuccess: () => {
       toast.success("Client added");
       setName("");
+      setCenterId("");
       refresh();
     },
     // A duplicate name surfaces here as the unique-constraint message.
@@ -71,7 +80,10 @@ export function TransferClientAdmin() {
   });
 
   const update = useMutation({
-    mutationFn: async (vars: { id: string; values: { name?: string; active?: boolean } }) => {
+    mutationFn: async (vars: {
+      id: string;
+      values: { name?: string; active?: boolean; center_id?: string | null };
+    }) => {
       const { error } = await supabase
         .from("transfer_clients")
         .update(vars.values)
@@ -116,7 +128,7 @@ export function TransferClientAdmin() {
     event.preventDefault();
     const trimmed = name.trim();
     if (!trimmed) return;
-    create.mutate({ name: trimmed, sort_order: nextSortOrder(rows) });
+    create.mutate({ name: trimmed, sort_order: nextSortOrder(rows), center_id: centerId || null });
   }
 
   function move(index: number, direction: -1 | 1) {
@@ -137,7 +149,7 @@ export function TransferClientAdmin() {
       return;
     }
     update.mutate(
-      { id, values: { name: trimmed } },
+      { id, values: { name: trimmed, center_id: draftCenter || null } },
       { onSuccess: () => toast.success("Client updated") },
     );
   }
@@ -147,7 +159,8 @@ export function TransferClientAdmin() {
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="panel-title">Transfer Clients ({rows.length})</h2>
         <span className="text-[0.66rem] text-muted-foreground">
-          Active clients, in this order, are what External Transfer offers a closer.
+          Active clients, in this order, are what External Transfer offers a closer of the
+          client&apos;s center.
         </span>
       </div>
 
@@ -165,13 +178,35 @@ export function TransferClientAdmin() {
             required
           />
         </div>
+        <div className="flex min-w-0 flex-col gap-1">
+          <label htmlFor="transfer-client-center" className="field-label">
+            Center
+          </label>
+          <select
+            id="transfer-client-center"
+            value={centerId}
+            onChange={(event) => setCenterId(event.target.value)}
+            className="field-input"
+          >
+            <option value="">Any center</option>
+            {(centers.data ?? [])
+              .filter((center) => center.active)
+              .map((center) => (
+                <option key={center.id} value={center.id}>
+                  {center.name}
+                </option>
+              ))}
+          </select>
+        </div>
         <button type="submit" className="btn-submit" disabled={busy || !name.trim()}>
           {create.isPending ? "Adding…" : "Add client"}
         </button>
       </form>
 
       <p className="text-[0.66rem] text-muted-foreground">
-        A client cannot be deleted — parked leads point at it. Deactivating takes it out of the
+        A client linked to a center is offered only to that center&apos;s closers and is listed under
+        it on the Overview; &quot;Any center&quot; offers it to everyone. A client cannot be deleted —
+        parked leads point at it. Deactivating takes it out of the
         closer&apos;s transfer dialog and changes nothing about the leads already transferred to it.
         Renaming is safe: each lead keeps the client name it was parked under.
       </p>
@@ -183,6 +218,7 @@ export function TransferClientAdmin() {
           <TableHeader>
             <TableRow>
               <TableHead>Client</TableHead>
+              <TableHead className="w-44">Center</TableHead>
               <TableHead className="w-20 text-right">Order</TableHead>
               <TableHead className="w-20">Active</TableHead>
               <TableHead className="w-56 text-right">Actions</TableHead>
@@ -207,6 +243,23 @@ export function TransferClientAdmin() {
                         if (event.key === "Escape") setEditingId(null);
                       }}
                     />
+                  </TableCell>
+                  <TableCell>
+                    <select
+                      value={draftCenter}
+                      onChange={(event) => setDraftCenter(event.target.value)}
+                      className="field-input"
+                      aria-label="Center"
+                    >
+                      <option value="">Any center</option>
+                      {(centers.data ?? [])
+                        .filter((center) => center.active || center.id === client.center_id)
+                        .map((center) => (
+                          <option key={center.id} value={center.id}>
+                            {center.name}
+                          </option>
+                        ))}
+                    </select>
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">
                     {client.sort_order}
@@ -239,6 +292,9 @@ export function TransferClientAdmin() {
                 <TableRow key={client.id}>
                   <TableCell className={client.active ? "font-medium" : "font-medium opacity-50"}>
                     {client.name}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {centerName(client.center_id)}
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">
                     {client.sort_order}
@@ -275,6 +331,7 @@ export function TransferClientAdmin() {
                         onClick={() => {
                           setEditingId(client.id);
                           setDraft(client.name);
+                          setDraftCenter(client.center_id ?? "");
                         }}
                       >
                         Edit
@@ -309,7 +366,7 @@ export function TransferClientAdmin() {
             )}
             {rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={4} className="text-center text-muted-foreground">
+                <TableCell colSpan={5} className="text-center text-muted-foreground">
                   {clients.isLoading ? "Loading…" : "No clients yet."}
                 </TableCell>
               </TableRow>

@@ -1,5 +1,173 @@
 # Changelog
 
+## 2026-10-10 — Transfer clients belong to a center; the Overview shows them under it
+
+External transfer clients are now linked to a center (both existing ones to UMS BPO; future clients
+can belong to other centers). In the Overview's Live | Manual card, a center with clients breaks its
+Live number down: **UMS BPO 594 = In House 574 + Orbit 18 + Top Dawg 2**. The client numbers are leads
+*still parked* that were submitted in the selected period, so they follow the date chips and In House
+always adds up. This replaces the earlier "Parked with clients" footer (`ParkedClientsStrip` removed).
+- **Settings → Transfer Clients:** a Center select on the add form and in the table ("Any center" = offered
+  to every center). **External Transfer dialog:** a closer is offered only their own center's clients, and
+  `submit_form_parked` enforces it server-side (verified in a rolled-back test: another center's client is
+  refused, own-center and unlinked clients work).
+- **Database** (`20261010140000_transfer_clients_center.sql`, applied live): `transfer_clients.center_id`
+  (backfilled to UMS BPO), `parked_client_counts_range()`, `submit_form_parked` center check. `types.ts`
+  regenerated (additive).
+- Code: `overview-panels.tsx`, `admin-overview.tsx`, `parked-leads.tsx`, `transfer-client-admin.tsx`,
+  `transfer-client-dialog.tsx`, `lib/transfer-clients.ts`. Docs: `docs/database.md`,
+  `docs/features/admin-settings-and-config.md`, `docs/features/reporting.md`.
+- Names show as stored ("Orbit Insurance (Keller)", "Top Dawg Financial Group (Kwanii)"); an admin can
+  rename a client in Settings.
+
+## 2026-10-10 — Top cards count approved leads; "Sent back" gets its own card
+
+The cards above the status cards counted the whole pipeline (800), mixing approved leads with leads
+CX sent back to the manager. They are now: **Submitted leads 729** (approved; the Submission Outcome
+figure), **In CX 132** (approved with at least one status), **Untouched 597** (approved with no status,
+never entered CX), and a new **Sent back 71** card (with the manager for re-validation, not approved
+again; "69 waiting for a manager"). 132 + 597 = 729 and 729 + 71 = 800, every row of the table, and the
+table's Approved / Sent back chips read 729 / 71. The Overview's "CX coverage" card follows (132 / 729).
+- Database: `20261010130000_cx_untouched_approved_only.sql` (applied live): `cx_untouched` reads
+  `cx_pipeline` for the shared not-archived / not-removed rule and keeps an approved-only test. This
+  supersedes the previous entry's `cx_untouched` change (598).
+- Code: `cx-status-breakdown.tsx`, `lib/cx-overview.ts`. Docs: `docs/database.md`, ADR 0005,
+  `docs/features/cx-lifecycle.md`.
+- Unchanged: the four status cards still equal the table (all 800 rows), so the Policy header is 202
+  (132 plus the 70 sent-back leads that kept statuses).
+
+## 2026-10-10 — Sent-back leads are visible on the Customer Pipeline
+
+The pipeline's 800 includes 71 leads CX sent back to the manager for re-validation, but nothing marked
+them for an admin (the Return button that says so is the CXA's and is hidden from the read-only view).
+Now, for every role that opens the table: a **"Sent back" badge** beside the customer name (tooltip: date
+sent and current stage), a **stage filter** (All 800 / Approved 729 / Sent back 71, counts respecting the
+other filters, run in the database), and the **Submitted leads** card caption reads
+"729 approved + 71 sent back for validation" on both the Customer Pipeline tab and the Overview block.
+729 is the Submission Outcome figure, and 800 = 729 + 71. The badge is hidden while the "Sent back"
+filter is on (every row is one, so it only took room from the name). No database change.
+- Code: `customers-pipeline.tsx`, `cx-status-breakdown.tsx`, `lib/cx-overview.ts`.
+- Docs: `docs/features/cx-lifecycle.md`.
+
+## 2026-10-10 — Status cards now equal the pipeline table (fix)
+
+On the Customer Pipeline tab and the Overview's "Customer Policy Lifetime" block, the Policy Status
+card said Approved = 86 while the table below, filtered to Approved, listed 73. The cards' view
+(`cx_status_summary`) joined `submissions` with a LEFT JOIN that removed nothing, so it also counted
+archived leads (12) and a lead CX had removed from its pipeline (1). It now joins `cx_pipeline`, the
+same source as the table, so every card equals the table filtered to that status (checked: 0
+mismatches over all 26 status options; Approved = 73, Policy header 217 → 202).
+- Database: `20261010120000_cx_status_summary_matches_pipeline.sql` (applied live). Code: none.
+- Docs: `docs/database.md`; `docs/decisions/0005` gets a dated amendment (it said the view keeps an
+  accepted-only filter that, in fact, never applied).
+- **Top cards aligned too** (`20261010121000_cx_untouched_matches_pipeline.sql`, applied live):
+  `cx_untouched` (Untouched, and In CX = Submitted − Untouched) now reads `cx_pipeline` and returns
+  the pipeline leads with no status, instead of its own accepted-only rule. Effect: 1 lead
+  (Untouched 597 → 598, In CX 203 → 202, Submitted leads 800), so Submitted, Untouched, In CX, the
+  status cards and the table all answer for the same leads. `closer_lead_alerts` unchanged.
+
+## 2026-10-10 — Two fill rings instead of two "Missing info" badges
+
+The two badges ("Missing info (6)" amber, "Missing bank info (5)" muted) did not fit beside a customer
+name, so most uploaded rows in the Submissions list wrapped onto two lines. They are replaced by two
+small rings (about 64px, one line): core fields in amber, banking in grey. Each ring fills with how
+complete its group is and shows the number of fields still missing in the middle, so nothing needs
+counting; a complete group shows a tick so the rings keep their positions. (A first attempt, one 3px
+tick per field, was too small to read and was replaced.) Text label and a title naming the missing
+fields; falls back to the two counts if the required list cannot be read. Same component name, so
+every list (Submissions, manager queue, Closing Desk, Import history) updates with no call-site
+change. The group totals come from one shared hook, `useUploadedRequiredFields()`, which the
+uploader's review step also uses.
+- Code: `missing-info.tsx`, new `lib/required-fields.ts`, `upload-review.tsx`. Database: none.
+- Docs: `docs/features/spreadsheet-import.md`.
+
+## 2026-10-10 — Banking panel in the Submissions detail
+
+A lead's bank name, account number and routing number are stored in `payment_details`, not the
+payload, and the admin Submissions detail had no panel for them — so a lead that was only missing
+Account Title and Bank Type looked as if it had no bank details at all. The Banking panel
+(`PaymentPanel`, editable) now sits under Lead details there, for admin and manager only (the roles
+`payment_summary` accepts). Code: `reporting.tsx`. Database: none. Docs: `docs/features/spreadsheet-import.md`.
+
+## 2026-10-10 — Banking in "Missing information" + missing-field count in the uploader's review
+
+- **Banking fields are required for an uploaded lead** (Account Title, Bank Name, Bank Type, Routing
+  Number, Account Number; card number / expiry / CVC stay optional) and tracked as a **separate group**,
+  `submissions.missing_bank`, with its own muted "Missing bank info (N)" badge, so the core "Missing info"
+  label stays useful (Account Title was empty on all 500 uploaded leads, Bank Type on 468). A manager, admin
+  or general manager fills them in from the lead panel's new "Missing bank information" list; filters and
+  counts mirror the core ones on Submissions → Manual, the manager Manual queue, the Closing Desk and
+  Import history.
+- **Uploader review step:** a "Missing required fields" panel, a per-row "Missing" cell and two filter
+  chips show how many rows lack required fields *before* import, name the fields most often missing, and
+  call out required fields with no mapped column. Live as cells are edited; informational, never blocks.
+- **Permission change:** `update_payment_field` now also accepts `general_manager` (bank fields only; card
+  number / CVV remain admin only). Its guard was rewritten fail-closed and `anon`'s EXECUTE revoked.
+- **Database** (`20261010110000_missing_bank_info.sql`, `20261010111000_revoke_anon_update_payment_field.sql`,
+  applied live): `uploaded_required_fields()` (single definition of all 20 fields), `missing_bank_fields()`,
+  `submissions.missing_bank` + two triggers (backfilled; verified a bank edit enqueues no Sheets sync),
+  `missing_bank_by_field()`. `types.ts` regenerated (additive).
+- **Found, not fixed:** `payment_summary`, `update_payload_field` and `card_details` still run for an
+  unauthenticated caller — see `docs/TODO.md` ("SECURITY — several SECURITY DEFINER RPCs still run for anon").
+- Code: `missing-info.tsx`, `upload-review.tsx`, `lib/missing-upload.ts` (+ test), `manager.tsx`,
+  `reporting.tsx`, `closing-desk.tsx`, `import-history.tsx`, `ops.tsx`. Docs: `CLAUDE.md`,
+  `docs/database.md`, `docs/features/spreadsheet-import.md`, `docs/features/payments-security.md`,
+  `docs/TODO.md`.
+
+## 2026-10-10 — "Missing info" label on uploaded leads, fillable in place
+
+Uploaded leads often arrive without required fields (draft date blank on 175 of 500, zip on 28,
+state on 7; only 171 of 500 complete). They now carry an amber **Missing info (N)** badge, and
+each lead's panel has a **Missing information** list where a manager, admin or (on the Closing
+Desk) closing/general manager fills the gaps. Saves go through `update_payload_field`, so edits are
+audited and `draft_date` / `ssn_normalized` are re-derived. Label only; nothing is blocked.
+- Code: new `components/missing-info.tsx`; wired into `manager.tsx`, `reporting.tsx`,
+  `import-history.tsx`, `closing-desk.tsx`.
+- Docs: `docs/features/spreadsheet-import.md`.
+
+## 2026-10-10 — Missing information: filter and counts
+
+Filter and count uploaded leads by what they are missing, answered by the database so paging is right.
+- **Database** (`20261010100000_missing_info_filter.sql`, applied live): `missing_required_fields()`
+  (immutable, the one definition of the 15 required fields), `submissions.missing_info text[]` stored
+  generated column (recomputes on every payload edit, `{}` for non-uploaded leads), and
+  `missing_info_by_field()` (SECURITY INVOKER, anon revoked). Checked live: 329 of 500 uploaded leads
+  have a gap; Draft Date 175, Zip 28, State 7. `types.ts` regenerated (additive only).
+- **UI:** Submissions → Manual: "Missing info (N)" chip plus a per-field dropdown with counts; manager
+  Manual queue: chip (client-side); Import history: per-batch "Missing info" count and a toggle in an
+  opened batch. The badge and fill-in section now read the column.
+- The phase-1 TypeScript rule (`src/lib/missing-info.ts` and its test) is removed: the SQL function is
+  the single source of truth.
+- Closing Desk: a "Missing info" dropdown among the filters (any missing field, or one field with its
+  count); runs in the database like the other filters there. Bank fields are logged as an undecided
+  idea in `docs/TODO.md`.
+- Code: `reporting.tsx`, `manager.tsx`, `import-history.tsx`, `closing-desk.tsx`, `missing-info.tsx`,
+  `ops.tsx` (`SubmissionRow.missing_info`). Docs: `docs/database.md`, `docs/features/spreadsheet-import.md`,
+  `docs/TODO.md`.
+
+## 2026-10-10 — Parked leads per client on the admin Overview
+
+The Live | Manual panel on the admin Overview now ends with a "Parked with clients" footer: the
+total parked and one row per transfer client with its count and a bar (e.g. Keller 18, Kwanii 2).
+It is current state, not a period figure, so the date chips don't change it and the footer says so.
+- `OverviewPanels` gained an optional `footer` slot (it still fetches nothing); only the admin
+  Overview passes one, because `parked_client_counts` is admin / general_manager only. The manager
+  Reporting tab and the Closing Desk are unchanged.
+- New `ParkedClientsStrip` in `src/components/parked-leads.tsx`, on the same query key as the
+  Parked Leads tab's chips, so moving a lead there refreshes it.
+- Code: `overview-panels.tsx`, `admin-overview.tsx`, `parked-leads.tsx`. Database: none.
+- Docs: `docs/features/reporting.md`.
+
+## 2026-10-10 — CX status breakdown on the admin Overview
+
+The Customer Pipeline tab's status block (Untouched / In CX / Submitted leads, then the Policy,
+Premium, Commission and Chargeback status columns) is now also shown on the Overview tab, under
+the Closer Leaderboard and a "Customer Policy Lifetime" divider. It is the same `CxStatusBreakdown`
+component with the same query keys, so both tabs show identical numbers; the Customer Pipeline
+tab is unchanged.
+- Code: `src/routes/_authenticated/admin.tsx` only. Database: none.
+- Docs: `docs/features/reporting.md`.
+
 ## 2026-10-09 — Back to Admin button on the Reporting screen
 
 An admin who opens the Reporting Manager View had no way back except the browser's back

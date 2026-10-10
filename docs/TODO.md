@@ -346,3 +346,46 @@ them as different fields. Needs a decision on which key wins plus a data backfil
 The sheet-sync Apps Script isn't deployable by us. 192 rows already carry
 `Medications`; confirm from the function logs that the column is populated before
 relying on it for closer-form leads.
+
+## SECURITY — several `SECURITY DEFINER` RPCs still run for `anon`
+
+**Found 2026-10-10 while testing the Missing bank information work; NOT fixed.**
+Verified live by calling each as the `anon` role inside a transaction that was
+rolled back (no data was changed or kept):
+
+- `payment_summary(p_sub)` **returned bank details** (bank name, routing number,
+  account number, account title) to an unauthenticated caller.
+- `update_payload_field(p_sub, p_field, p_value)` **performed the write** for an
+  unauthenticated caller.
+- `card_details(p_sub)` was **not refused** for an unauthenticated caller (it
+  returned without raising; the leads tested had no card, so what it would return for
+  one that does was not checked).
+- `clear_data_flag` and `update_payment_field` correctly refused `anon`
+  (`update_payment_field` only after 2026-10-10: its guard was fail-open and its
+  grant is now revoked — `20261010111000_revoke_anon_update_payment_field.sql`).
+
+Cause: the same NULL-role pattern `docs/TODO.md`'s 2026-09-17 entry describes — a
+guard written `v_role not in (...)` is NULL, not true, for a caller with no role, so
+it falls through — and `EXECUTE` is still granted to `anon`. The 2026-09-27 fix
+covered the 19 functions it named; these were not among them. The public `anon` key
+ships in the browser bundle, so exploiting this needs only a submission id.
+
+Fix: for each, revoke `EXECUTE` from `public` and `anon` and write the guard as
+`my_role() is null or my_role() not in (...)` (a new migration, never a live-only
+change). Also still `anon`-executable and worth the same audit: `add_submission_tag`,
+`approve_import_batch`, `archive_submission`, `assign_to_validator`,
+`check_duplicate_ssn`, `move_to_validation`, `reject_import_batch`,
+`remove_from_cx_pipeline`, `remove_submission_tag`, `return_lead_for_validation`,
+`set_cx_status`, `start_lead_import`, `unarchive_submission`. Re-run the `anon`
+probe afterwards and add it to the checklist for every new RPC.
+
+## Optional card fields (number, expiry, CVC) have no entry UI
+
+Found 2026-10-10. `PaymentPanel` edits only Bank Name, Account Title, Routing Number and
+Account Number, and the Missing bank information list holds only *required* fields, so
+there is no screen where a user can type a card number, expiry or CVC for a lead that
+lacks them. The RPC side exists: `update_payment_field` accepts `card_exp` (manager,
+admin, general_manager) and `card_number` / `cvv` (admin only). Decide whether to add an
+entry UI, and who may type a card number, given `CLAUDE.md`'s rule that card numbers never
+reach a manager's or uploader's browser (entering one is not reading one back, but it
+needs a deliberate decision).
