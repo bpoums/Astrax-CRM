@@ -1,5 +1,68 @@
 # Changelog
 
+## 2026-10-12 — "GM View" in the admin header
+
+A **GM View** chip next to Manager View opens `/closing`, the general manager's Closing Desk (desk,
+Overview and Parked Leads), with every action live for admin as on Manager View. The route already
+admitted admin. `/closing` also gets an admin-only **Back to Admin** chip, like the Reporting and
+manager screens. Closing and general managers see no change.
+- Code: `src/routes/_authenticated/admin.tsx`, `closing.tsx`. Database: none.
+- Docs: `docs/features/closing-desk.md`, `docs/features/reporting.md`.
+
+## 2026-10-12 — Dev-only "Fill test data" button on the closer and validator forms
+
+Filling a whole form by hand to make a test lead is slow. Under `npm run dev` both forms now show a
+**Fill test data** chip beside Submit that fills every required field with fresh random valid data
+(name `TEST ...`, unique SSN, weekday draft dates, valid routing number); the user still presses
+Submit. Card Number, Exp Date and CVC are left blank so the manager's card-entry screen can be tested.
+- **Dev only:** guarded by `import.meta.env.DEV` at the call sites; a production build contains none
+  of the button or the generator (verified by grepping `.output`). Hidden in the admin preview.
+- **Caution:** the dev server uses the live database, so a submitted test lead is a real row; archive it.
+- Code: `lib/test-data.ts`, `components/test-data-button.tsx`, `closer-form.tsx`,
+  `validator-form.tsx` (its `SECTIONS` is now exported for the test). Tests: `lib/test-data.test.ts`.
+  No database change.
+
+## 2026-10-12 — Security: RPC grants locked down; managers can read cards; card entry
+
+**Security (applied live, `20261012100000_lock_down_rpc_execute.sql`).** 48 `SECURITY DEFINER`
+functions were executable with just the public key. `payment_summary` returned bank details,
+`update_payload_field` performed writes, and internal functions with no caller check
+(`ingest_sheet_lead`, `purge_old_reporting_leads`, `purge_payment_data`, ...) were open. Now
+`anon` can run only `my_role` / `review_window` / `review_settings`; the three fail-open
+guards are fail-closed; cron/trigger/edge-only functions are closed to `authenticated`;
+`submit_form_internal` and two trigger functions are closed to `authenticated`; new functions
+default to closed for `anon`. Verified with rolled-back `anon` / no-profile probes and a
+signed-in closer submitting through `submit_form`.
+
+**Cards (`20261012110000_card_entry_and_manager_reveal.sql`, applied live).**
+- `card_details` now also allows manager and general_manager (any lead, still logged).
+- `update_payment_field` lets admin, manager and general_manager write `card_number` / `cvv`
+  (was admin only); a card number on an `unknown`-type lead makes it a card lead.
+- `payment_summary` returns `has_card` / `has_cvv` booleans.
+- **UI:** `PaymentPanel` shows a "Card details (optional)" block to those three roles with one
+  input per missing field (number, expiry, CVC), validated by the importer's normalisers, and
+  shows "Show card details" on any lead with a card. `data-flags.tsx` unlocks card credentials for
+  the same roles. Rolled-back live test: manager added number/expiry/CVC and revealed them;
+  closing_manager and data_uploader were refused.
+- **Rule change:** "card numbers never reach a manager's browser" is replaced everywhere
+  (`CLAUDE.md`, `PRODUCT.md`, `docs/features/payments-security.md`, `docs/database.md`).
+- Code: `payment-panel.tsx`, `data-flags.tsx`, `lib/payment-summary.ts`.
+
+## 2026-10-12 — Lead import: one card number definition
+
+The uploader's field catalog listed `card_number` twice (the closer form's plain-text "Card Number" and
+the import-only card field). Editing a card number in review used the wrong validation, so a bad number
+was marked clean, and the card number was also written into `payload`, which syncs to Google Sheets.
+- **Code:** `buildCatalog()` in `src/lib/canonical-fields.ts` drops the form-derived entry whose key
+  `CARD_FIELDS` also declares. New `src/lib/canonical-fields.test.ts` (unique keys, card is a payment
+  field, nothing card-like in `PAYLOAD_FIELDS`, build and edit agree). Fixes the failing
+  `review-columns.test.ts` test.
+- **Database:** none. Read-only live check: 0 of 501 imported leads had a `Card Number` in payload and
+  `payment_details` held no card numbers, so no cleanup.
+- **Visible effects:** one "Card Number" in the mapping dropdown, the template and the cleaned CSV.
+- **Docs:** `docs/features/spreadsheet-import.md`, `docs/decisions/0003-...`, `CLAUDE.md`,
+  `docs/TODO.md` (server-side stripping and the dead `exp_date`/`cvc` fields recorded as follow-ups).
+
 ## 2026-10-10 — Transfer clients belong to a center; the Overview shows them under it
 
 External transfer clients are now linked to a center (both existing ones to UMS BPO; future clients

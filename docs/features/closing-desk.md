@@ -201,6 +201,13 @@ branch that decides whether the Parked Leads tab even renders lives in the
   [decisions/0005](../decisions/0005-single-insert-status-to-avoid-sheet-sync-races.md)),
   so there is no separate "parked at" timestamp to prefer over it.
 
+## Admin entry point (added 2026-10-12)
+The admin header has a **GM View** chip next to Manager View. It opens `/closing`, the real Closing Desk
+with the Overview and Parked Leads tabs; `requireRole` already admitted admin, and admin has every
+general-manager control, including releasing parked leads. `/closing` shows an admin-only **Back to
+Admin** chip in its header (as the Reporting and manager screens do); closing managers and general
+managers do not see it. Code: `admin.tsx`, `closing.tsx`. Database: none.
+
 ## Known limitations
 - **A parked lead's payload is shown unmasked**, banking fields included. The
   closer form writes `Routing Number`, `Account Number`, `Card Number`,
@@ -209,8 +216,8 @@ branch that decides whether the Parked Leads tab even renders lives in the
   panel** — Reporting, the manager queue and the customers pipeline have
   always rendered the same payload the same way to the same roles, and an
   admin can already read any parked lead in Reporting → Submissions. It is
-  recorded here because it sits awkwardly against `CLAUDE.md`'s "card numbers
-  and CVVs never reach a manager's or uploader's browser", which appears
+  recorded here because it sits awkwardly against `CLAUDE.md`'s former "card numbers
+  and CVVs never reach a manager's or uploader's browser" (since relaxed for managers, 2026-10-12), which appears
   aimed at the `payment_details` path for imported leads rather than at
   closer-form payloads. Masking would be one change to `PayloadTable`
   affecting every view at once; doing it in a single panel would read as

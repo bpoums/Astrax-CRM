@@ -6,10 +6,9 @@ browser, deterministically normalized and flagged, then approved batch-by-
 batch by a manager before they reach the ordinary queue.
 
 ## Current status
-Live. One genuine, currently-failing unit test (see Known limitations) and
-one documentation/behavior mismatch against `PRODUCT.md` (also below) were
-found during this audit — neither blocks the feature from working, but both
-are worth fixing deliberately rather than by accident.
+Live. One documentation/behavior mismatch against `PRODUCT.md` (see Known
+limitations) was found during the 2026-09-10 audit. The duplicate
+`card_number` catalog key the audit also found was fixed 2026-10-12 (below).
 
 ## Roles involved
 **data_uploader** (upload, map, review, import their own batches; sees only
@@ -236,20 +235,20 @@ all 15 core fields; draft date was blank on 175, zip on 28, state on 7.
   itself, by design.
 
 ## Known limitations
-- **`npm test` currently fails 1 of 140 tests** (`review-columns.test.ts`,
-  "does not lose the card columns when the only card number is cleared").
-  Root cause, confirmed by reading the source: `canonical-fields.ts` builds
-  its catalog by combining the closer form's own fields (which include a
-  plain-text `"Card Number"` field) with a separately hand-written
-  `CARD_FIELDS` list that *also* declares a `card_number` entry, with a
-  different detector kind. The combined catalog ends up with two entries
-  sharing the key `card_number`; `buildLead()` resolves the collision one
-  way (`Map`, last-write-wins → the correct `"card"` kind) and
-  `setLeadField()` resolves it the other way (`Array.find()`, first-match
-  → the wrong `"text"` kind) — so editing a card number *after* the initial
-  parse silently loses card-specific validation. This predates this audit
-  and was not introduced by it; fixing it is an application-code change and
-  is out of scope for this documentation pass.
+- **Card fields have exactly one definition** (fixed 2026-10-12). The closer
+  form's plain-text `"Card Number"` field used to produce a second
+  `card_number` catalog entry (kind `text`, target `payload`) alongside
+  `CARD_FIELDS` (kind `card`, target `payment`). `buildLead()` resolved the
+  duplicate with a `Map` (last wins → `card`), `setLeadField()` with
+  `Array.find()` (first wins → `text`), so a card number edited in review
+  lost its validation, and `toIngestPayload` also wrote it into
+  `payload["Card Number"]`. `buildCatalog()` in `canonical-fields.ts` now
+  drops any form field whose key `CARD_FIELDS` declares. Live check at the
+  time: no imported lead had leaked (0 of 501 `source='sheet'` payloads held a
+  `Card Number`; 0 `payment_details` rows held a card), so no cleanup was
+  needed. `src/lib/canonical-fields.test.ts` keeps the keys unique.
+  The server still does not defend against card data in `payload`:
+  `ingest_sheet_lead` stores whatever it is sent (see `docs/TODO.md`).
 - **`PRODUCT.md` overstates the payment-data guarantee for this specific
   screen**: it says card numbers and CVVs "never reach... an uploader's
   browser." That is true after import (only the role-checked, logged

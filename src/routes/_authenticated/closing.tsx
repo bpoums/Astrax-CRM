@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { requireRole, useAuth } from "@/lib/auth";
 import { supabase } from "@/integrations/supabase/client";
@@ -106,7 +106,19 @@ function ClosingPage() {
   return (
     <main className="min-h-screen bg-background text-foreground">
       <div className="mx-auto flex max-w-[1500px] flex-col gap-4 px-4 py-4 lg:px-8 lg:py-5">
-        <AppHeader title="Closing Desk" subtitle="Closing" />
+        <AppHeader
+          title="Closing Desk"
+          subtitle="Closing"
+          actions={
+            /* The way back, and only for an admin — a closing or general manager
+               has no /admin to return to and the route would bounce them. */
+            profile?.role === "admin" ? (
+              <Link to="/admin" search={{ tab: "overview" }} className="chip inline-block">
+                Back to Admin
+              </Link>
+            ) : null
+          }
+        />
 
         {/* Tabs for every role here since 2026-09-18, where a closing manager
             previously got the bare desk — they now get the Overview too. Parked

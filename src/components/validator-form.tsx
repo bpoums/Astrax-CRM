@@ -7,7 +7,9 @@ import { calcAge, formatExpDate, formatSSN, zodiacSign } from "@/lib/form-fields
 import { closeField, maskField } from "@/lib/field-mask";
 import { roleHome, useAuth } from "@/lib/auth";
 import { useCarriers } from "@/lib/carriers";
+import { validatorTestData } from "@/lib/test-data";
 import { BrandLogo } from "./brand-logo";
+import { TestDataButton } from "./test-data-button";
 
 type FieldType = "text" | "number" | "date" | "radio" | "textarea";
 
@@ -42,7 +44,7 @@ type Section = { title: string; fields: Field[] };
  * application, so there is no payment-type choice to make and no conditional
  * half of the panel.
  */
-const SECTIONS: Section[] = [
+export const SECTIONS: Section[] = [
   {
     title: "Customer",
     fields: [
@@ -230,9 +232,26 @@ export function ValidatorForm({ readOnly = false }: { readOnly?: boolean } = {})
               </span>
             ) : null}
             {readOnly ? null : (
-              <button type="submit" className="btn-submit" disabled={status === "sending"}>
-                {status === "sending" ? "Submitting…" : "Submit entry"}
-              </button>
+              <>
+                {/* Guarded here, not only inside the button, so a production build
+                    folds this to `null` and drops the generator with it. */}
+                {import.meta.env.DEV ? (
+                  <TestDataButton
+                    onFill={() => {
+                      const sample = validatorTestData({
+                        carrier: carriers.data?.[0]?.name ?? null,
+                      });
+                      setAgency(sample.agency);
+                      setValues(sample.values);
+                      setStatus("idle");
+                      setMessage("");
+                    }}
+                  />
+                ) : null}
+                <button type="submit" className="btn-submit" disabled={status === "sending"}>
+                  {status === "sending" ? "Submitting…" : "Submit entry"}
+                </button>
+              </>
             )}
             {profile && profile.role !== "closer" ? (
               <Link to={roleHome[profile.role]} className="chip inline-block">

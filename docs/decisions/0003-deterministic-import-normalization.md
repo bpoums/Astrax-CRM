@@ -27,22 +27,18 @@ unchanged" if needed.
 - Import results are fast, free, repeatable, and — because every rule is a
   named, testable function — auditable and unit-testable
   (`src/lib/normalize/*.test.ts`, run via `npm test`).
-- **This guarantee currently has one real crack**, found during this audit:
-  `canonical-fields.ts` builds its field catalog by combining the closer
-  form's own fields (which include a plain-text "Card Number" field, since
-  the closer form has no masking concept) with a hand-written `CARD_FIELDS`
-  list that *also* declares `card_number` — with a different detector kind
-  (`"card"` vs `"text"`). The catalog ends up with two entries sharing the
-  key `card_number`. `buildLead()` resolves duplicate keys through a `Map`
-  (last write wins → the `"card"` kind), but `setLeadField()` (used when an
-  operator edits a cell after the initial build) resolves the same key
-  through `Array.find()` (first entry wins → the `"text"` kind). The result:
-  editing a card number after the initial parse silently uses the wrong
-  detector. This is caught by an existing failing test
-  (`review-columns.test.ts`, "does not lose the card columns when the only
-  card number is cleared") — `npm test` currently reports **1 failing test**
-  because of it. See [features/spreadsheet-import.md](../features/spreadsheet-import.md)
-  for the fix options; this document does not change the code, per the
+- **The one crack found in the 2026-09-10 audit is fixed (2026-10-12).**
+  `canonical-fields.ts` used to combine the closer form's fields (including its
+  plain-text "Card Number") with a hand-written `CARD_FIELDS` list that also
+  declared `card_number`, so the catalog held two entries under one key.
+  `buildLead()` resolved the key through a `Map` (last wins, kind `card`),
+  `setLeadField()` through `Array.find()` (first wins, kind `text`), so editing
+  a card number after the initial parse used the wrong detector, and the
+  payload-target copy put the card number into `payload`. `buildCatalog()` now
+  drops the form-derived entry, `CARD_FIELDS` is the only definition, and
+  `canonical-fields.test.ts` asserts keys are unique. The rule going forward:
+  a catalog key must be unique, because the engine looks fields up by key in
+  more than one way.
   audit's scope.
 - The engine being pure/no-I/O also means it cannot itself call the database
   RPC `resolve_carrier` — if that RPC and this module's own `carriers.ts`

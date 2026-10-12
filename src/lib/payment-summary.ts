@@ -10,8 +10,9 @@ import { supabase } from "@/integrations/supabase/client";
  * showing the old value straight after a successful fix.
  *
  * It returns the bank fields plus the card's last four. A full card number is
- * never in here; that is `card_details`, which is admin/validator-only and
- * logged.
+ * never in here; that is `card_details`, which is admin, manager, general_manager
+ * and (inside their own open review) validator only, and logged. `has_card` and
+ * `has_cvv` say whether a value is stored without carrying it.
  */
 
 export type PaymentSummary = {
@@ -22,6 +23,9 @@ export type PaymentSummary = {
   account_title: string | null;
   card_last4: string | null;
   card_exp: string | null;
+  has_card: boolean;
+  has_cvv: boolean;
+  cvv_purged: boolean;
 };
 
 export function paymentSummaryKey(submissionId: string) {
@@ -40,6 +44,9 @@ export function readPaymentSummary(value: unknown): PaymentSummary | null {
     account_title: text("account_title"),
     card_last4: text("card_last4"),
     card_exp: text("card_exp"),
+    has_card: raw["has_card"] === true,
+    has_cvv: raw["has_cvv"] === true,
+    cvv_purged: raw["cvv_purged"] === true,
   };
 }
 

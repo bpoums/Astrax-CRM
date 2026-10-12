@@ -120,9 +120,9 @@ work is never silently lost.
   revokes access everywhere in one write. A trigger refuses to deactivate or
   demote the last remaining admin.
 - **Payment data never travels in `payload`**, because `payload` is what is
-  pushed to Google Sheets. Card numbers and CVVs never reach a manager's or an
-  uploader's browser; only a validator inside their own open review may read a
-  full card, and every such read is logged.
+  pushed to Google Sheets. Card numbers and CVVs never reach an uploader's browser. An
+  admin, manager or general manager may open a full card on one explicit click, a
+  validator only inside their own open review, and every such read is logged.
 - **The normalisation engine is deterministic.** No LLM or AI call belongs in
   it, so import results stay fast, free, repeatable and auditable.
 - Deployed to Cloudflare Workers. The app's address exists in three places —

@@ -239,6 +239,24 @@ lead editors treat both as plain textareas. `Medications` is derived from `SECTI
 into the import catalog (`canonical-fields.ts`) and no longer declared twice.
 Not on the validator form.
 
+## Dev-only "Fill test data" button — added 2026-10-12
+Both intake forms show a **Fill test data** chip beside Submit when the app runs under `npm run dev`.
+It fills every required field with fresh random valid data and does not submit: the user still
+presses Submit.
+- **Dev only.** The button is guarded by `import.meta.env.DEV` at the call site in
+  `closer-form.tsx` and `validator-form.tsx`, so a production build folds it to nothing. Checked
+  by grepping the built bundle (`.output`) for the button text and the sample strings: no match.
+  It is also hidden in the admin read-only preview.
+- **Generator:** `src/lib/test-data.ts` (`closerTestData`, `validatorTestData`) is pure, with
+  `now` and `random` injectable. Values are in the final masked form (`123-45-6789`, `$25,000`,
+  `5'8"`), the state and ZIP agree, the routing number passes the ABA check, both draft dates are
+  weekdays, and the SSN differs on each press so the duplicate-SSN check does not block repeat tests.
+  `src/lib/test-data.test.ts` checks that every required field of each form is filled.
+- **Left blank on purpose:** Card Number, Exp Date, CVC, Health Conditions, Medications (all
+  optional), so the manager's "Card details (optional)" screen can be tested on the resulting lead.
+- **Same database as production.** The dev server uses the live Supabase project, so a submitted
+  test lead is a real row. The name starts with `TEST` so it is easy to find and archive.
+
 ## Known limitations
 - Field labels doubling as payload keys, Sheet columns, *and* import target
   fields means a label rename has three simultaneous consequences — this is

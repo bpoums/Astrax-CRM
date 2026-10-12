@@ -33,3 +33,6 @@ dist-ssr
 
 # Local MCP server config - holds a Supabase access token, never commit
 .mcp.json
+
+# graphify knowledge-graph output (generated; rebuilt with `graphify update .`)
+graphify-out/

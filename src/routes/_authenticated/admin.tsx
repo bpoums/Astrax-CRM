@@ -132,6 +132,12 @@ function AdminPage() {
               <Link to="/manager" className="chip inline-block">
                 Manager View
               </Link>
+              {/* The general manager's real screen, same as Manager View:
+                  /closing already admits admin, with the desk, the overview
+                  and Parked Leads all live. */}
+              <Link to="/closing" search={{ tab: "desk" }} className="chip inline-block">
+                GM View
+              </Link>
               {/* Unlike Manager View, these two render read-only for admin —
                   a way to check field layout and order without logging in as
                   a closer or validator. See the `readOnly` prop on each form. */}

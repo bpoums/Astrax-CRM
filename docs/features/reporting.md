@@ -52,7 +52,7 @@ active centers" and an empty validator table (see
   `AdminOverview` already sets the precedent of mounting the three panels
   without `TotalsPanel` beside them. An admin reaches it from the
   **Reporting Manager View** button in the admin header (added 2026-10-06),
-  next to Manager View / Closer Form / Validator Form. It's read-only for
+  next to Manager View / GM View / Closer Form / Validator Form. It's read-only for
   admin the same as for the role itself, because the screen has no edit
   controls at all. Admins also get a **Back to Admin** chip in this screen's header
   (added 2026-10-09, same pattern as the manager queue); the role itself never sees it.

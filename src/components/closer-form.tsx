@@ -13,7 +13,9 @@ import {
 } from "@/lib/field-mask";
 import { useCarriers } from "@/lib/carriers";
 import type { Carrier } from "@/lib/carriers";
+import { closerTestData } from "@/lib/test-data";
 import { AppHeader } from "./ops";
+import { TestDataButton } from "./test-data-button";
 import { BrandLogo } from "./brand-logo";
 import { SuggestInput } from "./suggest-input";
 import { TransferClientDialog } from "./transfer-client-dialog";
@@ -292,6 +294,17 @@ export function CloserForm({ readOnly = false }: { readOnly?: boolean } = {}) {
             )}
             {readOnly ? null : (
               <>
+                {/* Guarded here, not only inside the button, so a production build
+                    folds this to `null` and drops the generator with it. */}
+                {import.meta.env.DEV ? (
+                  <TestDataButton
+                    onFill={() => {
+                      setValues(closerTestData({ carrier: carriers.data?.[0]?.name ?? null }));
+                      setStatus("idle");
+                      setMessage("");
+                    }}
+                  />
+                ) : null}
                 <button type="submit" className="btn-submit" disabled={status === "sending"}>
                   {status === "sending" ? "Submitting…" : "Submit entry"}
                 </button>

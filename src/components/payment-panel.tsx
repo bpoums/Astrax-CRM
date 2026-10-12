@@ -2,24 +2,28 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { paymentSummaryKey, usePaymentSummary } from "@/lib/payment-summary";
+import { useAuth } from "@/lib/auth";
+import { normalizeCard, normalizeCvv, normalizeExpiry, type Normalized } from "@/lib/normalize";
+import { paymentSummaryKey, usePaymentSummary, type PaymentSummary } from "@/lib/payment-summary";
 import { Badge } from "@/components/ui/badge";
 
 /**
  * Banking details for a submission.
  *
  * The numbers never come down with the row: `payment_summary` returns the bank
- * fields plus the card's last four and nothing else, so a manager's queue never
- * holds a card number to leak. The full card is a separate, logged RPC that
- * only a validator inside their own review can call.
+ * fields plus the card's last four and nothing else, so a queue never holds a
+ * card number to leak. The full card is a separate, logged RPC (`card_details`):
+ * an admin, manager or general_manager may open it on any lead with one click, and
+ * a validator only inside their own open review. Nobody else can.
  *
  * `editable` adds inline correction of the bank fields through
  * `update_payment_field`, one field per call, the same RPC and the same
- * `form_events` trail the data-flag editor uses. The card number and the CVV are
- * never offered here for anyone — they cannot be read back out of
- * `payment_summary`, and the RPC refuses them to every role but admin. A
- * card-type lead therefore has nothing editable in this panel at all: its last
- * four and its expiry are all that ever reach the browser.
+ * `form_events` trail the data-flag editor uses.
+ *
+ * Admin, manager and general_manager also get "Card details (optional)": an
+ * input for each of card number, expiry and CVC that the lead does not have yet.
+ * A stored card number or CVV is never read back into those inputs, so an entry
+ * only ever adds a missing value; replacing one is the data-flag editor's job.
  */
 
 /**
@@ -55,6 +59,9 @@ function groupCard(digits: string | null) {
   return digits.replace(/(.{4})/g, "$1 ").trim();
 }
 
+/** The roles the RPCs let read and add a full card. Server-enforced; this only hides the controls. */
+const CARD_ROLES: readonly string[] = ["admin", "manager", "general_manager"];
+
 export function PaymentPanel({
   submissionId,
   canRevealCard = false,
@@ -62,10 +69,13 @@ export function PaymentPanel({
 }: {
   submissionId: string;
   canRevealCard?: boolean;
-  /** Inline correction of the bank fields. Never the card number or the CVV. */
+  /** Inline correction of the bank fields. */
   editable?: boolean;
 }) {
   const [card, setCard] = useState<CardDetails | null>(null);
+  const { profile } = useAuth();
+  const canManageCard = CARD_ROLES.includes(profile?.role ?? "");
+  const mayReveal = canRevealCard || canManageCard;
 
   const summary = usePaymentSummary(submissionId);
 
@@ -114,6 +124,7 @@ export function PaymentPanel({
         <p className="text-xs text-muted-foreground">
           No card or bank draft details are attached to this lead.
         </p>
+        {canManageCard ? <CardEntry submissionId={submissionId} summary={details ?? null} /> : null}
       </div>
     );
   }
@@ -153,7 +164,7 @@ export function PaymentPanel({
         )}
       </div>
 
-      {type === "card" && canRevealCard ? (
+      {details.has_card && mayReveal ? (
         card ? (
           <div className="flex flex-col gap-2">
             <div className="divide-y divide-border rounded-md border border-accent">
@@ -181,6 +192,131 @@ export function PaymentPanel({
           </div>
         )
       ) : null}
+
+      {canManageCard ? <CardEntry submissionId={submissionId} summary={details} /> : null}
+    </div>
+  );
+}
+
+/**
+ * The optional card fields a lead is still missing, one input each.
+ *
+ * Only a field with nothing stored is offered: `has_card` / `card_exp` /
+ * `has_cvv` say so without carrying the value. A CVV the retention job has
+ * already purged is not offered again, because that was a deliberate removal.
+ * Each value is checked with the same normalisers the importer uses before Add
+ * enables, and what is sent is the normalised form (digits, MM/YY).
+ */
+const CARD_ENTRY_FIELDS = [
+  {
+    field: "card_number",
+    label: "Card Number",
+    placeholder: "15–16 digits",
+    check: (raw: string): Normalized => normalizeCard(raw),
+    missing: (s: PaymentSummary) => !s.has_card,
+  },
+  {
+    field: "card_exp",
+    label: "Card Expiry",
+    placeholder: "MM/YY",
+    check: (raw: string): Normalized => normalizeExpiry(raw),
+    missing: (s: PaymentSummary) => !s.card_exp,
+  },
+  {
+    field: "cvv",
+    label: "CVC",
+    placeholder: "3–4 digits",
+    check: (raw: string): Normalized => normalizeCvv(raw),
+    missing: (s: PaymentSummary) => !s.has_cvv && !s.cvv_purged,
+  },
+] as const;
+
+function CardEntry({
+  submissionId,
+  summary,
+}: {
+  submissionId: string;
+  summary: PaymentSummary | null;
+}) {
+  const open = CARD_ENTRY_FIELDS.filter((entry) => !summary || entry.missing(summary));
+  if (open.length === 0) return null;
+
+  return (
+    <div className="flex flex-col gap-1">
+      <h4 className="field-label">Card details (optional)</h4>
+      <div className="divide-y divide-border rounded-md border border-border">
+        {open.map((entry) => (
+          <CardEntryRow key={entry.field} submissionId={submissionId} entry={entry} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CardEntryRow({
+  submissionId,
+  entry,
+}: {
+  submissionId: string;
+  entry: (typeof CARD_ENTRY_FIELDS)[number];
+}) {
+  const queryClient = useQueryClient();
+  const [draft, setDraft] = useState("");
+  const checked = draft.trim() ? entry.check(draft) : null;
+  const invalid = checked?.status === "review";
+
+  const save = useMutation({
+    mutationFn: async () => {
+      if (!checked || invalid) throw new Error("Enter a valid value first.");
+      const { error } = await supabase.rpc("update_payment_field", {
+        p_sub: submissionId,
+        p_field: entry.field,
+        p_value: checked.value,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      setDraft("");
+      toast.success(`${entry.label} added`);
+      queryClient.invalidateQueries({ queryKey: paymentSummaryKey(submissionId) });
+    },
+    // The RPC raises its own authorisation message — show it as written.
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const id = `card-${entry.field}-${submissionId}`;
+
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] items-start gap-2 px-3 py-1.5">
+      <label className="field-label truncate pt-1.5" htmlFor={id}>
+        {entry.label}
+      </label>
+      <div className="flex flex-col gap-0.5">
+        <div className="flex items-center gap-1.5">
+          <input
+            id={id}
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            placeholder={entry.placeholder}
+            className="field-input h-7 flex-1 text-xs tabular-nums"
+            autoComplete="off"
+            inputMode="numeric"
+          />
+          {checked && !invalid ? (
+            <button
+              type="button"
+              className="chip shrink-0 px-2 py-0.5 text-[0.62rem]"
+              disabled={save.isPending}
+              onClick={() => save.mutate()}
+            >
+              {save.isPending ? "Saving…" : "Add"}
+            </button>
+          ) : null}
+        </div>
+        {invalid ? (
+          <span className="text-[0.62rem] text-destructive">{checked?.note ?? "Not valid"}</span>
+        ) : null}
+      </div>
     </div>
   );
 }

@@ -218,13 +218,15 @@ Full list with role gates in `docs/database.md`.
 - `start_lead_import(p_file_name text, p_row_count int)` — opens a batch
 - `clear_data_flag(p_sub uuid, p_field text)` — manager/admin resolve action
 - `payment_summary(p_sub uuid)` — bank fields plus `card_last4`, never the number
-- `card_details(p_sub uuid)` — full card; validator, in_review, theirs, **logged**
+- `card_details(p_sub uuid)` — full card; admin, manager, general_manager (any lead), or the
+  assigned validator while `in_review`; every call **logged** to `card_access_log`
 - `update_payment_field(p_sub uuid, p_field text, p_value text)` — manager/admin/
   general_manager (added 2026-10-10, for the Missing bank information section;
   and cxa/cxm on their own pipeline lead) for `payment_type`, `bank_name`,
   `routing_number`, `account_number`, `account_title`, `card_exp`;
-  **admin only** for `card_number` and `cvv`. It
-  raises its own authorisation message; show that message rather than a generic
+  `card_number` and `cvv` are writable by admin, manager and general_manager only (changed
+  2026-10-12; cxa/cxm never); saving a card number on a lead with no payment type makes it a
+  card lead. It raises its own authorisation message; show that message rather than a generic
   one.
 
 Imported leads are written by the `ingest-sheet-lead` edge function, not by the
@@ -276,11 +278,16 @@ Reads go through `supabase.from(...)` and RLS scopes them per role.
   trigger pushes to Google Sheets. A card number placed there is exported to a
   spreadsheet. For imported leads every instrument field goes in the `payment`
   object, which lands in `payment_details` and is never synced.
-- **Card numbers and CVVs never reach a manager's or uploader's browser.** The
-  uploader sees the last four and corrects a mis-parse by re-parsing the
-  original cell, never by reading or typing the number. Managers get
-  `payment_summary`. Only a validator inside their own open review can call
-  `card_details`, and every call is logged to `card_access_log`.
+- **Card numbers and CVVs never reach an uploader's browser, and reach a manager's only
+  through the logged `card_details` call.** The uploader sees the last four and corrects a
+  mis-parse by re-parsing the original cell, never by reading or typing the number. Queues
+  and detail sheets get `payment_summary` (last four, never the number). `card_details` is
+  callable by admin, manager and general_manager (one explicit click in `PaymentPanel`, any
+  lead) and by a validator inside their own open review; closing_manager, CX roles and the
+  uploader cannot. Every call is logged to `card_access_log`. Admin, manager and
+  general_manager can also add a missing card number, expiry or CVC from `PaymentPanel`'s
+  "Card details (optional)" block (added 2026-10-12); a stored value is never read back into
+  that form.
 
 ## Flow
 
@@ -351,8 +358,11 @@ data to a caller with no profile, no JWT, or an inactive one. Verified live:
 `admin_settings()` and `reporting_retention_status()` both returned data to
 `anon`. **Write every new guard as `my_role() is distinct from 'admin'`**, and
 revoke EXECUTE from `anon` by name (revoking from `public` does not remove
-Supabase's direct grant). ~20 existing RPCs still need fixing — see
-`docs/TODO.md`.
+Supabase's direct grant). Fixed 2026-10-12 (`20261012100000_lock_down_rpc_execute.sql`):
+every `SECURITY DEFINER` function in `public` is now closed to `anon` except `my_role`,
+`review_window` and `review_settings`, cron/trigger/edge-only functions are closed to
+`authenticated` too, and new functions are not anon-executable by default. Still end every
+new RPC with an explicit `grant execute ... to authenticated` and re-run the `anon` probe.
 
 **In an RLS policy always write `(select my_role())`, never a bare
 `my_role()`** — same for `(select auth.uid())`. A bare call is evaluated once
@@ -534,17 +544,12 @@ overrides the amber/navy identity with grey.
   `format` (`prettier --write .`), `types` (regenerates the Supabase types),
   `test` (`vitest run`, the normalisation engine).
   There is no `typecheck` script — run `npx tsc --noEmit`.
-- **`npm test` currently fails 1 of 140 tests**, found during the
-  2026-09-10 audit and not yet fixed:
-  `src/lib/normalize/review-columns.test.ts` — "does not lose the card
-  columns when the only card number is cleared." Root cause: the closer
-  form's own `"Card Number"` field and `canonical-fields.ts`'s hand-written
-  `CARD_FIELDS` both produce a catalog entry keyed `card_number`, and
-  `buildLead()`/`setLeadField()` resolve that duplicate key two different
-  ways (`Map` vs `Array.find`, so last-write-wins vs first-match). See
-  `docs/decisions/0003-deterministic-import-normalization.md`. This is
-  pre-existing, not introduced by this audit, and fixing it is an
-  application-code change outside this pass's scope.
+- **`npm test` currently fails 4 of 217 tests**, all in
+  `src/lib/format-date.test.ts` (`formatCalendarDate`; the output is
+  `09-17-2026` where the test expects `17 Sept 2026`, probably a locale/ICU
+  difference on this machine — not investigated). The earlier
+  `review-columns.test.ts` failure (duplicate `card_number` catalog key) was
+  fixed 2026-10-12 — see `docs/decisions/0003-deterministic-import-normalization.md`.
 
 ### Generated types are a rule, not a note
 
@@ -561,9 +566,25 @@ overrides the amber/navy identity with grey.
   supabase.rpc("reject_assignment", reason ? { p_sub: id, p_reason: reason } : { p_sub: id });
   ```
 
+- **Dev-only "Fill test data" button** on the closer and validator forms (`src/lib/test-data.ts`,
+  `TestDataButton`). It exists only under `npm run dev`, never in the deployed build, and it uses
+  the live database, so a submitted test lead is a real row named `TEST ...`. Keep new required
+  form fields in the generator, or `test-data.test.ts` fails.
+
 ### Lint
 
 `npm run lint` is dirty repo-wide: `core.autocrlf=true` gives the working tree
 CRLF endings while prettier expects LF, so nearly every pre-existing file reports
 `Delete ␍`. Lint the files you touched (`npx eslint <paths>`) rather than reading
 the repo-wide total.
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+Rules:
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+- A committed graphify-out/graph.json is rewritten whole on every build, so a large diff to it in a pull request is expected. Do not flag it as churn or suggest skipping the graph rebuild or its hooks.

@@ -250,20 +250,30 @@ actually read, and that a role with no business there cannot execute it at all.
 
 ---
 
-## `npm test` fails 1 of 140
+## `npm test` fails 4 of 217
 
-`src/lib/normalize/review-columns.test.ts` — "does not lose the card columns
-when the only card number is cleared." Duplicate `card_number` catalog key
-resolved two different ways by `buildLead()` vs `setLeadField()` (`Map`
-last-write-wins vs `Array.find` first-match). Pre-existing, found in the
-2026-09-10 audit. See
+All four are in `src/lib/format-date.test.ts` (`formatCalendarDate`, "renders the
+17th as the 17th in every timezone" and three siblings): the output is
+`09-17-2026` where the tests expect `17 Sept 2026`. That file was last changed in
+`a826cd2`. Probably locale/ICU-dependent on this machine; not investigated.
+
+The `review-columns.test.ts` failure (duplicate `card_number` catalog key) was
+**fixed 2026-10-12**; see
 [decisions/0003](decisions/0003-deterministic-import-normalization.md).
 
-**Update 2026-10-05:** it now fails 5 of 195. The other four are in
-`src/lib/format-date.test.ts` (`formatCalendarDate`, "renders the 17th as
-the 17th in every timezone" and three siblings). That file was last changed
-in `a826cd2` and isn't touched by the placement work. It's probably
-timezone/ICU-dependent on this machine, but this hasn't been investigated.
+---
+
+## Imported card data is not stopped server-side, and two dead payload fields
+
+Found 2026-10-12. `ingest_sheet_lead` (and the `ingest-sheet-lead` edge function)
+store `p_payload` exactly as sent (since 2026-10-12 the RPC is no longer callable by `anon` or `authenticated`, only by the edge function's service role); only the browser keeps card data out of it
+(`PAYLOAD_FIELDS` in `canonical-fields.ts`). Before the 2026-10-12 catalog fix that
+filter let `Card Number` through — no live lead was affected, but a future client
+bug would be unguarded. Consider a migration that strips `Card Number`, `CVC` and
+`Exp Date` from `p_payload` in `ingest_sheet_lead`. Separately, the form-derived
+`Exp Date` (`exp_date`) and `CVC` (`cvc`) catalog entries are payload targets that
+no import ever fills (card values land under `card_exp` / `cvv`), so they are
+dead mapping targets in the uploader.
 
 ---
 
@@ -347,45 +357,25 @@ The sheet-sync Apps Script isn't deployable by us. 192 rows already carry
 `Medications`; confirm from the function logs that the column is populated before
 relying on it for closer-form leads.
 
-## SECURITY — several `SECURITY DEFINER` RPCs still run for `anon`
+## ~~SECURITY — several `SECURITY DEFINER` RPCs still run for `anon`~~
 
-**Found 2026-10-10 while testing the Missing bank information work; NOT fixed.**
-Verified live by calling each as the `anon` role inside a transaction that was
-rolled back (no data was changed or kept):
+**Found 2026-10-10. FIXED 2026-10-12 in `20261012100000_lock_down_rpc_execute.sql`.**
+The live check that day found 48 `SECURITY DEFINER` functions executable by `anon`, not just
+the handful first listed: three had fail-open guards (`payment_summary`, `card_details`,
+`update_payload_field`) and several internal functions had no caller check at all
+(`ingest_sheet_lead`, `bump_import_skipped`, `purge_old_reporting_leads`,
+`purge_payment_data`, ...). Now: the three guards are fail-closed; `anon` can run only
+`my_role`, `review_window`, `review_settings`; cron/trigger/edge-only functions are closed
+to `authenticated` as well; new functions default to closed for `anon`. Re-verified live with
+rolled-back `anon` and no-profile `authenticated` probes. Remaining advisor notes are the
+intended `authenticated` RPC surface. Kept for the reasoning; delete once it has been live
+for a while.
 
-- `payment_summary(p_sub)` **returned bank details** (bank name, routing number,
-  account number, account title) to an unauthenticated caller.
-- `update_payload_field(p_sub, p_field, p_value)` **performed the write** for an
-  unauthenticated caller.
-- `card_details(p_sub)` was **not refused** for an unauthenticated caller (it
-  returned without raising; the leads tested had no card, so what it would return for
-  one that does was not checked).
-- `clear_data_flag` and `update_payment_field` correctly refused `anon`
-  (`update_payment_field` only after 2026-10-10: its guard was fail-open and its
-  grant is now revoked — `20261010111000_revoke_anon_update_payment_field.sql`).
+## ~~Optional card fields (number, expiry, CVC) have no entry UI~~
 
-Cause: the same NULL-role pattern `docs/TODO.md`'s 2026-09-17 entry describes — a
-guard written `v_role not in (...)` is NULL, not true, for a caller with no role, so
-it falls through — and `EXECUTE` is still granted to `anon`. The 2026-09-27 fix
-covered the 19 functions it named; these were not among them. The public `anon` key
-ships in the browser bundle, so exploiting this needs only a submission id.
-
-Fix: for each, revoke `EXECUTE` from `public` and `anon` and write the guard as
-`my_role() is null or my_role() not in (...)` (a new migration, never a live-only
-change). Also still `anon`-executable and worth the same audit: `add_submission_tag`,
-`approve_import_batch`, `archive_submission`, `assign_to_validator`,
-`check_duplicate_ssn`, `move_to_validation`, `reject_import_batch`,
-`remove_from_cx_pipeline`, `remove_submission_tag`, `return_lead_for_validation`,
-`set_cx_status`, `start_lead_import`, `unarchive_submission`. Re-run the `anon`
-probe afterwards and add it to the checklist for every new RPC.
-
-## Optional card fields (number, expiry, CVC) have no entry UI
-
-Found 2026-10-10. `PaymentPanel` edits only Bank Name, Account Title, Routing Number and
-Account Number, and the Missing bank information list holds only *required* fields, so
-there is no screen where a user can type a card number, expiry or CVC for a lead that
-lacks them. The RPC side exists: `update_payment_field` accepts `card_exp` (manager,
-admin, general_manager) and `card_number` / `cvv` (admin only). Decide whether to add an
-entry UI, and who may type a card number, given `CLAUDE.md`'s rule that card numbers never
-reach a manager's or uploader's browser (entering one is not reading one back, but it
-needs a deliberate decision).
+**Decided and built 2026-10-12.** Managers and general managers may read a full card (logged
+`card_details`), and admin/manager/general_manager can add a missing card number, expiry or CVC
+from `PaymentPanel`'s "Card details (optional)" block. See
+[features/payments-security.md](features/payments-security.md). Still open: replacing a
+*stored* card number or CVV happens only through the data-flag editor (blind entry), and a CVV
+purged by the retention job is deliberately not offered for re-entry.

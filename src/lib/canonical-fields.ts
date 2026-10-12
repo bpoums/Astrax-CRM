@@ -338,6 +338,8 @@ function buildCatalog(): CanonicalField[] {
     else queued.set(entry.after, [entry.field]);
   }
 
+  const cardKeys = new Set(CARD_FIELDS.map((field) => field.key));
+
   const fromForm = SECTIONS.flatMap((section) => section.fields).flatMap((field) => {
     const annotation = annotate(field.label, field.type);
     const canonical: CanonicalField = {
@@ -354,6 +356,11 @@ function buildCatalog(): CanonicalField[] {
 
     const following = queued.get(field.label) ?? [];
     queued.delete(field.label);
+    // CARD_FIELDS is the one definition of a card field. The form's own plain
+    // text "Card Number" would otherwise share its key, and the two lookups in
+    // lead.ts resolve a duplicate key differently — and it targets the payload,
+    // which is exported to Google Sheets.
+    if (cardKeys.has(canonical.key)) return following;
     return [canonical, ...following];
   });
 

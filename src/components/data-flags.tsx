@@ -47,9 +47,10 @@ const PAYMENT_FIELDS = new Set<string>([
 ]);
 
 /**
- * Card credentials: admin only, and not readable back from `payment_summary`,
- * so they are entered blind and replace whatever is stored. The RPC enforces
- * the same rule server-side and its refusal is shown to the user as written.
+ * Card credentials: admin, manager and general_manager only, and not readable
+ * back from `payment_summary`, so they are entered blind and replace whatever is
+ * stored. The RPC enforces the same rule server-side and its refusal is shown to
+ * the user as written.
  */
 const CARD_CREDENTIALS = new Set<string>(["card_number", "cvv"]);
 
@@ -107,7 +108,8 @@ export function DataFlagList({
   const [draft, setDraft] = useState("");
   const [failure, setFailure] = useState<string | null>(null);
 
-  const isAdmin = profile?.role === "admin";
+  const canEditCard =
+    profile?.role === "admin" || profile?.role === "manager" || profile?.role === "general_manager";
   const needsSummary = editable && flags.some((flag) => targetFor(flag.field)?.store === "payment");
   const summary = usePaymentSummary(submissionId, needsSummary);
 
@@ -207,8 +209,8 @@ export function DataFlagList({
           {flags.map((flag) => {
             const target = targetFor(flag.field);
             const open = editable && openField === flag.field;
-            // Card credentials are the one thing a manager cannot touch.
-            const locked = target?.store === "payment" && target.credential && !isAdmin;
+            // Card credentials are the one thing closing managers and CX cannot touch.
+            const locked = target?.store === "payment" && target.credential && !canEditCard;
             const fixable = !!target && !locked;
             const credential = target?.store === "payment" && target.credential;
 
@@ -280,7 +282,7 @@ export function DataFlagList({
                       <>
                         <p className="text-xs text-muted-foreground">
                           {locked
-                            ? "Only an admin may change card credentials."
+                            ? "Only an admin, manager or general manager may change card credentials."
                             : "There is no single stored value behind this flag to edit."}
                         </p>
                         {failure ? <p className="text-xs text-destructive">{failure}</p> : null}

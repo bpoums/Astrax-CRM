@@ -32,37 +32,36 @@ only by `card_details`). RPCs: `payment_summary`, `card_details`,
 - `payment_summary` returns bank fields, `card_last4`, and `card_exp` —
   **never** the full card number or CVV, for any role including admin.
 - `card_details` is the only RPC that returns a full card number/CVV. It's
-  allowed for **admin**, or for the **assigned validator while the lead is
-  `in_review`** (confirmed directly from the live function body: `if v_role
-  not in ('admin','validator') then raise 'not authorized'`; for a
-  validator it additionally requires `assigned_to = auth.uid() and
-  status='in_review'`). Every call inserts a `card_access_log` row first,
+  allowed for **admin**, **manager** and **general_manager** (any lead; widened
+  2026-10-12), or for the **assigned validator while the lead is `in_review`**
+  (`assigned_to = auth.uid() and status='in_review'`). The guard is fail-closed
+  (`v_role is null or ...`). Every call inserts a `card_access_log` row first,
   unconditionally.
 - `update_payment_field`: bank fields (`payment_type`, `bank_name`,
   `routing_number`, `account_number`, `account_title`, `card_exp`) are
-  manager/admin/**general_manager** (general_manager added 2026-10-10 so the
-  Missing bank information section works for them; the guard was also rewritten
-  fail-closed and `anon`'s EXECUTE revoked in
-  `20261010111000_revoke_anon_update_payment_field.sql`); `card_number`/`cvv` are **admin only**, even though
-  manager can reach the same edit UI (`data-flags.tsx`'s correction flow) —
-  the RPC itself refuses a non-admin attempting a card field, and the
-  client surfaces that refusal message verbatim rather than hiding the
-  control (the input still renders for a manager, per `CLAUDE.md`'s "render
-  for admins only" note being about *reading back* a value, not about
-  hiding the field entirely).
+  manager/admin/**general_manager**, plus cxa/cxm on their own pipeline lead.
+  `card_number`/`cvv` are writable by **admin, manager and general_manager only**
+  (widened from admin-only on 2026-10-12, `20261012110000_card_entry_and_manager_reveal.sql`);
+  cxa/cxm are refused. Saving a card number on a lead whose `payment_type` is
+  still `unknown` makes it `card`. The anon grant was removed in
+  `20261010111000_revoke_anon_update_payment_field.sql` and the whole function
+  family in `20261012100000_lock_down_rpc_execute.sql`.
+- `payment_summary` also returns `has_card` and `has_cvv` (booleans, never the
+  values) so `PaymentPanel` knows which optional card fields a lead is missing.
+- **Card entry UI (2026-10-12):** `PaymentPanel` shows a "Card details
+  (optional)" block to admin/manager/general_manager with one input per missing
+  field (number, expiry, CVC), validated with the importer's `normalizeCard` /
+  `normalizeExpiry` / `normalizeCvv`. It also shows on leads with no payment
+  details. A CVC the retention job already purged is not offered again.
 - `purge_payment_data` (nightly cron, 03:17): nulls `cvv` once the lead is
   disposed or `cvv_purge_days` old, whichever comes first; nulls
   `card_number` once `card_purge_days` past disposal or creation.
 
 ## Known limitations
-- **No admin UI currently exposes `card_details`.** Every `<PaymentPanel>`
-  call site was checked: `closing-desk.tsx` and `manager.tsx` both mount it
-  without `canRevealCard`; `validator.tsx` is the **only** call site that
-  ever passes `canRevealCard`, gated to `selected.status === "in_review"`.
-  So while the RPC itself permits an admin server-side, there is currently
-  no button anywhere in the app that would let an admin exercise that
-  permission. This is either a genuine gap or an intentional "admin *can*,
-  but there's been no need yet" state — not resolved by this audit.
+- **`card_details` reveal button (changed 2026-10-12):** `PaymentPanel` shows
+  "Show card details" to admin, manager and general_manager on any lead with a
+  stored card number (the role is read from `useAuth()` inside the panel, so no
+  mount site changed), and to a validator via `canRevealCard` while `in_review`.
 - **`CardAccessLog` (the admin audit view of every card reveal) is imported
   in `admin.tsx` but not rendered anywhere** — its `TabsContent` block and
   its tab-list entry are both commented out. Same for `SettingsAudit`. Both
