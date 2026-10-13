@@ -1,5 +1,24 @@
 # Changelog
 
+## 2026-10-13 — Fix: Closing Desk showed "Unassigned" for leads returned from CX
+
+The Closing Desk (GM View and closing managers) drew Validation Status with the shared
+`QueueStatusBadge` but never fetched `reopened_from_cx_at`, so a lead sent back from CX read
+"Unassigned" there and "Returned from CX" on the admin Submissions tab. Added the column to the desk's
+`BASE_SELECT` and `ClosingRow`.
+- Code: `src/components/closing-desk.tsx`. Database: none. Docs: `docs/features/closing-desk.md`.
+- `npx tsc --noEmit` clean.
+
+## 2026-10-13 — Fix: duplicate-SSN hint reported a pending lead instead of the accepted one
+
+`check_duplicate_ssn` chose which duplicate to describe with `order by (disposition = 'accepted') desc`.
+A pending lead has `disposition` NULL, the expression is NULL, and NULL sorts before true in a DESC sort,
+so a pending duplicate hid an accepted one: the form showed the soft "In Progress (14d ago)" hint instead
+of the blocking "already Submitted" one. Found on SSN 192-50-1645 (one pending lead, one accepted). Now
+`is not distinct from 'accepted'`. The real submit gate (`submit_form_internal`) was never affected.
+- Code: none. Database: `20261013100000_fix_check_duplicate_ssn_ordering.sql` (applied live; grants
+  unchanged, anon still cannot execute). Docs: `docs/database.md` not changed (no signature change).
+
 ## 2026-10-12 — "GM View" in the admin header
 
 A **GM View** chip next to Manager View opens `/closing`, the general manager's Closing Desk (desk,

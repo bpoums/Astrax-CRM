@@ -80,6 +80,10 @@ back whole-business whatever the caller's centre — see the security entry in
 ## Database
 Read: the same wide `submissions` select used elsewhere (`BASE_SELECT`),
 plus the `CX_LEAD_STATUS_SELECT` embed for the four read-only CX columns.
+The Validation Status column is `QueueStatusBadge`, which needs `rejection_count`,
+`assigned_at` and `reopened_from_cx_at` from `BASE_SELECT` to tell "Returned from CX" /
+"Rejected by" / "Unassigned" apart (`reopened_from_cx_at` was missing until 2026-10-13, so a lead
+sent back from CX read "Unassigned" here but "Returned from CX" on the admin Submissions tab).
 `BASE_SELECT` also carries `disposed_at`, shown as its own table column
 ("Submitted On") and in the detail sheet's subtitle, next to "SaleMade On"
 (`created_at`) — deliberately named the other way round from what the raw

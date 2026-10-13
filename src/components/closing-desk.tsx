@@ -154,6 +154,9 @@ const BASE_SELECT = [
   // a held lead from a merely assigned one.
   "claimed_at",
   "assigned_at",
+  // Also read by the badge chain: a lead sent back from CX is "Returned from
+  // CX", not "Unassigned". Without this column the badge cannot tell.
+  "reopened_from_cx_at",
   "last_held_at",
   "closer:profiles!submissions_closer_id_fkey(full_name)",
   "uploader:profiles!submissions_uploaded_by_fkey(full_name, org_name)",
@@ -187,6 +190,7 @@ type ClosingRow = {
   closer_id: string | null;
   claimed_at: string | null;
   assigned_at: string | null;
+  reopened_from_cx_at: string | null;
   last_held_at: string | null;
   closer: { full_name: string | null } | null;
   uploader: UploaderRef;
