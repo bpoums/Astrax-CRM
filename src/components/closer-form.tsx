@@ -115,7 +115,7 @@ export const SECTIONS: Section[] = [
       { label: "Proposed Carrier", type: "carrier", required: true , span: "sm:col-span-2" },
       // { label: "Proposed Carrier", type: "carrier", required: true , span: "sm:col-span-2" },
       { label: "Coverage Amount", type: "number", required: true },
-      { label: "Premium", type: "text", required: true },
+      { label: "Premium", type: "number", required: true },
       { label: "Doc Name", type: "text" },
       { label: "Doc Phone", type: "number" },
       {
