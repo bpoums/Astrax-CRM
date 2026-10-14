@@ -1,5 +1,5 @@
 import { normalizeZip } from "@/lib/normalize/rules";
-import { digitsOf } from "@/lib/normalize/text";
+import { digitsOf, forceTitleCaseName } from "@/lib/normalize/text";
 
 /**
  * The input masks the two intake forms share.
@@ -39,6 +39,8 @@ export type FieldMask = {
 export const HEIGHT_FIELD = "Height";
 export const ZIP_FIELD = "Customer Zip Code";
 export const BIRTH_COUNTRY_FIELD = "Birth Country";
+export const FULL_NAME_FIELD = "Full Name";
+export const DOC_NAME_FIELD = "Doc Name";
 export const MONEY_FIELDS = ["Premium", "Coverage Amount"] as const;
 /** Every State-labelled field across both forms. */
 export const STATE_FIELDS = ["State", "Residential State", "Birth State"] as const;
@@ -186,10 +188,71 @@ export function maskStateCode(next: string) {
     .toUpperCase();
 }
 
+/**
+ * What a paste drags in besides the text: tabs and line breaks, non-breaking
+ * and other odd spaces (all matched by \s), and the zero-width characters and
+ * soft hyphen that \s does not match. None of them is visible, all of them end
+ * up in the Sheet cell. A curly apostrophe from a word processor is made
+ * straight, so "O’Brien" and "O'Brien" are one spelling.
+ *
+ * Runs of spaces become one and a leading space is dropped, but a single
+ * trailing space is kept: this runs on every keystroke, and removing it would
+ * make the space between a first and last name impossible to type.
+ */
+function stripPasteNoise(value: string) {
+  return value
+    .replace(/[\u200b-\u200d\u2060\u00ad]/g, "")
+    .replace(/[\u2018\u2019\u02bc]/g, "'")
+    .replace(/\s+/g, " ")
+    .replace(/^ /, "");
+}
+
+const NAME_SUFFIX = /^(jr|sr|ii|iii|iv|2nd|3rd)\.?$/i;
+
+/**
+ * A person's name, as it is typed or pasted: always Title Case, so a pasted
+ * "JOHN  DOE" or "joHN dOE" is "John Doe" the instant it lands. Used for Full
+ * Name and for each beneficiary's name.
+ */
+export function maskPersonName(next: string) {
+  const cleaned = stripPasteNoise(next);
+  const cased = forceTitleCaseName(cleaned);
+  return cleaned.endsWith(" ") && cased ? `${cased} ` : cased;
+}
+
+/**
+ * On blur: "Doe, John" is the surname-first order other CRMs export, so one
+ * comma between two non-empty parts is flipped to "John Doe". "Smith, Jr" is
+ * left to read as a suffix, and any other comma is just dropped.
+ */
+export function closePersonName(value: string) {
+  const cleaned = maskPersonName(value).trim();
+  const parts = cleaned.split(",").map((part) => part.trim());
+  if (parts.length === 2 && parts[0] && parts[1] && !NAME_SUFFIX.test(parts[1] ?? "")) {
+    return forceTitleCaseName(`${parts[1]} ${parts[0]}`);
+  }
+  return forceTitleCaseName(cleaned.replace(/^[,\s]+|[,\s]+$/g, "").replace(/\s*,\s*/g, " "));
+}
+
+/**
+ * A free-text name that is cleaned but never re-cased: Doc Name holds a
+ * doctor's name or, when the customer cannot remember one, the hospital they
+ * last visited, so nothing about its wording is ours to change.
+ */
+export function maskFreeName(next: string) {
+  return stripPasteNoise(next);
+}
+
+export function closeFreeName(value: string) {
+  return stripPasteNoise(value).trim();
+}
+
 const MONEY_MASK: FieldMask = { live: maskMoney, blur: closeMoney };
 const STATE_MASK: FieldMask = { live: maskStateCode };
 
 const MASKS: Record<string, FieldMask> = {
+  [FULL_NAME_FIELD]: { live: maskPersonName, blur: closePersonName },
+  [DOC_NAME_FIELD]: { live: maskFreeName, blur: closeFreeName },
   [HEIGHT_FIELD]: { live: maskHeight, blur: closeHeight },
   [ZIP_FIELD]: { live: maskZip, blur: closeZip },
   ...Object.fromEntries(MONEY_FIELDS.map((label) => [label, MONEY_MASK])),
@@ -209,4 +272,17 @@ export function maskField(label: string, next: string, previous: string) {
 export function closeField(label: string, value: string) {
   const mask = MASKS[label];
   return mask?.blur ? mask.blur(value) : value;
+}
+
+/**
+ * The blur pass over a whole payload, for submit.
+ *
+ * Blur only fires when a field is left, and Enter submits from inside one. Every
+ * closing rule is idempotent, so running them all again here costs nothing and
+ * guarantees that what reaches the Sheet is what blur would have produced.
+ */
+export function closeAllFields(values: Record<string, string>) {
+  return Object.fromEntries(
+    Object.entries(values).map(([label, value]) => [label, closeField(label, value)]),
+  );
 }

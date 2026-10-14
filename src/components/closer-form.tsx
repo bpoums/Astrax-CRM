@@ -8,13 +8,22 @@ import { calcAge, formatSSN, zodiacSign } from "@/lib/form-fields";
 import {
   BIRTH_COUNTRY_DEFAULT,
   BIRTH_COUNTRY_FIELD,
+  closeAllFields,
   closeField,
   maskField,
 } from "@/lib/field-mask";
 import { useCarriers } from "@/lib/carriers";
 import type { Carrier } from "@/lib/carriers";
 import { closerTestData } from "@/lib/test-data";
+import {
+  BENEFICIARY_LABELS,
+  BENEFICIARY_NAME,
+  parseBeneficiaries,
+  validateBeneficiaries,
+  withSubmittedBeneficiaries,
+} from "@/lib/beneficiaries";
 import { AppHeader } from "./ops";
+import { BeneficiaryGroup } from "./beneficiary-group";
 import { TestDataButton } from "./test-data-button";
 import { BrandLogo } from "./brand-logo";
 import { SuggestInput } from "./suggest-input";
@@ -190,6 +199,9 @@ export function CloserForm({ readOnly = false }: { readOnly?: boolean } = {}) {
   const commit = (label: string, value: string) =>
     setValues((prev) => ({ ...prev, [label]: value }));
 
+  /** Several labels at once, unmasked — the beneficiary group's three keys. */
+  const patch = (changes: Record<string, string>) => setValues((prev) => ({ ...prev, ...changes }));
+
   /**
    * The required fields, checked here because chip groups are buttons and the
    * browser never validates those for us. Reported before the transfer dialog
@@ -197,10 +209,18 @@ export function CloserForm({ readOnly = false }: { readOnly?: boolean } = {}) {
    * told afterwards that Full Name is blank.
    */
   function reportMissingField() {
-    const missing = ALL_FIELDS.find((field) => field.required && !values[field.label]?.trim());
-    if (!missing) return false;
+    // The beneficiary group is checked as a whole below: its joined strings
+    // would pass a plain non-empty test with an empty first row.
+    const missing = ALL_FIELDS.find(
+      (field) =>
+        field.required && !BENEFICIARY_LABELS.includes(field.label) && !values[field.label]?.trim(),
+    );
+    const problem = missing
+      ? `${missing.label} is required.`
+      : validateBeneficiaries(parseBeneficiaries(values));
+    if (!problem) return false;
     setStatus("error");
-    setMessage(`${missing.label} is required.`);
+    setMessage(problem);
     return true;
   }
 
@@ -229,13 +249,17 @@ export function CloserForm({ readOnly = false }: { readOnly?: boolean } = {}) {
     setStatus("sending");
     setMessage("");
     try {
+      // Blank beneficiary rows dropped and every part cleaned, then every
+      // field's blur rule once more: Enter submits without leaving the field, so
+      // a pasted value must not depend on a blur that never happened.
+      const payload = closeAllFields(withSubmittedBeneficiaries(values));
       const { error } =
         target.mode === "park"
           ? await supabase.rpc("submit_form_parked", {
-              p_payload: values,
+              p_payload: payload,
               p_client: target.client.id,
             })
-          : await supabase.rpc("submit_form", { p_payload: values });
+          : await supabase.rpc("submit_form", { p_payload: payload });
       if (error) throw new Error(error.message);
       setStatus("sent");
       setMessage(
@@ -347,19 +371,25 @@ export function CloserForm({ readOnly = false }: { readOnly?: boolean } = {}) {
               <section key={section.title} className="panel lg:col-span-4">
                 <h2 className="panel-title">{section.title}</h2>
                 <div className="grid grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-2">
-                  {section.fields.map((field) => (
-                    <FieldControl
-                      key={field.label}
-                      field={field}
-                      value={values[field.label] ?? ""}
-                      values={values}
-                      carriers={carriers.data ?? []}
-                      carriersLoading={carriers.isLoading}
-                      carriersError={carriers.isError ? (carriers.error as Error).message : null}
-                      onChange={(v) => set(field.label, v)}
-                      onCommit={(v) => commit(field.label, v)}
-                    />
-                  ))}
+                  {section.fields.map((field) =>
+                    // One group stands in for the three beneficiary fields, at
+                    // the place the first of them sits.
+                    field.label === BENEFICIARY_NAME ? (
+                      <BeneficiaryGroup key={field.label} values={values} onChange={patch} />
+                    ) : BENEFICIARY_LABELS.includes(field.label) ? null : (
+                      <FieldControl
+                        key={field.label}
+                        field={field}
+                        value={values[field.label] ?? ""}
+                        values={values}
+                        carriers={carriers.data ?? []}
+                        carriersLoading={carriers.isLoading}
+                        carriersError={carriers.isError ? (carriers.error as Error).message : null}
+                        onChange={(v) => set(field.label, v)}
+                        onCommit={(v) => commit(field.label, v)}
+                      />
+                    ),
+                  )}
                 </div>
               </section>
             ))}

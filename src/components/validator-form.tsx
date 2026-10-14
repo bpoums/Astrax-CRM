@@ -4,10 +4,18 @@ import { supabase } from "@/integrations/supabase/client";
 import { draftDateWarning, fieldWarning } from "@/lib/form-warnings";
 import { duplicateSsnWarning, SSN_FIELD, useDuplicateSsn } from "@/lib/duplicate-ssn";
 import { calcAge, formatExpDate, formatSSN, zodiacSign } from "@/lib/form-fields";
-import { closeField, maskField } from "@/lib/field-mask";
+import { closeAllFields, closeField, maskField } from "@/lib/field-mask";
 import { roleHome, useAuth } from "@/lib/auth";
 import { useCarriers } from "@/lib/carriers";
 import { validatorTestData } from "@/lib/test-data";
+import {
+  BENEFICIARY_LABELS,
+  BENEFICIARY_NAME,
+  parseBeneficiaries,
+  validateBeneficiaries,
+  withSubmittedBeneficiaries,
+} from "@/lib/beneficiaries";
+import { BeneficiaryGroup } from "./beneficiary-group";
 import { BrandLogo } from "./brand-logo";
 import { TestDataButton } from "./test-data-button";
 
@@ -71,6 +79,7 @@ export const SECTIONS: Section[] = [
       { label: "Doc Address", type: "textarea", span: "sm:col-span-2" },
       { label: "Beneficiary Name", type: "text", required: true },
       { label: "Beneficiary Relationship", type: "text", required: true },
+      { label: "Beneficiary Info", type: "textarea", span: "sm:col-span-2" },
       // { label: "State", type: "text", required: true },
       // { label: "Customer Zip Code", type: "number", required: true },
     ],
@@ -162,6 +171,9 @@ export function ValidatorForm({ readOnly = false }: { readOnly?: boolean } = {})
   const commit = (label: string, value: string) =>
     setValues((prev) => ({ ...prev, [label]: value }));
 
+  /** Several labels at once, unmasked — the beneficiary group's three keys. */
+  const patch = (changes: Record<string, string>) => setValues((prev) => ({ ...prev, ...changes }));
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -175,10 +187,18 @@ export function ValidatorForm({ readOnly = false }: { readOnly?: boolean } = {})
       setMessage("Choose the carrier you are writing for.");
       return;
     }
-    const missing = ALL_FIELDS.find((field) => field.required && !values[field.label]?.trim());
-    if (missing) {
+    // The beneficiary group is checked as a whole: its joined strings would
+    // pass a plain non-empty test with an empty first row.
+    const missing = ALL_FIELDS.find(
+      (field) =>
+        field.required && !BENEFICIARY_LABELS.includes(field.label) && !values[field.label]?.trim(),
+    );
+    const problem = missing
+      ? `${missing.label} is required.`
+      : validateBeneficiaries(parseBeneficiaries(values));
+    if (problem) {
       setStatus("error");
-      setMessage(`${missing.label} is required.`);
+      setMessage(problem);
       return;
     }
 
@@ -186,8 +206,10 @@ export function ValidatorForm({ readOnly = false }: { readOnly?: boolean } = {})
     setMessage("");
     try {
       // Agency first so it leads the payload; the rest keep form order, which
-      // is the order the Sheet columns are in.
-      const payload = { [AGENCY]: agency, ...values };
+      // is the order the Sheet columns are in. Blank beneficiary rows dropped
+      // and every part cleaned, then every field's blur rule once more: Enter
+      // submits without leaving the field.
+      const payload = { [AGENCY]: agency, ...closeAllFields(withSubmittedBeneficiaries(values)) };
       const { error } = await supabase.rpc("submit_form", { p_payload: payload });
       if (error) throw new Error(error.message);
       setStatus("sent");
@@ -308,16 +330,22 @@ export function ValidatorForm({ readOnly = false }: { readOnly?: boolean } = {})
               <section key={section.title} className="panel lg:col-span-4 lg:min-h-0">
                 <h2 className="panel-title">{section.title}</h2>
                 <div className="grid grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-2">
-                  {section.fields.map((field) => (
-                    <FieldControl
-                      key={field.label}
-                      field={field}
-                      value={values[field.label] ?? ""}
-                      values={values}
-                      onChange={(v) => set(field.label, v)}
-                      onCommit={(v) => commit(field.label, v)}
-                    />
-                  ))}
+                  {section.fields.map((field) =>
+                    // One group stands in for the three beneficiary fields, at
+                    // the place the first of them sits.
+                    field.label === BENEFICIARY_NAME ? (
+                      <BeneficiaryGroup key={field.label} values={values} onChange={patch} />
+                    ) : BENEFICIARY_LABELS.includes(field.label) ? null : (
+                      <FieldControl
+                        key={field.label}
+                        field={field}
+                        value={values[field.label] ?? ""}
+                        values={values}
+                        onChange={(v) => set(field.label, v)}
+                        onCommit={(v) => commit(field.label, v)}
+                      />
+                    ),
+                  )}
                 </div>
               </section>
             ))}

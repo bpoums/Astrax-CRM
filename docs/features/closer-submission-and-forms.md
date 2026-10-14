@@ -239,6 +239,71 @@ lead editors treat both as plain textareas. `Medications` is derived from `SECTI
 into the import catalog (`canonical-fields.ts`) and no longer declared twice.
 Not on the validator form.
 
+## Beneficiary group — added 2026-10-14
+
+Both forms replace the three beneficiary fields with `BeneficiaryGroup`
+(`src/components/beneficiary-group.tsx`): one row per person, up to six, each with
+Name, Relationship (a dropdown of common relationships plus "Other", which opens a text
+box) and a free-text Info line (DOB, share, notes — anything). The three fields stay in
+each form's `SECTIONS`, so their labels remain the payload keys, the Sheet headers and
+the import targets; the forms render the group once, in the place of the first of them.
+
+The logic is pure and lives in `src/lib/beneficiaries.ts`:
+- **Saved format.** The rows are joined with ` | ` into the same three keys, in the same
+  order, so item N of each is one person. An empty Info keeps its slot
+  (`DOB 01/07/1957 | `). One beneficiary looks exactly like the old single value.
+- **Lossless.** A typed `|` becomes `/` and a line break becomes a space on entry, so
+  splitting on `|` always recovers the rows. The group is controlled by the three
+  strings alone (`parseBeneficiaries` in, `serializeBeneficiaries` out); a form reset
+  returns it to one blank row.
+- **On submit** (`withSubmittedBeneficiaries`) blank rows are dropped, every part is
+  trimmed and whitespace-collapsed, and each name is Title-Cased. `validateBeneficiaries`
+  requires at least one beneficiary with a name, a relationship **and Info** (the first
+  beneficiary only, changed 2026-10-14), and a name and relationship on any further row
+  that has something in it; later rows may leave Info blank.
+- **Validator form** now has `Beneficiary Info` (it had Name and Relationship only). The
+  **Validator Submissions** sheet tab has no `Beneficiary Info` column, so add that
+  header there; until then the value is stored in `payload` but may not appear in the
+  tab. Apps Script is not changed by this.
+- **Not parsed back on edit.** The payload editors, the data-flag fixer and the import
+  pipeline still treat the three keys as plain text, so an edited value stays readable
+  as `A | B`. Leads saved before this change hold a single flat value and read as one
+  beneficiary; three existing values already contain a `|` and would read as extra
+  entries if reopened in the group.
+- No database change: nothing server-side parses these keys (only
+  `uploaded_required_fields` checks that `Beneficiary Name` is present on an import).
+
+## Name formatting and paste handling — added 2026-10-14
+
+Closers often paste a value instead of typing it, and a paste carries tabs, line breaks,
+non-breaking spaces, zero-width characters and whatever casing the source had. The rules
+live in the shared mask registry (`src/lib/field-mask.ts`), keyed by label, so they reach
+both forms. A paste arrives through the same `onChange` as a keystroke, so no paste
+handler exists; the live mask fixes it the instant it lands.
+
+| Field | Live (every keystroke / paste) | On blur |
+|---|---|---|
+| **Full Name** | invisible characters removed, curly apostrophe made straight, spaces collapsed, then **always Title Case** (`joHN dOE`, `JOHN DOE` -> `John Doe`); a single trailing space is kept so a space can be typed | trimmed; `Doe, John` -> `John Doe` (one comma, right side not a suffix such as `Jr`) |
+| **Beneficiary Name** (each row) | same as Full Name | trimmed; **no** comma flip, because a comma there more likely separates two people |
+| **Doc Name** | invisible characters removed, spaces collapsed. **No casing, no `Dr.` prefix, no placeholder blanking** | trimmed |
+
+- **Doc Name is deliberately left alone.** When a customer cannot remember their doctor the
+  closer writes the hospital they last visited there, so its wording is not ours to change.
+- **Account Title may differ from Full Name**; it has no rule.
+- **Title Case is forced** by `forceTitleCaseName` (`src/lib/normalize/text.ts`), separate
+  from the import engine's `titleCaseName`, which still leaves a word with an inner capital
+  alone. Mc, hyphen and apostrophe names are handled (`McDonald`, `Smith-Jones`,
+  `O'Brien`), particles are capitalised (`De La Cruz`), a final `II`/`III`/`IV` is
+  upper-cased. The accepted cost: `MacLeod` becomes `Macleod`, `DeVito` becomes `Devito`.
+  Initials keep what was typed (`S` stays `S`, `S.` stays `S.`).
+- **On submit** both forms run `closeAllFields(...)` over the payload (every field's blur
+  rule, all idempotent), because Enter submits without leaving the field and a blur would
+  never have run.
+- **Advisory warning**: a digit or a slash in Full Name shows "Looks like two names or a
+  typo" (`form-warnings.ts`). Never blocks.
+- Leads from the center API (`ingest-center-lead`) bypass the forms and are not formatted;
+  existing rows are not rewritten.
+
 ## Dev-only "Fill test data" button — added 2026-10-12
 Both intake forms show a **Fill test data** chip beside Submit when the app runs under `npm run dev`.
 It fills every required field with fresh random valid data and does not submit: the user still
@@ -255,7 +320,8 @@ presses Submit.
 - **Left blank on purpose:** Card Number, Exp Date, CVC, Health Conditions, Medications (all
   optional), so the manager's "Card details (optional)" screen can be tested on the resulting lead.
 - **Same database as production.** The dev server uses the live Supabase project, so a submitted
-  test lead is a real row. The name starts with `TEST` so it is easy to find and archive.
+  test lead is a real row. The name starts with `Test` so it is easy to find and archive (changed 2026-10-14 from `TEST`:
+  the form now Title-Cases names, so search case-insensitively).
 
 ## Known limitations
 - Field labels doubling as payload keys, Sheet columns, *and* import target

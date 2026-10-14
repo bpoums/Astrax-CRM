@@ -48,6 +48,47 @@ export function titleCaseName(value: string) {
     .join(" ");
 }
 
+/**
+ * Title case that is always applied, for the intake forms.
+ *
+ * `titleCaseName` above is made for imported files and leaves a word with an
+ * inner capital alone, which is right for "MacLeod" in a clean file and wrong
+ * for what a person pastes: "joHN dOE" would stay exactly as it is. Here every
+ * word is lower-cased and re-cased, so the result is the same whatever came in.
+ * The cost is accepted: "MacLeod" becomes "Macleod" and "DeVito" "Devito".
+ *
+ * "Mc", hyphens and apostrophes are still handled (McDonald, Smith-Jones,
+ * O'Brien), particles are capitalised like any other word (De La Cruz), a
+ * suffix such as "iii" is upper-cased, and a single letter or a trailing dot
+ * (S, S., Jr.) is kept as typed apart from the capital.
+ */
+export function forceTitleCaseName(value: string) {
+  const words = collapseSpace(value).split(" ");
+  return words.map((word, index) => forceWord(word, index === words.length - 1)).join(" ");
+}
+
+const ROMAN_SUFFIXES = new Set(["ii", "iii", "iv"]);
+
+function forceWord(word: string, isLast: boolean): string {
+  if (isLast && ROMAN_SUFFIXES.has(word.toLowerCase().replace(/\.$/, ""))) {
+    return word.toUpperCase();
+  }
+  return word.split("-").map(forcePart).join("-");
+}
+
+function forcePart(part: string): string {
+  if (!part) return part;
+  if (part.includes("'")) {
+    return part
+      .split("'")
+      .map((piece) => capitalize(piece.toLowerCase()))
+      .join("'");
+  }
+  const lower = part.toLowerCase();
+  if (lower.startsWith("mc") && lower.length > 3) return `Mc${capitalize(lower.slice(2))}`;
+  return capitalize(lower);
+}
+
 function hasInternalCapital(word: string) {
   return /[a-z].*[A-Z]/.test(word);
 }

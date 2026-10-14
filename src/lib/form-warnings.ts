@@ -7,7 +7,7 @@ import {
   ssnProblem,
 } from "@/lib/normalize/rules";
 import { STATE_ABBREVIATIONS, stateForZip } from "@/lib/normalize/states";
-import { STATE_FIELDS } from "@/lib/field-mask";
+import { FULL_NAME_FIELD, STATE_FIELDS } from "@/lib/field-mask";
 import { digitsOf } from "@/lib/normalize/text";
 
 /**
@@ -89,6 +89,8 @@ export function fieldWarning(
       return cardWarning(value);
     case EXPIRY:
       return expiryWarning(value, now);
+    case FULL_NAME_FIELD:
+      return nameWarning(value);
     default:
       // Every State-labelled field in either form, checked against the real
       // USPS list rather than "any two letters".
@@ -96,6 +98,18 @@ export function fieldWarning(
         ? stateWarning(value)
         : null;
   }
+}
+
+/**
+ * A digit or a slash in a name: two people typed into one box ("Saul A
+ * Flores/Saul Aguilar") or a stray number. The mask has already tidied the
+ * casing and spacing, but it cannot know which of two names is the customer.
+ */
+function nameWarning(value: string): FieldWarning | null {
+  if (/[\d/\\]/.test(value)) {
+    return { tone: "warn", text: "Looks like two names or a typo — one customer name only." };
+  }
+  return null;
 }
 
 /**

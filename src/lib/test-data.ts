@@ -13,8 +13,9 @@ import { calcAge, formatSSN } from "@/lib/form-fields";
  * and a lead without them is exactly what the manager's "Card details" screen is
  * for. Health Conditions and Medications are blank for the same reason.
  *
- * The name starts with `TEST`, because the dev server talks to the same
- * database as production and a submitted test lead is a real row.
+ * The name starts with `Test`, because the dev server talks to the same
+ * database as production and a submitted test lead is a real row. It is `Test`
+ * and not `TEST` since the form Title-cases a name; search case-insensitively.
  */
 
 export type TestDataOptions = {
@@ -80,7 +81,6 @@ function shared({ now = new Date(), random = Math.random }: TestDataOptions) {
   const first = pick(FIRST_NAMES, random);
   const last = pick(LAST_NAMES, random);
   const place = pick(STATE_ZIPS, random);
-  const stamp = `${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}`;
 
   const born = new Date(now.getFullYear() - (55 + Math.floor(random() * 20)), 0, 1);
   born.setMonth(Math.floor(random() * 12), 1 + Math.floor(random() * 28));
@@ -94,7 +94,9 @@ function shared({ now = new Date(), random = Math.random }: TestDataOptions) {
     random,
     place,
     values: {
-      "Full Name": `TEST ${first} ${last} ${stamp}`,
+      // "Test", not "TEST": the form Title-cases a name, so TEST would be
+      // rewritten on submit. A case-insensitive search still finds it.
+      "Full Name": `Test ${first} ${last}`,
       "Phone Number": `214555${String(100 + Math.floor(random() * 100))}0`.slice(0, 10),
       "Date of Birth": dob,
       Age: String(calcAge(dob) ?? ""),
@@ -109,7 +111,7 @@ function shared({ now = new Date(), random = Math.random }: TestDataOptions) {
       "Doc Name": "Dr. Test Physician",
       "Doc Phone": "2145550142",
       "Doc Address": `1 Clinic Way, ${place.city}, ${place.state} ${place.zip}`,
-      "Beneficiary Name": `TEST Beneficiary ${last}`,
+      "Beneficiary Name": `Test Beneficiary ${last}`,
       "Beneficiary Relationship": "Spouse",
       "Plan Type": "Level",
       "Coverage Amount": "$25,000",
@@ -202,6 +204,7 @@ export function validatorTestData(options: TestDataOptions): {
       "Doc Address": values["Doc Address"] as string,
       "Beneficiary Name": values["Beneficiary Name"] as string,
       "Beneficiary Relationship": values["Beneficiary Relationship"] as string,
+      "Beneficiary Info": "TEST beneficiary details",
       "Plan Type": "MOD",
       "Coverage Amount": values["Coverage Amount"] as string,
       Premium: values["Premium"] as string,

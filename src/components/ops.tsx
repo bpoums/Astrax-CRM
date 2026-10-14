@@ -750,6 +750,7 @@ export const PAYLOAD_ORDER = [
   "Doc Address",
   "Beneficiary Name",
   "Beneficiary Relationship",
+  "Beneficiary Info",
   "Bank Name",
   "Bank Type",
   "Routing Number",

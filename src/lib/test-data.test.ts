@@ -68,8 +68,8 @@ describe.each([
   ["closer", closer],
   ["validator", validator],
 ])("%s sample values", (_name, values) => {
-  it("names the lead TEST and leaves the optional card fields blank", () => {
-    expect(values["Full Name"]).toMatch(/^TEST /);
+  it("names the lead Test and leaves the optional card fields blank", () => {
+    expect(values["Full Name"]).toMatch(/^Test /);
     expect(values["Card Number"]).toBe("");
     expect(values["Exp Date"]).toBe("");
     expect(values["CVC"]).toBe("");

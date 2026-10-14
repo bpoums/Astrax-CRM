@@ -1,5 +1,38 @@
 # Changelog
 
+## 2026-10-14 — Name formatting, paste-proofing, Beneficiary Info required
+
+On both forms, **Full Name** and each **Beneficiary Name** are now always Title Case (`joHN dOE`, `JOHN DOE` ->
+`John Doe`; Mc, hyphen and apostrophe names kept, `III` suffixes upper-cased; `MacLeod` becomes `Macleod` by
+choice). A paste is fixed as it lands: tabs, line breaks, non-breaking spaces and zero-width characters are
+removed and spaces collapsed. On blur `Doe, John` becomes `John Doe`. **Doc Name** gets the paste cleanup only:
+no casing, no `Dr.` prefix, because it often holds a hospital name. Account Title is unchanged and may differ
+from Full Name. A digit or slash in Full Name shows an advisory warning. **Beneficiary Info is now required for
+the first beneficiary** (later ones may leave it blank). On submit every field's blur rule runs again
+(`closeAllFields`), because Enter submits without a blur.
+- Code: `src/lib/normalize/text.ts` (`forceTitleCaseName`; the import engine's `titleCaseName` is unchanged),
+  `field-mask.ts`, `form-warnings.ts`, `beneficiaries.ts`, `beneficiary-group.tsx`, both forms, `test-data.ts`
+  (sample names now start `Test`, not `TEST`). New `person-name.test.ts`.
+- Database: none. Docs: `docs/features/closer-submission-and-forms.md`.
+- `npx tsc --noEmit` clean; all new tests pass; the 4 known `format-date` failures are unchanged. Not clicked
+  through in a browser (no login here). Leads from the center API are not formatted; existing rows are not
+  rewritten.
+
+## 2026-10-14 — Beneficiary group on the closer and validator forms
+
+The three free-text beneficiary fields are replaced on both intake forms by one repeating group: a row per
+person with Name, Relationship (dropdown, plus "Other") and a free-text Info line, up to six. It saves into the
+same three payload keys, joined with ` | ` in the same order, so item N of each column is one person
+(`Beneficiary Name` = `Mary Smith | John Smith`, `Beneficiary Relationship` = `Spouse | Son`). A typed `|` is
+turned into `/` and line breaks into spaces, so the split is always lossless; blank rows are dropped on submit. A
+lead with one beneficiary reads exactly as before. The validator form gains a `Beneficiary Info` field (it had
+none); the Validator Submissions sheet tab has no such column yet, so add the header there for it to appear.
+- Code: new `src/lib/beneficiaries.ts` (+ `beneficiaries.test.ts`), `src/components/beneficiary-group.tsx`;
+  `closer-form.tsx`, `validator-form.tsx`, `test-data.ts`, `ops.tsx` (`PAYLOAD_ORDER`).
+- Database: none. Docs: `docs/features/closer-submission-and-forms.md`.
+- `npx tsc --noEmit` clean; 21 new tests pass; the 4 known `format-date` failures are unchanged. The group was
+  render-checked statically only; the interactive flow still needs a browser pass with a login.
+
 ## 2026-10-13 — Fix: Closing Desk showed "Unassigned" for leads returned from CX
 
 The Closing Desk (GM View and closing managers) drew Validation Status with the shared
@@ -18,6 +51,17 @@ of the blocking "already Submitted" one. Found on SSN 192-50-1645 (one pending l
 `is not distinct from 'accepted'`. The real submit gate (`submit_form_internal`) was never affected.
 - Code: none. Database: `20261013100000_fix_check_duplicate_ssn_ordering.sql` (applied live; grants
   unchanged, anon still cannot execute). Docs: `docs/database.md` not changed (no signature change).
+
+## 2026-10-13 — Plain-language business rules guide (docs only)
+
+New `docs/business-rules.md` and a PDF copy, `docs/ASTRAX-CRM-Business-Rules.pdf`, listing every rule
+the CRM enforces in non-technical words: forms and the duplicate-SSN block, the review workflow, roles
+and access, imports, the CX pipeline, payment security, switched-off or unfinished rules, and known
+limitations. Each rule was checked against the app code and the live database. Where they differ from
+the developer docs the guide follows the live system and lists the mismatch under "Needs your
+confirmation" (accept gate is five fields live, CVV purge is 30 days live).
+- Code: none. Database: none (read-only checks). Docs: the two new files.
+- The PDF is built from the Markdown by a throwaway script outside the repo; re-run it after editing.
 
 ## 2026-10-12 — "GM View" in the admin header
 
