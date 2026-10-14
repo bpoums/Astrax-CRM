@@ -145,6 +145,37 @@ describe("state", () => {
   });
 });
 
+describe("digits-only fields", () => {
+  it("strips letters and punctuation, including from a paste", () => {
+    expect(maskField("Doc Phone", "abc", "")).toBe("");
+    expect(maskField("Doc Phone", "(214) 555-0142", "")).toBe("2145550142");
+    expect(maskField("Phone Number", "214x555y0142", "")).toBe("2145550142");
+    expect(maskField("Account Number", "00-12 34ab", "")).toBe("001234");
+  });
+
+  it("cuts each field at the longest real value", () => {
+    expect(maskField("Age", "1234", "")).toBe("123");
+    expect(maskField("Routing Number", "0123456789", "")).toBe("012345678");
+    expect(maskField("Card Number", "1".repeat(25), "")).toBe("1".repeat(19));
+    expect(maskField("CVC", "12345", "")).toBe("1234");
+    expect(maskField("Phone Number", "12145550142", "")).toBe("12145550142");
+  });
+
+  it("leaves an empty field empty", () => {
+    for (const label of ["Doc Phone", "Age", "CVC", "Exp Date"]) {
+      expect(maskField(label, "", "x")).toBe("");
+    }
+  });
+});
+
+describe("expiry", () => {
+  it("types as MM/YY, digits only", () => {
+    expect(type("Exp Date", "0527")).toBe("05/27");
+    expect(type("Exp Date", "05a/2b7")).toBe("05/27");
+    expect(type("Exp Date", "052799")).toBe("05/27");
+  });
+});
+
 describe("unmasked fields", () => {
   it("passes anything without a mask straight through", () => {
     expect(maskField("Full Name", "Jane Doe", "Jane Do")).toBe("Jane Doe");

@@ -1,4 +1,5 @@
 import { normalizeZip } from "@/lib/normalize/rules";
+import { formatExpDate } from "@/lib/form-fields";
 import { digitsOf, forceTitleCaseName } from "@/lib/normalize/text";
 
 /**
@@ -42,6 +43,22 @@ export const BIRTH_COUNTRY_FIELD = "Birth Country";
 export const FULL_NAME_FIELD = "Full Name";
 export const DOC_NAME_FIELD = "Doc Name";
 export const MONEY_FIELDS = ["Premium", "Coverage Amount"] as const;
+/**
+ * Digits-only fields, with the longest a real value can be. A `number` field
+ * renders as a text input (inputMode only picks the phone keypad), so nothing
+ * but this keeps letters out. Phones allow 15 digits (E.164) so a leading
+ * country code is never cut off.
+ */
+export const DIGIT_FIELD_MAX = {
+  "Phone Number": 15,
+  "Doc Phone": 15,
+  Age: 3,
+  "Routing Number": 9,
+  "Card Number": 19,
+  CVC: 4,
+  "Account Number": 20,
+} as const;
+export const EXPIRY_FIELD = "Exp Date";
 /** Every State-labelled field across both forms. */
 export const STATE_FIELDS = ["State", "Residential State", "Birth State"] as const;
 
@@ -247,6 +264,11 @@ export function closeFreeName(value: string) {
   return stripPasteNoise(value).trim();
 }
 
+/** Digits only while typing or pasting, cut at `max` digits. */
+export function maskDigits(next: string, max: number) {
+  return digitsOf(next).slice(0, max);
+}
+
 const MONEY_MASK: FieldMask = { live: maskMoney, blur: closeMoney };
 const STATE_MASK: FieldMask = { live: maskStateCode };
 
@@ -255,6 +277,13 @@ const MASKS: Record<string, FieldMask> = {
   [DOC_NAME_FIELD]: { live: maskFreeName, blur: closeFreeName },
   [HEIGHT_FIELD]: { live: maskHeight, blur: closeHeight },
   [ZIP_FIELD]: { live: maskZip, blur: closeZip },
+  [EXPIRY_FIELD]: { live: formatExpDate },
+  ...Object.fromEntries(
+    Object.entries(DIGIT_FIELD_MAX).map(([label, max]) => [
+      label,
+      { live: (next: string) => maskDigits(next, max) },
+    ]),
+  ),
   ...Object.fromEntries(MONEY_FIELDS.map((label) => [label, MONEY_MASK])),
   ...Object.fromEntries(STATE_FIELDS.map((label) => [label, STATE_MASK])),
 };

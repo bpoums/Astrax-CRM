@@ -273,6 +273,25 @@ The logic is pure and lives in `src/lib/beneficiaries.ts`:
 - No database change: nothing server-side parses these keys (only
   `uploaded_required_fields` checks that `Beneficiary Name` is present on an import).
 
+## Digits-only fields — added 2026-10-14
+
+A `number` field renders as a text input (`inputMode="numeric"` only picks the phone
+keypad), so letters used to go straight in. These labels now keep **digits only** in the
+shared mask registry, so a typed or pasted value is reduced to digits and cut at the
+longest real value. Both forms get them.
+
+| Field | Max digits |
+|---|---|
+| Phone Number, Doc Phone | 15 (a leading country code is never cut) |
+| Age | 3 (still auto-filled from Date of Birth, still editable) |
+| Routing Number | 9 |
+| Card Number | 19 |
+| CVC | 4 |
+| Account Number | 20 (a number with letters or dashes can no longer be entered) |
+| Exp Date | `MM/YY` via `formatExpDate` (the validator form already did this; the closer form now does too) |
+
+Not changed: SSN and ZIP (already masked), and the advisory checks in `form-warnings.ts`.
+
 ## Name formatting and paste handling — added 2026-10-14
 
 Closers often paste a value instead of typing it, and a paste carries tabs, line breaks,

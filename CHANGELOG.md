@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-10-14 — Numeric fields accept digits only
+
+On both intake forms, Phone Number, Doc Phone, Age, Routing Number, Card Number, CVC and Account Number now keep
+digits only (typed or pasted), each cut at the longest real value (see
+`docs/features/closer-submission-and-forms.md`). Exp Date on the closer form now types as `MM/YY`, as the
+validator form already did. Cause: `number` fields render as text inputs, so letters were never filtered.
+- Code: `src/lib/field-mask.ts` (+ `field-mask.test.ts`). No database change.
+- `npx tsc --noEmit` clean; field-mask, form-warnings and test-data tests pass (62).
+
 ## 2026-10-14 — Bank Name is a searchable dropdown, with "add a new bank"
 
 On the closer form (required) and the validator form (optional), Bank Name is now a list you search by typing,
