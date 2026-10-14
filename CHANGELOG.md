@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-10-14 — Bank Name is a searchable dropdown, with "add a new bank"
+
+On the closer form (required) and the validator form (optional), Bank Name is now a list you search by typing,
+instead of free text. Typing filters on the name and on alternate spellings (`Chase` finds `Chase Bank`,
+`Wels Fargo` finds `Wells Fargo`). A bank that is not in the list is added from the last row, written in Title
+Case, saved for everyone straight away and selected. The lead still stores only the bank name as a string, so the
+payload and the Sheet column are unchanged. The list is seeded with the 119 banks seen on two or more of the
+1,138 live leads, spelling variants merged (Chase and every JPMorgan Chase spelling are one entry). Admin → Settings
+gains a Banks panel to rename or deactivate an entry, since closers can add one with a typo.
+- Code: new `src/lib/banks.ts` (+ `banks.test.ts`), `src/components/bank-select.tsx`, `bank-admin.tsx`;
+  `closer-form.tsx`, `validator-form.tsx`, `admin.tsx`; `src/integrations/supabase/types.ts` regenerated.
+- Database: `20261014100000_banks.sql` (applied live): table `banks` (RLS read-only), RPCs `add_bank`,
+  `admin_rename_bank`, `admin_set_bank_active`; `anon` cannot execute them. Docs: `docs/database.md`,
+  `docs/features/closer-submission-and-forms.md`.
+- `npx tsc --noEmit` clean; 9 new tests pass; the 4 known `format-date` failures are unchanged. The popover itself
+  was not clicked through in a browser (no login here). Existing leads keep the bank name they were saved with.
+
 ## 2026-10-14 — Name formatting, paste-proofing, Beneficiary Info required
 
 On both forms, **Full Name** and each **Beneficiary Name** are now always Title Case (`joHN dOE`, `JOHN DOE` ->

@@ -21,6 +21,7 @@ import { PlacementAdmin, PlacementMapping } from "@/components/placement-admin";
 import { DraftDateDesk } from "@/components/draft-date-desk";
 import { CenterAdmin } from "@/components/center-admin";
 import { TransferClientAdmin } from "@/components/transfer-client-admin";
+import { BankAdmin } from "@/components/bank-admin";
 import { VoiceboxLauncher } from "@/components/voicebox-launcher";
 import { CarrierDeclineReport } from "@/components/carrier-declines";
 import { ParkedLeads, PARKED_LEADS_KEY } from "@/components/parked-leads";
@@ -260,6 +261,7 @@ function AdminPage() {
             <AdminSettings />
             <CenterAdmin />
             <TransferClientAdmin />
+            <BankAdmin />
             <CarrierAdmin />
             <PlacementAdmin />
             <CxStatusAdmin />

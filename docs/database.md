@@ -41,6 +41,7 @@ Row counts are a snapshot at audit time, for scale intuition only.
 | `card_access_log` | 0 | One row per `card_details()` call. Read-only to admin. |
 | `lead_imports` | 12 | One row per uploaded batch (`start_lead_import`). `row_count`, `imported_count`, `skipped_count`, `upload_ip` (best-effort `x-forwarded-for`, explicitly documented in its own column comment as weak identification behind shared NAT). |
 | `carriers` | 7 | Vocabulary table: `name`, `active`, `sort_order`, `aliases text[]`. Admin-writable directly (no RPC — see `centers.ts` comment pattern, same reasoning applies to carriers). |
+| `banks` | 119 | The list behind the Bank Name dropdown on the closer and validator forms (added 2026-10-14, `20261014100000_banks.sql`). `name` (unique, case/space-insensitive), `aliases text[]` (other spellings that find it when typed), `active`, `created_by` (null on seeded rows), `created_at`. A lead still stores only the bank **name** as a string in `payload['Bank Name']`, so the payload and the Sheet are unchanged. **Not** directly writable: one read policy for any authenticated active user, writes only through `add_bank` / `admin_rename_bank` / `admin_set_bank_active`. Seeded with every bank seen on 2+ live leads, variants merged into aliases. |
 | `carrier_declines` | 301 | One row per (submission, carrier) decline, written by `decline_with_carriers` (both overloads) and `record_carrier_rejection`. Added 2026-10-05 (`20261005100000_placement_rule.sql`): `imo_id` (null on every row from before), `source` (`validator`/`after_submit`) and `kind` (`carrier_rejected`/`fixable`/`unclassified`, not null). Only `carrier_rejected` rows feed the placement rule. Old rows were backfilled by `classify_decline_reason(reason)`: 88/48/165. |
 | `placement_overrides` | added 2026-10-05 | An admin's or general manager's permission for one lead to be placed at one blocked IMO → carrier (`submission_id`, `imo_id`, `carrier_id`, unique together; `reason` not null; `overridden_by`, `created_at`). Readable by admin/manager/general_manager. No write policy, and direct writes are revoked; it is written only by `override_placement_block`. |
 | `centers` | 2 | The two call centers (UMS BPO, DESCOM). Admin-writable directly. |
@@ -427,6 +428,19 @@ All five have `EXECUTE` revoked from `anon`; the two top-level RPCs guard with `
 - `sync_submission_to_sheet(p_sub uuid) returns bigint` — no role check (called only by the trigger and the retry job, never by a client). Re-reads the submission fresh, builds the same payload `notify_sheet_sync` always has, posts it with a 45s timeout, returns the `pg_net` request id (or `null` if sync isn't configured or the row doesn't exist). **Updated 2026-09-15** (`20260915121000`): the `final_carrier` field now falls back to `payload->>'Agency'` when `final_carrier_id` is null *and* `submitted_by_role = 'validator'`. Those submissions auto-accept on submit and so never pass through `set_validator_fields`, which left the Sheet's `Final Carrier` column blank on all 260 of them — even though their `Agency` value *is* the final carrier and matches a real `carriers` row. The fallback is gated on the role deliberately: on a closer/uploaded lead the payload only holds a *proposed* carrier, and letting it through would report a pitch as an issued policy.
 - `retry_failed_sheet_syncs() returns integer` — cron only. Resolves `sheet_sync_attempts` rows whose response was `200`, retries unresolved ones past a 3-minute grace period (max 3 attempts), gives up past that.
 
+### Banks (added 2026-10-14)
+
+| RPC | Who | What |
+|---|---|---|
+| `add_bank(p_name text) -> banks` | closer, validator, admin | Adds a bank the dropdown does not have. Trims and collapses spaces, rejects empty / `n/a` / `none` style placeholders / over 80 characters, and returns the **existing** row when the name or one of its aliases is already known (case-insensitive), so two people adding the same bank get one entry. The client sends the name already Title Cased; the server does not re-case. |
+| `admin_rename_bank(p_id, p_name) -> banks` | admin | Renames a bank. Does not rewrite names already stored on leads. Raises `another bank already has that name` on a clash. |
+| `admin_set_bank_active(p_id, p_active) -> banks` | admin | Takes a bank out of, or puts it back into, the dropdown. There is no delete. |
+
+All three: `SECURITY DEFINER`, role check written NULL-safe, `EXECUTE` revoked
+from `public` and `anon` by name and granted to `authenticated` (verified live:
+`anon` cannot execute any of them and has no `SELECT` on the table;
+`authenticated` has `SELECT` only).
+
 ## Triggers
 
 | Table | Trigger | Fires | Function |
@@ -590,6 +604,9 @@ Every table has RLS **enabled**. Policy count per table, condensed:
   further duplicate-SSN exemption, without an admin). No *lead* table has
   one — `submissions` has zero write policies of any kind, see
   [decisions/0002](decisions/0002-payload-writes-via-rpc.md).
+- **`banks` (2026-10-14)** is the opposite case: RLS on, **one** `SELECT`
+  policy (`(select my_role()) is not null`) and no write policy at all; every
+  write is a `SECURITY DEFINER` RPC (see "Banks" above).
 - **Read policies**, one per table, role-scoped via `(select my_role())`:
   - `submissions` — the single most complex policy in the schema, one `CASE`
     per role (admin sees all; manager sees everything except `parked`;

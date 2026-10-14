@@ -15,11 +15,12 @@ import {
   validateBeneficiaries,
   withSubmittedBeneficiaries,
 } from "@/lib/beneficiaries";
+import { BankSelect } from "./bank-select";
 import { BeneficiaryGroup } from "./beneficiary-group";
 import { BrandLogo } from "./brand-logo";
 import { TestDataButton } from "./test-data-button";
 
-type FieldType = "text" | "number" | "date" | "radio" | "textarea";
+type FieldType = "text" | "number" | "date" | "radio" | "textarea" | "bank";
 
 type Field = {
   label: string;
@@ -110,7 +111,7 @@ export const SECTIONS: Section[] = [
   {
     title: "Banking",
     fields: [
-      { label: "Bank Name", type: "text" },
+      { label: "Bank Name", type: "bank" },
       { label: "Bank Type", type: "radio", options: ["Checking", "Saving"] },
       { label: "Account Title", type: "text" },
       { label: "Routing Number", type: "number" },
@@ -442,6 +443,8 @@ function FieldControl({
             </button>
           ))}
         </div>
+      ) : field.type === "bank" ? (
+        <BankSelect id={id} value={value} onChange={onChange} allowClear />
       ) : (
         <input
           id={id}

@@ -23,6 +23,7 @@ import {
   withSubmittedBeneficiaries,
 } from "@/lib/beneficiaries";
 import { AppHeader } from "./ops";
+import { BankSelect } from "./bank-select";
 import { BeneficiaryGroup } from "./beneficiary-group";
 import { TestDataButton } from "./test-data-button";
 import { BrandLogo } from "./brand-logo";
@@ -43,6 +44,7 @@ type FieldType =
   | "textarea"
   | "carrier"
   | "country"
+  | "bank"
   | "condition"
   | "medication";
 
@@ -137,7 +139,7 @@ export const SECTIONS: Section[] = [
       { label: "Future Draft Date", type: "date"},
       { label: "Bank Draft", type: "radio", required: true, options: ["Yes", "No"] },
       { label: "Account Title", type: "text", required: true },
-      { label: "Bank Name", type: "text", required: true },
+      { label: "Bank Name", type: "bank", required: true },
       { label: "Bank Type", type: "radio", required: true, options: ["Checking", "Saving"] },
       { label: "Routing Number", type: "number", required: true },
       { label: "Account Number", type: "text", required: true },
@@ -691,6 +693,8 @@ function FieldControl({
         </div>
       ) : field.type === "country" ? (
         <BirthCountryControl id={id} value={value} onChange={onChange} />
+      ) : field.type === "bank" ? (
+        <BankSelect id={id} value={value} onChange={onChange} />
       ) : field.type === "condition" || field.type === "medication" ? (
         <SuggestInput id={id} kind={field.type} value={value} onChange={onChange} />
       ) : (

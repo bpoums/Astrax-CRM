@@ -304,6 +304,32 @@ handler exists; the live mask fixes it the instant it lands.
 - Leads from the center API (`ingest-center-lead`) bypass the forms and are not formatted;
   existing rows are not rewritten.
 
+## Bank Name dropdown — added 2026-10-14
+
+`Bank Name` is a searchable list on both forms (`BankSelect`,
+`src/components/bank-select.tsx`; closer: required, validator: optional with a "Clear
+selection" row) instead of free text. The list is the `banks` table (see
+[database.md](../database.md)); `useBanks()` in `src/lib/banks.ts` reads it.
+- **Stored value is unchanged**: the bank NAME as a plain string under the label
+  `Bank Name`, which is still the payload key and the Sheet header.
+- **Search by typing** filters on the name and on the aliases, so `Chase` finds
+  `Chase Bank` and `Wels Fargo` finds `Wells Fargo`. Enter takes the top match.
+- **A bank that is not in the list**: the last row offers `+ Add "<Name>" as a new bank`.
+  The name is written in Title Case by `formatBankName` (acronyms such as `US`, `PNC`,
+  `TD`, `M&T` stay upper-case; `of`, `and`, `the` stay lower-case: `Bank of America`),
+  saved for everyone through the `add_bank` RPC, and selected. The RPC returns the
+  existing entry if the name or an alias is already known, and refuses placeholders such
+  as `N/A`; its message is shown in the list.
+- **Seed list**: 119 banks, every bank seen on two or more live leads on 2026-10-14, with
+  variants merged and kept as aliases (for example `Chase` and every `JPMorgan Chase`
+  spelling are one entry, `Chase Bank`). Banks seen once, and junk (`N/A`, `credit union`),
+  were not seeded; a one-off comes back through the add row.
+- **Admin** manages the list in Settings -> Banks (`src/components/bank-admin.tsx`):
+  search, add, rename, deactivate/reactivate. No delete. A rename changes what the
+  dropdown offers and does not rewrite leads that already carry the old spelling.
+- **Not changed**: names already on existing leads, the import engine's
+  `normalizeBankName`, and the payment-detail editors for imported leads.
+
 ## Dev-only "Fill test data" button — added 2026-10-12
 Both intake forms show a **Fill test data** chip beside Submit when the app runs under `npm run dev`.
 It fills every required field with fresh random valid data and does not submit: the user still

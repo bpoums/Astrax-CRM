@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.5"
+    PostgrestVersion: "14.15"
   }
   graphql_public: {
     Tables: {
@@ -140,6 +140,48 @@ export type Database = {
           value?: string
         }
         Relationships: []
+      }
+      banks: {
+        Row: {
+          active: boolean
+          aliases: string[]
+          created_at: string
+          created_by: string | null
+          id: string
+          name: string
+        }
+        Insert: {
+          active?: boolean
+          aliases?: string[]
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name: string
+        }
+        Update: {
+          active?: boolean
+          aliases?: string[]
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "banks_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "banks_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "validator_stats"
+            referencedColumns: ["validator_id"]
+          },
+        ]
       }
       card_access_log: {
         Row: {
@@ -2027,6 +2069,23 @@ export type Database = {
       }
     }
     Functions: {
+      add_bank: {
+        Args: { p_name: string }
+        Returns: {
+          active: boolean
+          aliases: string[]
+          created_at: string
+          created_by: string | null
+          id: string
+          name: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "banks"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       add_submission_tag: {
         Args: { p_sub: string; p_tag: string }
         Returns: undefined
@@ -2043,6 +2102,40 @@ export type Database = {
           key_prefix: string
           last_used_at: string
         }[]
+      }
+      admin_rename_bank: {
+        Args: { p_id: string; p_name: string }
+        Returns: {
+          active: boolean
+          aliases: string[]
+          created_at: string
+          created_by: string | null
+          id: string
+          name: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "banks"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      admin_set_bank_active: {
+        Args: { p_active: boolean; p_id: string }
+        Returns: {
+          active: boolean
+          aliases: string[]
+          created_at: string
+          created_by: string | null
+          id: string
+          name: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "banks"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
       admin_settings: { Args: never; Returns: Json }
       approve_import_batch: {
