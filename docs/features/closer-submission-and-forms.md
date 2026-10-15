@@ -323,6 +323,24 @@ handler exists; the live mask fixes it the instant it lands.
 - Leads from the center API (`ingest-center-lead`) bypass the forms and are not formatted;
   existing rows are not rewritten.
 
+## Birth Country and Birth State — changed 2026-10-15
+
+On the closer form the order is State, **Birth Country**, then **Birth State**.
+- Birth Country is the existing `USA` / `Other` chips (USA pre-selected; `Other` opens a
+  text box for the country).
+- **Birth State shows, and is required, only while Birth Country is `USA`.** Any other
+  country (including the empty box right after `Other` is picked) hides it and drops it
+  from the required check (`isBirthStateHidden` in `closer-form.tsx`).
+- At submit, a hidden Birth State is **overwritten** with `Outside USA`
+  (`BIRTH_STATE_OUTSIDE_USA`, `src/lib/field-mask.ts`), so a state typed before the country
+  was changed never rides along. This is stamped at submit, not on change, so switching
+  Other -> USA restores an empty, required Birth State.
+- Payload keys are unchanged (`Birth State`, `Birth Country`), so the Sheet columns are
+  unchanged. No database change: `submit_form_internal` never validated either field, and
+  `sales_resolve_state` ignores an unrecognised Birth State (`Outside USA` falls through).
+- Not changed: the validator form (Birth State optional there), `submit_external_lead`, and
+  leads already saved with a made-up Birth State (no backfill).
+
 ## Bank Name dropdown — added 2026-10-14
 
 `Bank Name` is a searchable list on both forms (`BankSelect`,

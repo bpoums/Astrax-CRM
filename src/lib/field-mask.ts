@@ -66,6 +66,14 @@ export const STATE_FIELDS = ["State", "Residential State", "Birth State"] as con
 export const BIRTH_COUNTRY_DEFAULT = "USA";
 
 /**
+ * What Birth State holds when the country is not USA. The field is hidden then,
+ * so it is stamped at submit rather than typed — one searchable value instead
+ * of whatever a closer would invent to get past a required box.
+ */
+export const BIRTH_STATE_OUTSIDE_USA = "Outside USA";
+export const BIRTH_STATE_FIELD = "Birth State";
+
+/**
  * 5, 6 -> 5'6" — feet always one digit, inches one or two.
  *
  * Inches are NOT capped at 11. 6'12" was given as a valid value, and a mask

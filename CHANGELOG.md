@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-10-15 — Birth State only asked for USA births
+
+On the closer form, Birth Country now comes before Birth State. Birth State appears (and is required) only when
+Birth Country is USA; for any other country it is hidden and saved as `Outside USA`, so closers no longer invent a
+state and reporting can search one value. Payload keys and Sheet columns are unchanged.
+- Code: `src/components/closer-form.tsx`, `src/lib/field-mask.ts` (`BIRTH_STATE_OUTSIDE_USA`, `BIRTH_STATE_FIELD`).
+  Database: none (`submit_form_internal` never validated either field). Docs: `docs/features/closer-submission-and-forms.md`,
+  `docs/business-rules.md`. Existing leads are not backfilled.
+
 ## 2026-10-14 — Numeric fields accept digits only
 
 On both intake forms, Phone Number, Doc Phone, Age, Routing Number, Card Number, CVC and Account Number now keep

@@ -8,6 +8,8 @@ import { calcAge, formatSSN, zodiacSign } from "@/lib/form-fields";
 import {
   BIRTH_COUNTRY_DEFAULT,
   BIRTH_COUNTRY_FIELD,
+  BIRTH_STATE_FIELD,
+  BIRTH_STATE_OUTSIDE_USA,
   closeAllFields,
   closeField,
   maskField,
@@ -75,13 +77,15 @@ export const SECTIONS: Section[] = [
       { label: "Age", type: "number", required: true },
       { label: "State", type: "text", required: true },
       // { label: "Residential State", type: "text", required: true },
-      { label: "Birth State", type: "text", required: true },
       // Two chips, not free text: almost every customer is USA, and "Other"
       // reveals a box whose contents become the value — see FieldControl.
       { label: "Birth Country", type: "country", required: true },
+      // Only shown (and only required) for USA; otherwise stamped "Outside USA"
+      // at submit — see isBirthStateHidden / submitWith.
+      { label: "Birth State", type: "text", required: true },
       { label: "SSN Number", type: "number", required: true },
       { label: "Phone Number", type: "number", required: true },
-      { label: "Email Address", type: "text", span: "sm:col-span-2" },
+      { label: "Email Address", type: "text" },
       { label: "Height", type: "text", required: true },
       { label: "Weight", type: "text", required: true },
       {
@@ -159,6 +163,15 @@ const ZIP = "Customer Zip Code";
 
 const ALL_FIELDS = SECTIONS.flatMap((section) => section.fields);
 
+/**
+ * Birth State only means something for a USA birth. USA is pre-selected, so a
+ * country that is anything else — including the empty box right after "Other"
+ * is picked — hides it.
+ */
+function isBirthStateHidden(values: Record<string, string>) {
+  return values[BIRTH_COUNTRY_FIELD] !== BIRTH_COUNTRY_DEFAULT;
+}
+
 function emptyForm(): Record<string, string> {
   return {
     ...Object.fromEntries(ALL_FIELDS.map((field) => [field.label, ""])),
@@ -215,7 +228,10 @@ export function CloserForm({ readOnly = false }: { readOnly?: boolean } = {}) {
     // would pass a plain non-empty test with an empty first row.
     const missing = ALL_FIELDS.find(
       (field) =>
-        field.required && !BENEFICIARY_LABELS.includes(field.label) && !values[field.label]?.trim(),
+        field.required &&
+        !BENEFICIARY_LABELS.includes(field.label) &&
+        !(field.label === BIRTH_STATE_FIELD && isBirthStateHidden(values)) &&
+        !values[field.label]?.trim(),
     );
     const problem = missing
       ? `${missing.label} is required.`
@@ -254,7 +270,15 @@ export function CloserForm({ readOnly = false }: { readOnly?: boolean } = {}) {
       // Blank beneficiary rows dropped and every part cleaned, then every
       // field's blur rule once more: Enter submits without leaving the field, so
       // a pasted value must not depend on a blur that never happened.
-      const payload = closeAllFields(withSubmittedBeneficiaries(values));
+      // A hidden Birth State is overwritten, not just skipped, so a state typed
+      // before the country was changed can never ride along with a foreign birth.
+      const payload = closeAllFields(
+        withSubmittedBeneficiaries(
+          isBirthStateHidden(values)
+            ? { ...values, [BIRTH_STATE_FIELD]: BIRTH_STATE_OUTSIDE_USA }
+            : values,
+        ),
+      );
       const { error } =
         target.mode === "park"
           ? await supabase.rpc("submit_form_parked", {
@@ -378,7 +402,8 @@ export function CloserForm({ readOnly = false }: { readOnly?: boolean } = {}) {
                     // the place the first of them sits.
                     field.label === BENEFICIARY_NAME ? (
                       <BeneficiaryGroup key={field.label} values={values} onChange={patch} />
-                    ) : BENEFICIARY_LABELS.includes(field.label) ? null : (
+                    ) : BENEFICIARY_LABELS.includes(field.label) ||
+                      (field.label === BIRTH_STATE_FIELD && isBirthStateHidden(values)) ? null : (
                       <FieldControl
                         key={field.label}
                         field={field}
