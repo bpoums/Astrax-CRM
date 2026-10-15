@@ -85,6 +85,7 @@ export const SECTIONS: Section[] = [
       { label: "Birth State", type: "text", required: true },
       { label: "SSN Number", type: "number", required: true },
       { label: "Phone Number", type: "number", required: true },
+      { label: "Alternate Phone Number", type: "number" },
       { label: "Email Address", type: "text" },
       { label: "Height", type: "text", required: true },
       { label: "Weight", type: "text", required: true },
