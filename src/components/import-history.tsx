@@ -336,9 +336,10 @@ export function ImportHistory({ allUploaders = false }: { allUploaders?: boolean
    * single bounded request, the same tolerance `SalesBreakdown` and
    * `Exports` already accept for their own unpaginated reads.
    */
-  async function downloadSelectedBatches(format: "csv" | "excel") {
-    const batchIds = Array.from(selected.keys());
+  async function downloadBatches(batches: ImportRow[], format: "csv" | "excel") {
+    const batchIds = batches.map((batch) => batch.id);
     if (batchIds.length === 0) return;
+    const batchMap = new Map(batches.map((batch) => [batch.id, batch]));
     setDownloading(format);
     try {
       const { data, error } = await supabase
@@ -350,7 +351,7 @@ export function ImportHistory({ allUploaders = false }: { allUploaders?: boolean
       const leadRows = (data ?? []) as unknown as DownloadLeadRow[];
 
       const multiBatch = batchIds.length > 1;
-      const columns = [...metadataColumns(selected, multiBatch), ...payloadColumns(leadRows)];
+      const columns = [...metadataColumns(batchMap, multiBatch), ...payloadColumns(leadRows)];
       const records = leadRows.map((row) => {
         const record: Record<string, string> = {};
         for (const column of columns) record[column.label] = column.get(row);
@@ -359,7 +360,7 @@ export function ImportHistory({ allUploaders = false }: { allUploaders?: boolean
 
       const fileBase =
         batchIds.length === 1
-          ? safeFileBase(selectedBatches[0]?.file_name ?? "lead-import")
+          ? safeFileBase(batches[0]?.file_name ?? "lead-import")
           : `lead-imports-${fileStamp()}`;
 
       if (format === "csv") {
@@ -479,68 +480,107 @@ export function ImportHistory({ allUploaders = false }: { allUploaders?: boolean
             <TableHead className="text-right">Missing info</TableHead>
             <TableHead className="text-right">Missing bank</TableHead>
             <TableHead>When</TableHead>
+            {canDownload ? <TableHead className="text-right">Download</TableHead> : null}
           </TableRow>
         </TableHeader>
         <TableBody>
-          {rows.map((row) => (
-            <TableRow
-              key={row.id}
-              className="cursor-pointer"
-              onClick={() => setOpenId((current) => (current === row.id ? null : row.id))}
-            >
-              {canDownload ? (
-                <TableCell onClick={(event) => event.stopPropagation()}>
-                  <Checkbox
-                    aria-label={`Select ${row.file_name ?? "this batch"}`}
-                    checked={selected.has(row.id)}
-                    onCheckedChange={() => toggleBatch(row)}
-                  />
-                </TableCell>
-              ) : null}
-              <TableCell className="font-medium">{row.file_name ?? "—"}</TableCell>
-              {allUploaders ? (
-                <TableCell className="text-muted-foreground">
-                  {row.uploader?.full_name ?? "—"}
-                </TableCell>
-              ) : null}
-              {showIp ? (
-                <TableCell className="tabular-nums text-muted-foreground">
-                  {row.upload_ip ?? "—"}
-                </TableCell>
-              ) : null}
-              <TableCell className="text-right tabular-nums">{row.row_count}</TableCell>
-              <TableCell className="text-right tabular-nums">{row.imported_count}</TableCell>
-              <TableCell
-                className={`text-right tabular-nums ${
-                  row.skipped_count > 0 ? "text-destructive" : "text-muted-foreground"
+          {rows.map((row) => {
+            // Selected = opened by clicking the row, or ticked. Either way it is
+            // the file the reader is working with, so it is marked and offers
+            // its own download right where they are looking.
+            const isSelected = openId === row.id || (canDownload && selected.has(row.id));
+            return (
+              <TableRow
+                key={row.id}
+                aria-selected={isSelected}
+                className={`cursor-pointer ${
+                  isSelected ? "bg-accent/10 shadow-[inset_2px_0_0_var(--color-accent)]" : ""
                 }`}
+                onClick={() => setOpenId((current) => (current === row.id ? null : row.id))}
               >
-                {row.skipped_count}
-              </TableCell>
-              <TableCell>
-                <DecisionBadge counts={decisions.data?.get(row.id)} />
-              </TableCell>
-              <TableCell
-                className={`text-right tabular-nums ${
-                  (decisions.data?.get(row.id)?.missing ?? 0) > 0
-                    ? "text-accent"
-                    : "text-muted-foreground"
-                }`}
-              >
-                {decisions.data ? (decisions.data.get(row.id)?.missing ?? 0) : "…"}
-              </TableCell>
-              <TableCell className="text-right tabular-nums text-muted-foreground">
-                {decisions.data ? (decisions.data.get(row.id)?.bank ?? 0) : "…"}
-              </TableCell>
-              <TableCell className="text-muted-foreground" title={relativeTime(row.created_at, now)}>
-                {formatDate(row.created_at)}
-              </TableCell>
-            </TableRow>
-          ))}
+                {canDownload ? (
+                  <TableCell onClick={(event) => event.stopPropagation()}>
+                    <Checkbox
+                      aria-label={`Select ${row.file_name ?? "this batch"}`}
+                      checked={selected.has(row.id)}
+                      onCheckedChange={() => toggleBatch(row)}
+                    />
+                  </TableCell>
+                ) : null}
+                <TableCell className="font-medium">{row.file_name ?? "—"}</TableCell>
+                {allUploaders ? (
+                  <TableCell className="text-muted-foreground">
+                    {row.uploader?.full_name ?? "—"}
+                  </TableCell>
+                ) : null}
+                {showIp ? (
+                  <TableCell className="tabular-nums text-muted-foreground">
+                    {row.upload_ip ?? "—"}
+                  </TableCell>
+                ) : null}
+                <TableCell className="text-right tabular-nums">{row.row_count}</TableCell>
+                <TableCell className="text-right tabular-nums">{row.imported_count}</TableCell>
+                <TableCell
+                  className={`text-right tabular-nums ${
+                    row.skipped_count > 0 ? "text-destructive" : "text-muted-foreground"
+                  }`}
+                >
+                  {row.skipped_count}
+                </TableCell>
+                <TableCell>
+                  <DecisionBadge counts={decisions.data?.get(row.id)} />
+                </TableCell>
+                <TableCell
+                  className={`text-right tabular-nums ${
+                    (decisions.data?.get(row.id)?.missing ?? 0) > 0
+                      ? "text-accent"
+                      : "text-muted-foreground"
+                  }`}
+                >
+                  {decisions.data ? (decisions.data.get(row.id)?.missing ?? 0) : "…"}
+                </TableCell>
+                <TableCell className="text-right tabular-nums text-muted-foreground">
+                  {decisions.data ? (decisions.data.get(row.id)?.bank ?? 0) : "…"}
+                </TableCell>
+                <TableCell
+                  className="text-muted-foreground"
+                  title={relativeTime(row.created_at, now)}
+                >
+                  {formatDate(row.created_at)}
+                </TableCell>
+                {canDownload ? (
+                  <TableCell className="text-right" onClick={(event) => event.stopPropagation()}>
+                    {isSelected ? (
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          type="button"
+                          className="chip px-2.5 py-0.5 text-[0.66rem]"
+                          disabled={downloading !== null}
+                          onClick={() => downloadBatches([row], "excel")}
+                          aria-label={`Download ${row.file_name ?? "this file"} as Excel`}
+                        >
+                          {downloading === "excel" ? "…" : "Excel"}
+                        </button>
+                        <button
+                          type="button"
+                          className="chip chip-active px-2.5 py-0.5 text-[0.66rem]"
+                          disabled={downloading !== null}
+                          onClick={() => downloadBatches([row], "csv")}
+                          aria-label={`Download ${row.file_name ?? "this file"} as CSV`}
+                        >
+                          {downloading === "csv" ? "…" : "CSV"}
+                        </button>
+                      </div>
+                    ) : null}
+                  </TableCell>
+                ) : null}
+              </TableRow>
+            );
+          })}
           {rows.length === 0 ? (
             <TableRow>
               <TableCell
-                colSpan={(allUploaders ? 9 : 8) + (showIp ? 1 : 0) + (canDownload ? 1 : 0)}
+                colSpan={(allUploaders ? 9 : 8) + (showIp ? 1 : 0) + (canDownload ? 2 : 0)}
                 className="text-center text-muted-foreground"
               >
                 {imports.isLoading ? "Loading…" : "No imports yet."}
@@ -580,7 +620,7 @@ export function ImportHistory({ allUploaders = false }: { allUploaders?: boolean
               type="button"
               className="chip"
               disabled={selected.size === 0 || downloading !== null}
-              onClick={() => downloadSelectedBatches("excel")}
+              onClick={() => downloadBatches(selectedBatches, "excel")}
             >
               {downloading === "excel" ? "Downloading…" : "Download Excel"}
             </button>
@@ -588,7 +628,7 @@ export function ImportHistory({ allUploaders = false }: { allUploaders?: boolean
               type="button"
               className="btn-submit"
               disabled={selected.size === 0 || downloading !== null}
-              onClick={() => downloadSelectedBatches("csv")}
+              onClick={() => downloadBatches(selectedBatches, "csv")}
             >
               {downloading === "csv" ? "Downloading…" : "Download CSV"}
             </button>

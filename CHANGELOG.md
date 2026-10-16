@@ -1,5 +1,47 @@
 # Changelog
 
+## 2026-10-17 — Closer form: duplicate Account Number warning (never blocks)
+
+On blur of Account Number, the closer form now warns when another lead already carries that account number (digits
+only, so spacing and dashes do not hide it; it looks at form leads and imported leads' payment details). It is a
+warning only — a submission is never blocked, and `submit_form_internal` is unchanged. Under 6 digits (including
+"n/a") asks nothing.
+- Database: new migration `20261017110000_check_duplicate_account.sql` — `check_duplicate_account(p_account)`,
+  `SECURITY DEFINER`, returns count / latest outcome / when and nothing identifying; no-role and anon refused
+  (verified live). `types.ts` regenerated.
+- Code: new `src/lib/duplicate-account.ts`, wired in `src/components/closer-form.tsx`. Docs:
+  `docs/features/closer-submission-and-forms.md`, `docs/database.md`.
+
+## 2026-10-17 — Exports: Bank search, and every lead (submitted or not)
+
+The Exports tab now lists **all** leads, not only submitted ones (1,619 non-archived today, was 769 submitted).
+Disposition, Validation Status and Archived are now filters instead of a fixed scope, and the table shows Validation
+status and Disposition columns. New **Bank** search matches the bank name on a lead's payload and on an imported
+lead's payment details.
+- Database: new migration `20261017100000_lead_ids_by_bank.sql` — `lead_ids_by_bank(p_term)`, `SECURITY DEFINER`,
+  admin/manager/general_manager, ids only; anon and no-role callers refused (verified live). `types.ts` regenerated
+  (one line).
+- Code: `src/components/exports.tsx`, `src/lib/export-filters.ts`. Docs: `docs/features/lead-export.md`, `docs/database.md`.
+
+## 2026-10-17 — Exports: no 500 cap, paging, lead panel, every filter
+
+The Exports tab no longer stops at 500 leads (774 existed; 274 were hidden). It pages 50 at a time with an exact
+total, and "Select all N matching" selects across every page for export. Clicking a row opens the lead's detail panel
+(selection is now the checkbox). Filters now match the rest of the CRM: search, proposed/final carrier, submitted by,
+center, missing info/bank, submitted-on, sale-made-on, draft date, age range and the four customer statuses, with an
+"Applied" strip. Scope is still submitted (accepted), non-archived leads.
+- Code: `src/components/exports.tsx`, new `src/lib/export-filters.ts`. Database: none.
+  Docs: `docs/features/lead-export.md`.
+- Fix same day: the Missing info / Missing bank dropdown counts now cover only submitted leads (Draft Date said 175, the
+  table had 3). Code: `exports.tsx` (`missingTally`).
+
+## 2026-10-16 — Uploads: selected file is highlighted, with its own download buttons
+
+In the admin Uploads tab, the selected batch row (opened or ticked) is now highlighted and shows **Excel** / **CSV**
+buttons on the row that download that file's leads. The bottom "N batches selected" bar still handles combined
+downloads. Code: `src/components/import-history.tsx` (`downloadSelectedBatches` → `downloadBatches(batches, format)`).
+Database: none. Docs: `docs/features/spreadsheet-import.md`.
+
 ## 2026-10-16 — Closing Desk filter row tidied
 
 The single crowded row of inputs is now two: search + Final carrier + Clear filters on top, then a grid of

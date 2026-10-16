@@ -4,6 +4,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { roleHome, useAuth } from "@/lib/auth";
 import { draftDateWarning, fieldWarning } from "@/lib/form-warnings";
 import { duplicateSsnWarning, SSN_FIELD, useDuplicateSsn } from "@/lib/duplicate-ssn";
+import {
+  ACCOUNT_FIELD,
+  duplicateAccountWarning,
+  useDuplicateAccount,
+} from "@/lib/duplicate-account";
 import { calcAge, formatSSN, zodiacSign } from "@/lib/form-fields";
 import {
   BIRTH_COUNTRY_DEFAULT,
@@ -606,6 +611,9 @@ function FieldControl({
   // Inert on every field but the SSN — nothing is asked until `check` is called
   // on blur, and only that field calls it.
   const duplicate = useDuplicateSsn(value);
+  // Same, for the account number — and unlike the SSN, advisory only: it can
+  // never block a submission.
+  const duplicateAccount = useDuplicateAccount(value);
 
   /**
    * Blur marks the field checked and closes any mask that could not finish
@@ -618,6 +626,7 @@ function FieldControl({
     // Advisory only, and only ever from here: a partial SSN asks nothing, and
     // the check never runs on a keystroke. See useDuplicateSsn.
     if (field.label === SSN_FIELD) duplicate.check(closed);
+    if (field.label === ACCOUNT_FIELD) duplicateAccount.check(closed);
   }
 
   type Hint = { tone: "info" | "warn" | "danger" | "ok"; text: ReactNode };
@@ -655,6 +664,8 @@ function FieldControl({
   // and the first one comes first.
   const duplicateHint = duplicateSsnWarning(duplicate.hit, Date.now());
   if (duplicateHint) hints.push(duplicateHint);
+  const duplicateAccountHint = duplicateAccountWarning(duplicateAccount.hit, Date.now());
+  if (duplicateAccountHint) hints.push(duplicateAccountHint);
 
   return (
     <div className={`flex flex-col gap-1 ${field.span ?? ""}`}>

@@ -234,6 +234,14 @@ all 15 core fields; draft date was blank on 175, zip on 28, state on 7.
 - Not covered yet: nothing on the uploader's side blocks or warns on import
   itself, by design.
 
+## Import history: selected file and per-file download (added 2026-10-16)
+In the admin Uploads tab, a batch row is **selected** when it is opened (clicking the row) or ticked. A selected
+row is highlighted (`bg-accent/10` plus an inset accent edge, `aria-selected`) and its last cell, **Download**,
+shows **Excel** and **CSV** chips that download just that file's leads (current payload, corrections included).
+Admin only (`canDownload`); the data uploader's own view is unchanged. The "N batches selected" bar below still
+downloads a combined file for several ticked batches. Both paths call `downloadBatches(batches, format)` in
+`import-history.tsx`. Client only; no database change.
+
 ## Known limitations
 - **Card fields have exactly one definition** (fixed 2026-10-12). The closer
   form's plain-text `"Card Number"` field used to produce a second

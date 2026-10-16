@@ -2263,6 +2263,7 @@ export type Database = {
         Returns: undefined
       }
       card_details: { Args: { p_sub: string }; Returns: Json }
+      check_duplicate_account: { Args: { p_account: string }; Returns: Json }
       check_duplicate_ssn: { Args: { p_ssn: string }; Returns: Json }
       claim_submission: {
         Args: { p_sub: string }
@@ -2754,6 +2755,7 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      lead_ids_by_bank: { Args: { p_term: string }; Returns: string[] }
       missing_bank_by_field: {
         Args: never
         Returns: {

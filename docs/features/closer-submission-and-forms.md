@@ -164,6 +164,7 @@ synced to Google Sheets, reportable — just tagged with a different origin.
   (`draft_date`, `future_draft_date`, `ssn_normalized`) — this is what makes
   the duplicate-SSN check and the "By Draft Date" desk possible without a
   jsonb scan.
+- **Duplicate Account Number warns, never blocks (added 2026-10-17, closer form only).** On blur of Account Number, `useDuplicateAccount` (`src/lib/duplicate-account.ts`) asks `check_duplicate_account` whether another non-archived lead — on a form payload or an imported lead's payment details — carries the same digits. A hit shows an amber warning ("already on another lead (latest: Submit, 3d ago). You can still submit."); nothing on the submit path reads it and `submit_form_internal` is unchanged. Digits only, so spaces and dashes do not hide a match; under 6 digits asks nothing. The same account number at two different banks can be a coincidence, so the wording states a fact and leaves the decision to the closer. The validator form does not have it yet.
 - **Duplicate SSN now blocks submission for an accepted match, changed
   2026-09-25.** Both the closer's forms and the validator's own direct
   submission (`submit_form` / `submit_form_parked`, via
