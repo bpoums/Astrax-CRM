@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-10-16 — Closing Desk filter row tidied
+
+The single crowded row of inputs is now two: search + Final carrier + Clear filters on top, then a grid of
+labelled from–to groups (Submitted on, Draft date, Age) lined up with the dropdown filters above. Behaviour of
+every filter is unchanged. Code: `src/components/closing-desk.tsx` (`RangeField`). Database: none.
+
+## 2026-10-16 — Age / age-range filter on the General Manager desk
+
+The Closing Desk filter row has an **Age** from/to pair, shown to `general_manager` only. One age filled in means
+exactly that age (70); both mean an inclusive range (70–90); a reversed pair is swapped. It ANDs with every other
+filter. No table column was added.
+- Age is stored as text in `payload->>'Age'`, so the range is expanded into the exact ages and matched with `in`
+  (a text `gte/lte` would sort "9" above "70"). Clamped to 0–120.
+- Code: `src/components/closing-desk.tsx`. Database: none. Docs: `docs/features/closing-desk.md`.
+
 ## 2026-10-15 — Birth State only asked for USA births
 
 On the closer form, Birth Country now comes before Birth State. Birth State appears (and is required) only when

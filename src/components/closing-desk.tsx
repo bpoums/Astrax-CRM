@@ -258,6 +258,7 @@ export function ClosingDesk() {
    * waiting and raising a ticket.
    */
   const noCenter = profile?.role === "closing_manager" && !profile.center_id;
+  const isGeneralManager = profile?.role === "general_manager";
   const [page, setPage] = useState(0);
   const [search, setSearch] = useState("");
   // Its own box, not a word in the search above: it is ANDed with the search,
@@ -282,6 +283,9 @@ export function ClosingDesk() {
   // The draft date, a calendar day. One date filled in means exactly that day.
   const [draftFrom, setDraftFrom] = useState("");
   const [draftTo, setDraftTo] = useState("");
+  // Customer age, general manager only. One age filled in means exactly that age.
+  const [ageFrom, setAgeFrom] = useState("");
+  const [ageTo, setAgeTo] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
 
@@ -318,6 +322,8 @@ export function ClosingDesk() {
     dateTo,
     draftFrom,
     draftTo,
+    ageFrom,
+    ageTo,
   ]);
 
   // Names the carriers on a returned lead. The view holds only leads that have
@@ -342,6 +348,8 @@ export function ClosingDesk() {
       dateTo,
       draftFrom,
       draftTo,
+      ageFrom,
+      ageTo,
     ],
     queryFn: async () => {
       // Resolved before the main query so a person match can be folded into
@@ -474,6 +482,21 @@ export function ClosingDesk() {
         query = query.gte("draft_date", lo).lte("draft_date", hi);
       }
 
+      // Age lives in the payload as TEXT ("70"), so a gte/lte would compare
+      // alphabetically ("9" > "70"). Expanding the range into the exact ages and
+      // using `in` keeps the match numeric and server-side. Either box alone is
+      // that single age; a reversed pair is put the right way round.
+      const ageLo = ageFrom || ageTo;
+      const ageHi = ageTo || ageFrom;
+      if (isGeneralManager && ageLo) {
+        const a = Math.min(Number(ageLo), Number(ageHi));
+        const b = Math.max(Number(ageLo), Number(ageHi));
+        const ages: string[] = [];
+        for (let n = Math.max(0, a); n <= Math.min(120, b); n++) ages.push(String(n));
+        // An all-out-of-range pair matches nothing, as it should.
+        query = query.in("payload->>Age", ages.length > 0 ? ages : ["-1"]);
+      }
+
       const from = page * PAGE_SIZE;
       const { data, error, count } = await query
         .order("created_at", { ascending: false })
@@ -530,7 +553,9 @@ export function ClosingDesk() {
     dateFrom !== "" ||
     dateTo !== "" ||
     draftFrom !== "" ||
-    draftTo !== "";
+    draftTo !== "" ||
+    ageFrom !== "" ||
+    ageTo !== "";
 
   function clearFilters() {
     setSearch("");
@@ -546,6 +571,8 @@ export function ClosingDesk() {
     setDateTo("");
     setDraftFrom("");
     setDraftTo("");
+    setAgeFrom("");
+    setAgeTo("");
   }
 
   return (
@@ -647,14 +674,16 @@ export function ClosingDesk() {
           ))}
         </div>
 
-        {/* Directly above the table it filters, spanning it. */}
+        {/* Directly above the table it filters. Text search on top; the
+            range filters below it, each a labelled pair, so the row reads as
+            a few named groups instead of one run of bare inputs. */}
         <div className="flex flex-wrap items-center gap-2">
           <input
             type="search"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search customer, closer, phone, SSN, policy #…"
-            className="field-input flex-1"
+            className="field-input min-w-64 flex-1"
             aria-label="Search closer leads"
           />
           <input
@@ -662,43 +691,8 @@ export function ClosingDesk() {
             value={finalCarrier}
             onChange={(event) => setFinalCarrier(event.target.value)}
             placeholder="Final carrier…"
-            className="field-input w-40 shrink-0"
+            className="field-input w-48 shrink-0"
             aria-label="Final carrier"
-          />
-          {/* Its own pair rather than another word in the search box: a date
-              range is a different kind of question, and this narrows whatever
-              the boxes above already matched. Leaving "To" blank filters
-              exactly the one day named in "From". */}
-          <input
-            type="date"
-            value={dateFrom}
-            onChange={(event) => setDateFrom(event.target.value)}
-            aria-label="Submitted from date"
-            className="field-input w-36 shrink-0"
-          />
-          <input
-            type="date"
-            value={dateTo}
-            onChange={(event) => setDateTo(event.target.value)}
-            aria-label="Submitted to date (optional — leave blank for a single day)"
-            className="field-input w-36 shrink-0"
-          />
-          {/* The draft date is a different question from the submitted pair
-              above, so it is labelled. One date filled in is that single day. */}
-          <span className="field-label shrink-0">Draft</span>
-          <input
-            type="date"
-            value={draftFrom}
-            onChange={(event) => setDraftFrom(event.target.value)}
-            aria-label="Draft date from"
-            className="field-input w-36 shrink-0"
-          />
-          <input
-            type="date"
-            value={draftTo}
-            onChange={(event) => setDraftTo(event.target.value)}
-            aria-label="Draft date to (optional — leave blank for a single day)"
-            className="field-input w-36 shrink-0"
           />
           {filtersActive ? (
             <button
@@ -708,6 +702,69 @@ export function ClosingDesk() {
             >
               Clear filters
             </button>
+          ) : null}
+        </div>
+
+        {/* Leaving "To" blank filters exactly the one day (or age) named in
+            "From". Each group ANDs with everything above. */}
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
+          <RangeField label="Submitted on" className="lg:col-span-2">
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(event) => setDateFrom(event.target.value)}
+              aria-label="Submitted from date"
+              className="field-input h-8 min-w-0 flex-1 text-xs"
+            />
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(event) => setDateTo(event.target.value)}
+              aria-label="Submitted to date (optional — leave blank for a single day)"
+              className="field-input h-8 min-w-0 flex-1 text-xs"
+            />
+          </RangeField>
+          <RangeField label="Draft date" className="lg:col-span-2">
+            <input
+              type="date"
+              value={draftFrom}
+              onChange={(event) => setDraftFrom(event.target.value)}
+              aria-label="Draft date from"
+              className="field-input h-8 min-w-0 flex-1 text-xs"
+            />
+            <input
+              type="date"
+              value={draftTo}
+              onChange={(event) => setDraftTo(event.target.value)}
+              aria-label="Draft date to (optional — leave blank for a single day)"
+              className="field-input h-8 min-w-0 flex-1 text-xs"
+            />
+          </RangeField>
+          {isGeneralManager ? (
+            <RangeField label="Age" className="lg:col-span-2">
+              <input
+                type="number"
+                min={0}
+                max={120}
+                inputMode="numeric"
+                value={ageFrom}
+                onChange={(event) => setAgeFrom(event.target.value.replace(/D/g, ""))}
+                placeholder="From"
+                aria-label="Age from"
+                className="field-input h-8 min-w-0 flex-1 text-xs"
+              />
+              <input
+                type="number"
+                min={0}
+                max={120}
+                inputMode="numeric"
+                value={ageTo}
+                onChange={(event) => setAgeTo(event.target.value.replace(/D/g, ""))}
+                placeholder="To"
+                aria-label="Age to (optional — leave blank for a single age)"
+                className="field-input h-8 min-w-0 flex-1 text-xs"
+              />
+            </RangeField>
           ) : null}
         </div>
 
@@ -942,6 +999,30 @@ export function ClosingDesk() {
         customerName={selected ? customerName(selected.payload) : null}
       />
     </TooltipProvider>
+  );
+}
+
+/** A labelled from–to pair, laid out like a FilterSelect so the rows line up. */
+function RangeField({
+  label,
+  className,
+  children,
+}: {
+  label: string;
+  className?: string;
+  children: [React.ReactNode, React.ReactNode];
+}) {
+  return (
+    <div className={`flex flex-col gap-1 ${className ?? ""}`}>
+      <span className="field-label">{label}</span>
+      <div className="flex items-center gap-1.5">
+        {children[0]}
+        <span className="text-xs text-muted-foreground" aria-hidden>
+          –
+        </span>
+        {children[1]}
+      </div>
+    </div>
   );
 }
 

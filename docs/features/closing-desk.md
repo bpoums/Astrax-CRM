@@ -41,6 +41,15 @@ and a recurring draft such as "3rd of the month" matches its resolved next
 occurrence (see ADR 0006). `future_draft_date` is not consulted. The desk table
 does not show a Draft Date column.
 
+## Age filter (added 2026-10-16, general_manager only)
+An **Age** from/to pair in the filter row, rendered only when `profile.role === "general_manager"` (admin, via GM
+View, and closing_manager do not see it). One age filled in means exactly that age; both mean an inclusive range;
+a reversed pair is swapped. It ANDs with every other filter. There is no Age column in the table.
+`Age` is stored as **text** in `payload->>'Age'` (no column), so a `gte`/`lte` would compare alphabetically.
+The range is instead expanded into the exact ages (clamped 0–120) and matched with `.in("payload->>Age", …)`,
+in the database, so paging and the total stay correct. A lead with no Age never matches. The role check is
+UI-only; RLS still decides which rows can match.
+
 ## The Overview tab (added 2026-09-18)
 The same three panels the admin Overview and the manager's Reporting tab
 show — `OverviewPanels` in `overview-panels.tsx`: intake for the selected
