@@ -95,7 +95,7 @@ export const SECTIONS: Section[] = [
         required: true,
         span: "sm:col-span-2",
       },
-      { label: "Customer Zip Code", type: "number" },
+      { label: "Customer Zip Code", type: "number", required: true },
       {
         label: "Smoker or Non Smoker",
         type: "radio",
