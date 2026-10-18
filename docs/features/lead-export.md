@@ -48,7 +48,7 @@ Search (customer, closer, phone, SSN, policy #), **Bank**, Proposed carrier, Fin
 carrier, Disposition, Validation Status, Archived, Submitted By (closer / validator
 / manual), Center, Missing info, Missing bank info, Submitted on (`disposed_at`),
 Sale made on (`created_at`), Draft date, Age (from–to; stored as text, so matched
-with `in` over the exact ages), and the four Customer statuses (behind a
+with `in` over the exact ages; kept current nightly by `refresh-lead-ages`, so it is today's age), and the four Customer statuses (behind a
 disclosure). Same composition as the Closing Desk: each filter is its own
 condition, all AND, all run in the database. Day boundaries come from the
 `reporting_window` RPC. An "Applied" strip names every active filter and removes it

@@ -49,6 +49,9 @@ a reversed pair is swapped. It ANDs with every other filter. There is no Age col
 The range is instead expanded into the exact ages (clamped 0–120) and matched with `.in("payload->>Age", …)`,
 in the database, so paging and the total stay correct. A lead with no Age never matches. The role check is
 UI-only; RLS still decides which rows can match.
+Since 2026-10-18 the stored Age is kept current: the `refresh-lead-ages` cron job (05:31 daily) recalculates it from
+Date of Birth, so the filter matches today's age, not the age typed at sale. Leads with an unparseable or
+implausible DOB (e.g. year 0055) keep their typed Age.
 
 ## The Overview tab (added 2026-09-18)
 The same three panels the admin Overview and the manager's Reporting tab

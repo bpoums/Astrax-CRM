@@ -370,6 +370,7 @@ each supports.
 - `next_monthly_day(p_day, p_from default current_date)` — added 2026-09-17, `IMMUTABLE`. Day N of this month if still to come, else next; clamped to the month's length, so "31st" in February is the 28th/29th.
 - `normalize_ssn(p_text)` — added 2026-09-17, `IMMUTABLE`. The digits-only-and-exactly-nine rule, extracted so `submit_form_internal`, `ingest_sheet_lead` and `update_payload_field` share one definition.
 - `roll_recurring_draft_dates()` — cron only, added 2026-09-17. See the scheduled jobs table.
+- `refresh_lead_ages()` — cron only, added 2026-10-18; EXECUTE revoked from `public`, `anon`, `authenticated` (verified live). Rewrites `payload."Age"` from `payload."Date of Birth"` (`YYYY-MM-DD` or `MM/DD/YYYY`) on non-archived leads; skips unparseable/impossible dates and ages outside 0–120; returns the number of rows changed. Writes no `payload_edits` row, so the Age typed at sale is overwritten.
 - `expire_stale_reviews()` — no role check (called only by `pg_cron`, not exposed to the client as something a role would invoke meaningfully). Runs every minute; moves any `in_review` row whose `claimed_at` has exceeded `review_window()` to `returned_timeout`, tagging `last_timeout_by`.
 
 **Payload / data-quality**
@@ -561,6 +562,7 @@ nothing in this app reads the sheet back to diff against it).
 | `purge-reporting-leads` | daily 04:11 | `purge_old_reporting_leads()` |
 | `retry-sheet-sync` | every 5 minutes (`*/5 * * * *`) | `retry_failed_sheet_syncs()` — added 2026-09-10 |
 | `roll-recurring-draft-dates` | daily 05:23 | `roll_recurring_draft_dates()` — added 2026-09-17. Moves a lead whose `draft_date` has passed and whose payload text is a recurrence ("3rd of the month") to its next occurrence. An explicitly typed date does not match those patterns and is never moved. See [decisions/0006](decisions/0006-recurring-draft-dates-resolved.md). |
+| `refresh-lead-ages` | daily 05:31 | `refresh_lead_ages()` — added 2026-10-18 (jobid 9). Recalculates the stored Age from Date of Birth. Each changed row fires `sheet_sync_on_closed`, so a sheet update is queued. |
 | `clear-expired-suspension` | every minute (`* * * * *`) | `clear_expired_suspension()` — added 2026-09-29. Cosmetic sweep only; see [decisions/0008](decisions/0008-crm-suspension-via-my-role.md). |
 
 ## Edge Functions

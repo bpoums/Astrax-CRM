@@ -99,6 +99,9 @@ like a working guard**:
    does not touch a direct grant. Name `anon` explicitly.
 
 ## Known limitations
+- **Nightly Age refresh enqueues syncs (2026-10-18).** `refresh_lead_ages()` changes `payload`, so every lead whose
+  Age changes is queued for a sheet update (`notify_sheet_sync`). The one-off catch-up queued 426; normal nights
+  queue a handful. The queue drains at 25/min.
 - **Resolved 2026-09-18 — the Validation Feed permission failure.** For about
   12 hours the Apps Script could not open the Validation Feed spreadsheet
   (`Exception: リクエストされたドキュメントにアクセスする権限がありません。（行 26…）`),

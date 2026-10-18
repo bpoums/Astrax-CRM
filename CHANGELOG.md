@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-10-18 — Daily Age refresh
+
+`payload."Age"` is now recalculated every night from `payload."Date of Birth"`, so the Age filters (Closing Desk
+for general_manager, Exports) match the lead's current age rather than the age typed at sale. 428 of 1,633
+non-archived leads were stale; a one-off catch-up changed 426 (the other 2 have typo'd DOBs, years 0055 and 9648,
+and are skipped by design). Changes are not written to `payload_edits`, so the Age typed at sale is overwritten.
+- Database: new migration `20261018100000_daily_age_refresh.sql` — `refresh_lead_ages()` (`SECURITY DEFINER`,
+  EXECUTE closed to `anon`/`authenticated`, verified live) and pg_cron job `refresh-lead-ages` (jobid 9, 05:31
+  daily). No `types.ts` change.
+- Sheets: each changed row queues a sheet update (426 on the catch-up; ~a handful per night after).
+- Docs: `docs/database.md`, `docs/features/closing-desk.md`, `docs/features/lead-export.md`,
+  `docs/features/sheet-sync.md`.
+
 ## 2026-10-17 — Closer form: duplicate Account Number warning (never blocks)
 
 On blur of Account Number, the closer form now warns when another lead already carries that account number (digits
