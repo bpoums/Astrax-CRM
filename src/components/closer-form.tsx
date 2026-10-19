@@ -61,6 +61,7 @@ export type Field = {
   required?: boolean;
   options?: string[];
   span?: string;
+  placeholder?: string;
 };
 
 export type Section = { title: string; fields: Field[] };
@@ -156,7 +157,9 @@ export const SECTIONS: Section[] = [
       { label: "Card Number", type: "number" },
       { label: "Exp Date", type: "text" },
       { label: "CVC", type: "number" },
+      { label: "Call Transfered By", type: "text", required: true, placeholder: "JC Name/ID" },
       { label: "Notes & Comments", type: "textarea", span: "sm:col-span-2" },
+      
     ],
   },
 ];
@@ -740,6 +743,7 @@ function FieldControl({
           type={field.type === "number" ? "text" : field.type}
           inputMode={field.type === "number" ? "numeric" : undefined}
           required={field.required}
+          placeholder={field.placeholder}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onBlur={handleBlur}
