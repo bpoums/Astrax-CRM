@@ -138,6 +138,30 @@ consume it:
    (must include `<url>/reset-password`)
 3. The **`SITE_URL` secret** on the `invite-user` edge function
 
+## New tables need explicit grants (Supabase change, effective 2026-10-30)
+
+From 2026-10-30 Supabase stops auto-granting Data API access on new `public`
+tables for existing projects. Existing tables keep their grants. A new table
+without a `GRANT` returns "permission denied" to supabase-js. This also hits
+anything that rebuilds the schema from migrations (`supabase db reset`, preview
+branches, new projects).
+
+- Put the grants in **the same migration** that creates the table.
+- `authenticated`: `select` only, with RLS scoping the rows. Writes go through
+  `SECURITY DEFINER` RPCs, so no `insert/update/delete` grant.
+- `service_role`: whatever the edge functions need.
+- **Never grant anything to `anon`**, whatever the Supabase email's example
+  says. An RPC-only table needs no client grant at all.
+- Always `enable row level security`.
+- Applied 2026-10-21 (`20261021100000_least_privilege_table_grants.sql`, ADR
+  0011): `anon` has nothing on any table/view; `authenticated` has `select` on
+  everything except `center_api_keys` and `sheet_sync_*`, and write only on
+  `carriers`, `centers`, `cx_status_options`, `cx_tags`, `transfer_clients`,
+  `profiles`. `postgres` default privileges no longer grant new tables to
+  `anon`/`authenticated`. A new client-read table needs a `grant select ... to
+  authenticated` in its migration; a new client-written table needs an RLS
+  policy **and** a write grant. See `docs/database.md` → Table grants.
+
 ## Database — ALREADY MIGRATED. Never create or alter tables, policies, or functions.
 
 `supabase/migrations` is NOT the source of truth; the live schema is ahead of it.

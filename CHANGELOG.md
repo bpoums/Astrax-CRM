@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-10-21 — Least-privilege table grants
+
+Prompted by Supabase ending automatic Data API grants on new tables (2026-10-30). The live check showed `anon`
+and `authenticated` held every privilege (incl. `TRUNCATE`) on ~25 tables, with RLS the only control. Now `anon`
+has no table access, `authenticated` can read (not the server-only tables) and write only the six admin-managed
+tables, and new tables are no longer granted automatically.
+- Database: new migration `20261021100000_least_privilege_table_grants.sql`, applied by hand in the SQL editor.
+  Verified live: no anon privileges, no `TRUNCATE`, write grants on exactly the six tables, anon REST probe returns
+  401. No `types.ts` change. Not exercised: a signed-in click-through per role, to be done in normal use.
+- Docs: `docs/database.md` (new Table grants section), `docs/decisions/0011-least-privilege-table-grants.md`,
+  `CLAUDE.md` grants note.
+
 ## 2026-10-18 — Daily Age refresh
 
 `payload."Age"` is now recalculated every night from `payload."Date of Birth"`, so the Age filters (Closing Desk

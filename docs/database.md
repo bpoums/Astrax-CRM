@@ -582,6 +582,25 @@ their JWT-verification setting via the Supabase API:
 | `sheet-sync` | `false` | Not called from the client; reached only via `sync_submission_to_sheet()`'s `net.http_post` (called from the `notify_sheet_sync()` trigger and from `retry_failed_sheet_syncs()`). **Source read directly 2026-09-10**: it validates `x-sync-secret`, reshapes the payload, then itself calls out to an Apps Script web app URL (`APPS_SCRIPT_URL`/`APPS_SCRIPT_SECRET` env vars) with no timeout of its own, and only responds to Postgres once that call resolves. Apps Script's own `doPost` (source also confirmed directly) upserts by a `Submission ID` field and holds a lock for up to 30s under concurrent requests — see the `notify_sheet_sync` entry under Triggers. **v12, 2026-09-15 — a 200 from Apps Script does not mean the row was written.** An Apps Script web app answers `200` even when `doPost` threw, with its HTML error page as the body instead of the `'ok'` the handler returns on success. Checking `res.ok` alone therefore logged every exception as a successful sync, wrote `resolved_status = 'ok'` to `sheet_sync_attempts`, and left the retry job with nothing to retry — which is how uploaded leads went missing silently. `appsScriptFailure()` now inspects the body for the three failure shapes that arrive as 200 (an HTML page, any `Exception:` text, or the literal `unauthorized` on a secret mismatch) and returns `502`, so the attempt is recorded honestly and `retry_failed_sheet_syncs` picks it up. It also logs just the extracted `Exception:` line rather than ~8KB of Google's CSP shim. |
 | `voice-clone-proxy` | `true` | **Superseded 2026-09-28, left deployed but unused.** Added 2026-09-23 to front the same external tool this described; the admin tab now proxies the tool's whole interface through the Cloudflare Worker itself (`src/lib/voicebox.ts`, `src/server.ts`) instead of calling this function for one endpoint — see `docs/features/voice-clone-studio.md`. Nothing in the app calls `supabase.functions.invoke("voice-clone-proxy", ...)` anymore. |
 
+## Table grants
+
+Verified live 2026-10-21, after `20261021100000_least_privilege_table_grants.sql` (ADR 0011). Before it, every
+`public` table carried the Supabase blanket grant (anon + authenticated: all privileges incl. `TRUNCATE`), leaving RLS
+as the only barrier.
+
+| Role | Tables / views |
+|---|---|
+| `anon` | **Nothing.** A direct REST read returns 401 `42501` (probed). RPCs `my_role`, `review_window`, `review_settings` stay anon-executable. |
+| `authenticated` | `SELECT` on everything **except** `center_api_keys`, `sheet_sync_queue`, `sheet_sync_attempts`, `sheet_sync_backlog` (server-only). RLS scopes rows; views are `security_invoker`. |
+| `authenticated` write | `INSERT/UPDATE/DELETE` only on `carriers`, `centers`, `cx_status_options`, `cx_tags`, `transfer_clients`, `profiles` (each behind an admin-only `FOR ALL` policy). No `TRUNCATE`/`REFERENCES`/`TRIGGER` anywhere. |
+| `service_role` | All (edge functions, server jobs). |
+
+Default privileges: `postgres` no longer grants new tables to `anon`/`authenticated`. The `supabase_admin`
+default ACL could not be changed from the SQL editor and still grants them, but migrations create tables as
+`postgres`. Supabase also stops auto-granting new tables on 2026-10-30. **Every migration that creates a table must
+grant explicitly.** Rollback: `grant all on all tables in schema public to anon, authenticated;` then re-close the
+server-only tables.
+
 ## Row-Level Security summary
 
 Every table has RLS **enabled**. Policy count per table, condensed:
